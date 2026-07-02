@@ -9,9 +9,9 @@
 
 ### 2. How It Works: Step-by-Step (The Flow)
 
-* **Step 1: The Translator (Mesa Zink)**
-* *Metaphor:* Like translating a French recipe into English for the chef.
-* **Mesa Zink** sits inside the VM and automatically translates old OpenGL commands into modern **Vulkan** commands.
+* **Step 1: The Universal Translators (Mesa Zink & clvk)**
+* *Metaphor:* Like having two bilingual waiters taking orders from French (OpenGL) and Spanish (OpenCL) customers, writing them all down in one single language, English (Vulkan), for the head chef.
+* **Mesa Zink** (for graphics) and **clvk** (for computations) sit inside the VM, automatically translating all old commands into a single, modern **Vulkan** stream.
 
 
 * **Step 2: The Vacuum Packer (FlatBuffers)**
