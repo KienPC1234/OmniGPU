@@ -1,64 +1,53 @@
-**Chiến lược cốt lõi:** Tưởng tượng dự án OmniGPU là việc mở một **nhà hàng giao thức ăn siêu tốc**.
+**Chiến lược cốt lõi:** Dự án OmniGPU giống hệt một **nhà hàng giao đồ ăn tự động siêu tốc**.
 
-* **Dev A (Người Vận Chuyển):** Xây đường cao tốc (Mạng TCP), quản lý nhà kho (Bộ nhớ Host), và hút chân không đồ ăn (Nén ảnh).
-* **Dev B (Người Ghi Order):** Dịch menu món ăn (Mesa Zink), ghi chú chính xác yêu cầu (Chặn hàm API), và đóng hộp vừa khít (FlatBuffers).
+* **Dev A (Tài xế & Đầu bếp):** Xây đường cao tốc (Mạng TCP), vận hành bếp chính (GPU Host), và hút chân không đồ ăn (Nén ảnh).
+* **Dev B (Thu ngân & Đóng gói):** Lắp máy dịch tự động mọi ngôn ngữ sang tiếng Anh (Mesa Zink & clvk), ghi order (Chặn hàm Vulkan), và nhét đồ ăn vào hộp chuẩn (FlatBuffers).
 
 ---
 
-### Giai đoạn 1: Nền móng mạng (Xây đường cao tốc & Hộp đựng)
+### Giai đoạn 1: Nền móng mạng (Đổ đường nhựa & Xếp hộp giấy)
 
 * **Dev A: Xây đường cao tốc (TCP Network)**
-* **Viết Server/Client bằng C++:** Dùng thư viện chuẩn (như Asio) để kết nối 2 máy.
-* **Bật `TCP_NODELAY`:** Chỉnh code để bỏ đèn đỏ (Nagle's Algorithm), xe cứ có hàng là chạy ngay.
-* **Đo tốc độ:** Gửi thử một mảng chữ "Hello" và đo xem mất mấy mili-giây.
+* **Viết Server/Client C++:** Dựng một đường hầm nối thẳng máy ảo và máy thật.
+* **Bật `TCP_NODELAY`:** Vô hiệu hóa đèn đỏ, xe tải (gói tin) cứ có hàng là đạp ga chạy ngay lập tức.
 
 
-* **Dev B: Làm hộp đựng (Data Serialization)**
-* **Tích hợp FlatBuffers:** Cài đặt thư viện để biến dữ liệu C++ thành mảng byte thô.
-* **Thiết kế khuôn hộp:** Viết file `.fbs` định nghĩa cấu trúc gói tin (VD: gói tin gồm số nguyên ID lệnh và mảng data).
-* **Test đóng gói:** Đóng gói chữ "Hello" nhét vào hộp FlatBuffers đưa cho Dev A gửi.
-
-
-
-### Giai đoạn 2: Tính toán OpenCL (Giao gạo chưa nấu - Chạy tính toán thô)
-
-* **Dev B: Máy ghi bill tự động (API Interception)**
-* **Dùng AI viết script:** Tạo script Python tự động đọc file `cl2.hpp` để sinh ra các hàm C++ chặn lệnh OpenCL (thay vì gõ tay hàng trăm hàm).
-* **Đóng gói con trỏ (Pointers):** Biến địa chỉ RAM ảo của máy ảo thành mảng byte thực tế gửi đi.
-
-
-* **Dev A: Quản lý kho bếp (Host Memory Management)**
-* **Nhận lệnh và gọi GPU thật:** Server nhận mảng byte từ Dev B, gọi hàm OpenCL thật trên card Host để xử lý.
-* **Trả kết quả:** Tính toán xong, gửi ngược kết quả (như mảng số liệu) về lại qua TCP.
+* **Dev B: Chế tạo hộp đựng (FlatBuffers Serialization)**
+* **Tích hợp FlatBuffers:** Đúc các hộp nhựa cứng để nén chặt mọi loại dữ liệu C++.
+* **Định nghĩa khuôn (`.fbs`):** Phân loại rõ ràng hộp nào đựng lệnh vẽ, hộp nào đựng mảng dữ liệu.
 
 
 
-### Giai đoạn 3: Đồ họa Vulkan & Mesa Zink (Nấu ăn & Giao tận nhà)
+### Giai đoạn 2: Lắp máy phiên dịch (Đồng nhất ngôn ngữ)
 
-* **Dev B: Dịch menu và Gom đơn (Zink & Batching)**
-* **Nhúng Mesa Zink:** Đặt file `opengl32.dll` (của Zink) vào Client để nó tự dịch OpenGL thành Vulkan.
-* **Chặn lệnh Vulkan:** Viết script sinh code tương tự Giai đoạn 2 để chặn các hàm Vulkan.
-* **Gom lệnh (Batching):** Thay vì gửi từng lệnh nhỏ, gom 10-20 lệnh vẽ vào chung 1 hộp FlatBuffers rồi mới gửi (Giống như gom 10 cốc trà sữa giao 1 chuyến).
-
-
-* **Dev A: Hút chân không ảnh (Image Compression)**
-* **Render ẩn (Headless Render):** Ép GPU Host vẽ hình ảnh vào một bộ nhớ ẩn (Buffer) thay vì vẽ ra màn hình.
-* **Nén ảnh siêu tốc:** Tích hợp **LZ4** hoặc **TurboJPEG** để bóp dung lượng bức ảnh vừa vẽ từ 8MB xuống 1MB.
-* **Giao khung hình (Framebuffer):** Bắn bức ảnh đã nén về lại Client để hiển thị.
+* **Dev B: Dịch thuật đồ họa & tính toán (Zink & clvk)**
+* **Nhúng Mesa Zink:** Đặt file `opengl32.dll` vào máy ảo, tự động dịch mọi lệnh vẽ OpenGL thành Vulkan (Giống việc dịch khách gọi món Pháp sang tiếng Anh).
+* **Nhúng clvk:** Đặt file OpenCL giả vào máy ảo, dịch mọi lệnh tính toán OpenCL thành Vulkan (Giống việc dịch khách gọi món Tây Ban Nha sang tiếng Anh).
+* **Chốt hạ:** Gạch bỏ hoàn toàn khối lượng code thừa. Từ giờ, cả hai Dev CHỈ code cho một đường ống Vulkan duy nhất.
 
 
 
-### Giai đoạn 4: Mở rộng quán (Tối ưu & Đóng gói)
+### Giai đoạn 3: Bắt lệnh Vulkan & Nấu ăn (Bắt đầu phục vụ)
 
-* **Dev A: Xử lý Đa luồng (Multi-threading)**
-* **Phân luồng:** Viết code để Server nhận được nhiều Client cùng lúc (Mỗi khách 1 luồng riêng).
-* **Chia GPU:** Code tự động gán Client 1 vào GPU 1, Client 2 vào GPU 2 (nếu máy có 2 card).
-
-
-* **Dev B: Đóng hộp sản phẩm (Release Build)**
-* **Viết file CMake:** Cấu hình để code tự động biên dịch ra file `.dll` cho Windows và `.so` cho Linux.
-* **Tạo bộ nhớ đệm (Caching):** Code cho Client tự nhớ các thông số cấu hình GPU (Giới hạn RAM, chuẩn màu) ngay lần hỏi đầu tiên, lần sau tự lấy ra dùng không hỏi qua mạng nữa.
+* **Dev B: Cỗ máy ghi Order (Vulkan API Interception)**
+* **Viết Python Script:** Viết script đọc file `vulkan.h` để tự động đẻ ra hàng trăm hàm chặn lệnh (Thay vì ngồi gõ code bằng tay như chép phạt).
+* **Gom đơn (Batching):** Gộp 20 lệnh vẽ nhỏ vào chung 1 hộp FlatBuffers rồi mới quăng lên xe tải (Giống như gom 20 cốc trà sữa giao cùng 1 chuyến).
 
 
+* **Dev A: Nấu ăn & Hút chân không (Host Render & Compression)**
+* **Vẽ ẩn (Headless Render):** Ép GPU máy thật vẽ hình ảnh vào bộ nhớ RAM ngầm, không bật bất kỳ cửa sổ nào (Nấu ăn trong phòng kín).
+* **Nén siêu tốc (LZ4/TurboJPEG):** Bóp nghẹt bức ảnh 8MB xuống 1MB chỉ trong 1 mili-giây.
+* **Giao khung hình (Framebuffer):** Bắn ảnh đã nén về lại máy ảo để hiển thị cho người dùng.
 
-Bảng phân công này bẻ nhỏ dự án khổng lồ thành việc lắp ráp các đường ống song song: người lo vận chuyển dữ liệu, người lo dịch thuật và đóng gói đồ họa.
+
+
+### Giai đoạn 4: Mở rộng chuỗi nhà hàng (Tối ưu & Tự động hóa)
+
+* **Dev A: Quản lý hàng chờ (Multi-threading & Multi-GPU)**
+* **Mở nhiều quầy:** Thiết lập Server nhận nhiều máy ảo kết nối cùng lúc, mỗi máy ảo chạy một luồng độc lập.
+* **Chia chác GPU:** Tự động điều phối linh hoạt (Ví dụ: Khách A đẩy vào card RTX 3050, khách B đẩy vào eGPU rời).
+
+
+* **Dev B: Tự động hóa & Đóng gói (Caching & CI/CD)**
+* **Bộ nhớ đệm (Caching):** Máy ảo tự học thuộc lòng giới hạn phần cứng của Host ngay lần kết nối đầu tiên, tuyệt đối không gửi gói tin hỏi đi hỏi lại gây tắc đường mạng.
+* **Đóng gói phiên bản:** Cấu hình luồng công việc tự động biên dịch mã nguồn (Automated build workflows) để liên tục xuất ra file `.dll` và `.so` hoàn chỉnh.
