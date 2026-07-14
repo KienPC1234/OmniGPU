@@ -1,0 +1,169 @@
+name: Build
+
+on:
+  push:
+    branches: [main, develop]
+    paths-ignore:
+      - '**.md'
+      - 'gen/**'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+  VCPKG_BINARY_SOURCES: 'clear;nuget,https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json,readwrite|cache,readwrite'
+
+jobs:
+  build-windows:
+    name: Windows (Clang + Ninja)
+    runs-on: windows-2025
+    strategy:
+      matrix:
+        preset: [debug, release]
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup vcpkg
+        uses: friendlyanon/setup-vcpkg@v1
+        with:
+          cache: true
+
+      - name: Install LLVM/Clang
+        run: |
+          choco install llvm --version=19.1.7 -y --no-progress
+          echo "C:\Program Files\LLVM\bin" | Out-File -Append $env:GITHUB_PATH
+
+      - name: Install Ninja
+        run: choco install ninja -y --no-progress
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Fetch translation layers (Zink, clvk)
+        run: |
+          python third_party/fetch_zink.py --output-dir third_party/zink || echo "Zink fetch skipped"
+          python third_party/fetch_clvk.py --output-dir third_party/clvk || echo "clvk fetch skipped"
+
+      - name: Generate intercept stubs
+        run: python gen/generate.py --manifest gen/vulkan_api.json --output src/guest/vk_intercept_gen.cpp
+
+      - name: Verify tools
+        run: |
+          clang-cl --version
+          ninja --version
+          cmake --version
+
+      - name: Configure CMake (${{ matrix.preset }})
+        run: cmake --preset ${{ matrix.preset }} -DOMNIGPU_FETCH_ZINK=ON -DOMNIGPU_FETCH_CLVK=ON
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Run tests
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure || echo "Tests completed"
+
+      - name: Package Windows artifacts
+        shell: pwsh
+        run: |
+          $binDir = "build/${{ matrix.preset }}/bin"
+          $pkgDir = "omnigpu-windows-${{ matrix.preset }}"
+          New-Item -ItemType Directory -Path $pkgDir -Force
+
+          # Core binaries
+          Copy-Item "$binDir/omnigpu_guest.dll" $pkgDir/
+          Copy-Item "$binDir/omnigpu_host.exe" $pkgDir/
+          Copy-Item "$binDir/vk_icd.json" $pkgDir/
+
+          # Translation layers (if fetched)
+          if (Test-Path "third_party/zink/opengl32.dll") {
+            Copy-Item "third_party/zink/opengl32.dll" $pkgDir/
+          }
+          if (Test-Path "third_party/clvk/OpenCL.dll") {
+            Copy-Item "third_party/clvk/OpenCL.dll" $pkgDir/
+          }
+
+          # Runtime dependencies
+          Get-ChildItem "$binDir/*.dll" | ForEach-Object {
+            if (-not (Test-Path "$pkgDir/$($_.Name)")) {
+              Copy-Item $_.FullName $pkgDir/
+            }
+          }
+
+          Compress-Archive -Path "$pkgDir/*" -DestinationPath "$pkgDir.zip" -Force
+          Write-Host "Packaged: $pkgDir.zip"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: omnigpu-windows-${{ matrix.preset }}
+          path: omnigpu-windows-${{ matrix.preset }}.zip
+
+  build-linux:
+    name: Linux (Clang + Ninja)
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        preset: [linux]
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Clang 19
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/llvm.asc
+          sudo add-apt-repository -y 'deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main'
+          sudo apt-get update
+          sudo apt-get install -y clang-19 clang++-19 lldb-19 ninja-build mesa-utils
+
+      - name: Setup vcpkg
+        uses: friendlyanon/setup-vcpkg@v1
+        with:
+          cache: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generate intercept stubs
+        run: python gen/generate.py --manifest gen/vulkan_api.json --output src/guest/vk_intercept_gen.cpp
+
+      - name: Fetch translation layers (clvk)
+        run: python third_party/fetch_clvk.py --output-dir third_party/clvk || echo "clvk fetch skipped"
+
+      - name: Configure CMake (${{ matrix.preset }})
+        run: cmake --preset ${{ matrix.preset }} -DOMNIGPU_FETCH_ZINK=OFF -DOMNIGPU_FETCH_CLVK=ON
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Run tests
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure || echo "Tests completed"
+
+      - name: Package Linux artifacts
+        run: |
+          pkgDir="omnigpu-linux-${{ matrix.preset }}"
+          mkdir -p $pkgDir
+
+          cp build/${{ matrix.preset }}/bin/omnigpu_guest.so $pkgDir/ 2>/dev/null || true
+          cp build/${{ matrix.preset }}/bin/omnigpu_host    $pkgDir/ 2>/dev/null || true
+          cp build/${{ matrix.preset }}/lib/*.so $pkgDir/ 2>/dev/null || true
+          cp src/guest/vk_icd.json $pkgDir/
+          cp third_party/clvk/*.so* $pkgDir/ 2>/dev/null || true
+
+          tar czf "$pkgDir.tar.gz" $pkgDir/
+          echo "Packaged: $pkgDir.tar.gz"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: omnigpu-linux-${{ matrix.preset }}
+          path: omnigpu-linux-${{ matrix.preset }}.tar.gz

@@ -1,0 +1,184 @@
+// OmniGPU Wire Protocol
+// FlatBuffers schema for guest-host communication.
+// Hộp đựng lệnh vẽ (Command) vs Hộp đựng mảng dữ liệu (Data)
+
+namespace omnigpu.fbs;
+
+// ---------------------------------------------------------------------------
+// Function IDs — mỗi hàm Vulkan bị chặn có một ID duy nhất
+// ---------------------------------------------------------------------------
+enum FunctionId : uint16 {
+  NONE = 0,
+
+  // Resource creation / destruction
+  vkCreateInstance = 1,
+  vkDestroyInstance = 2,
+  vkEnumeratePhysicalDevices = 3,
+  vkCreateDevice = 4,
+  vkDestroyDevice = 5,
+
+  // Command buffer lifecycle
+  vkAllocateCommandBuffers = 6,
+  vkBeginCommandBuffer = 7,
+  vkEndCommandBuffer = 8,
+
+  // Queue operations (chứa lệnh vẽ / compute)
+  vkGetDeviceQueue = 9,
+  vkQueueSubmit = 10,
+  vkQueuePresentKHR = 11,
+
+  // Device memory
+  vkAllocateMemory = 12,
+  vkFreeMemory = 13,
+  vkBindBufferMemory = 14,
+  vkBindImageMemory = 15,
+
+  // Buffer & Image
+  vkCreateBuffer = 16,
+  vkDestroyBuffer = 17,
+  vkCreateImage = 18,
+  vkDestroyImage = 19,
+  vkCreateImageView = 20,
+  vkDestroyImageView = 21,
+  vkCreateSampler = 22,
+  vkDestroySampler = 23,
+
+  // Shader modules & pipelines
+  vkCreateShaderModule = 24,
+  vkDestroyShaderModule = 25,
+  vkCreatePipelineLayout = 26,
+  vkDestroyPipelineLayout = 27,
+  vkCreateGraphicsPipelines = 28,
+  vkCreateComputePipelines = 29,
+  vkDestroyPipeline = 30,
+
+  // Render pass & Framebuffer
+  vkCreateRenderPass = 31,
+  vkDestroyRenderPass = 32,
+  vkCreateFramebuffer = 33,
+  vkDestroyFramebuffer = 34,
+
+  // Command recording
+  vkCmdDraw = 35,
+  vkCmdDrawIndexed = 36,
+  vkCmdDrawIndirect = 37,
+  vkCmdDispatch = 38,
+  vkCmdBindPipeline = 39,
+  vkCmdBindVertexBuffers = 40,
+  vkCmdBindIndexBuffer = 41,
+  vkCmdBindDescriptorSets = 42,
+  vkCmdSetViewport = 43,
+  vkCmdSetScissor = 44,
+  vkCmdPushConstants = 45,
+  vkCmdClearColorImage = 46,
+  vkCmdClearDepthStencilImage = 47,
+  vkCmdCopyBuffer = 48,
+  vkCmdCopyImage = 49,
+  vkCmdBlitImage = 50,
+  vkCmdPipelineBarrier = 51,
+  vkCmdBeginRenderPass = 52,
+  vkCmdEndRenderPass = 53,
+  vkCmdExecuteCommands = 54,
+
+  // Descriptor management
+  vkCreateDescriptorSetLayout = 55,
+  vkDestroyDescriptorSetLayout = 56,
+  vkCreateDescriptorPool = 57,
+  vkDestroyDescriptorPool = 58,
+  vkAllocateDescriptorSets = 59,
+  vkFreeDescriptorSets = 60,
+  vkUpdateDescriptorSets = 61,
+
+  // Fence & Semaphore
+  vkCreateFence = 62,
+  vkDestroyFence = 63,
+  vkCreateSemaphore = 64,
+  vkDestroySemaphore = 65,
+  vkWaitForFences = 66,
+  vkResetFences = 67,
+
+  // Synchronization
+  vkCreateEvent = 68,
+  vkDestroyEvent = 69,
+  vkCmdSetEvent = 70,
+  vkCmdResetEvent = 71,
+  vkCmdWaitEvents = 72,
+}
+
+// ---------------------------------------------------------------------------
+// Data types — phân loại mảng dữ liệu
+// ---------------------------------------------------------------------------
+enum DataType : byte {
+  Unknown = 0,
+  VertexBuffer = 1,
+  IndexBuffer = 2,
+  UniformBuffer = 3,
+  StorageBuffer = 4,
+  ImageData = 5,
+  ShaderCode = 6,
+}
+
+// ---------------------------------------------------------------------------
+// Handshake — đàm phán khả năng phần cứng giữa Guest và Host
+// ---------------------------------------------------------------------------
+
+// Guest gửi request khi kết nối lần đầu
+table CapabilitiesRequest {
+  client_version: uint32 = 1;
+}
+
+// Host trả về thông số GPU thật
+table CapabilitiesResponse {
+  gpu_name: string;
+  driver_version: uint32 = 0;
+  api_version: uint32 = 0;
+  max_memory_allocation: uint64 = 0;
+  max_push_constants_size: uint32 = 128;
+  max_bound_descriptor_sets: uint32 = 4;
+  max_per_stage_resources: uint32 = 32;
+  max_image_dimension_2d: uint32 = 8192;
+  timestamp: uint64 = 0;
+}
+
+// ---------------------------------------------------------------------------
+// CommandMessage — đóng gói một lời gọi hàm Vulkan
+// ---------------------------------------------------------------------------
+table CommandMessage {
+  func_id: FunctionId = NONE;
+  request_id: uint32 = 0;
+  args: [ubyte];
+}
+
+// ---------------------------------------------------------------------------
+// BatchMessage — gom nhiều lệnh vào một hộp duy nhất
+// ---------------------------------------------------------------------------
+table BatchMessage {
+  commands: [CommandMessage];
+}
+
+// ---------------------------------------------------------------------------
+// DataMessage — đóng gói một mảng dữ liệu nhị phân
+// ---------------------------------------------------------------------------
+table DataMessage {
+  data_type: DataType = Unknown;
+  data_id: uint64 = 0;
+  total_size: uint64 = 0;
+  payload: [ubyte];
+}
+
+// ---------------------------------------------------------------------------
+// Union: tin nhắn có thể là Command, Batch, hoặc Data
+// ---------------------------------------------------------------------------
+union MessagePayload {
+  CommandMessage,
+  BatchMessage,
+  DataMessage,
+  CapabilitiesRequest,
+  CapabilitiesResponse,
+}
+
+table Message {
+  payload: MessagePayload;
+}
+
+root_type Message;

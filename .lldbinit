@@ -1,0 +1,6 @@
+settings set target.env-vars VK_LOADER_DEBUG=warn
+settings set target.max-string-summary-length 1024
+command script import "lldb.formatters.cpp"
+command script import "lldb.formatters.gtest"
+breakpoint set -E true
+breakpoint set -f main.cpp -l 1 -c 1

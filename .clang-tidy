@@ -1,0 +1,19 @@
+---
+Checks: >
+  clang-diagnostic-*,
+  clang-analyzer-*,
+  modernize-*,
+  performance-*,
+  readability-*,
+  bugprone-*,
+  -modernize-use-trailing-return-type,
+  -readability-identifier-length,
+  -readability-function-cognitive-complexity,
+  -readability-magic-numbers,
+WarningsAsErrors: false
+HeaderFilterRegex: ".*"
+FormatStyle: file
+CheckOptions:
+  modernize-avoid-c-arrays.MinSize: 1
+  performance-inefficient-vector-operation.EnableProto: false
+...

@@ -1,0 +1,129 @@
+name: Deploy
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  release-windows:
+    name: Package Windows Release
+    runs-on: windows-2025
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup vcpkg
+        uses: friendlyanon/setup-vcpkg@v1
+        with:
+          cache: true
+
+      - name: Install LLVM/Clang
+        run: |
+          choco install llvm --version=19.1.7 -y --no-progress
+          echo "C:\Program Files\LLVM\bin" | Out-File -Append $env:GITHUB_PATH
+
+      - name: Install Ninja
+        run: choco install ninja -y --no-progress
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Fetch translation layers
+        run: |
+          python third_party/fetch_zink.py --output-dir third_party/zink || echo "Zink fetch skipped"
+          python third_party/fetch_clvk.py --output-dir third_party/clvk || echo "clvk fetch skipped"
+
+      - name: Generate intercept stubs
+        run: python gen/generate.py --manifest gen/vulkan_api.json --output src/guest/vk_intercept_gen.cpp
+
+      - name: Configure (release)
+        run: cmake --preset release -DOMNIGPU_FETCH_ZINK=ON -DOMNIGPU_FETCH_CLVK=ON
+
+      - name: Build
+        run: cmake --build --preset release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $pkgDir = "omnigpu-windows-x64"
+          New-Item -ItemType Directory -Path $pkgDir -Force
+
+          Copy-Item "build/release/bin/omnigpu_guest.dll" $pkgDir/
+          Copy-Item "build/release/bin/omnigpu_host.exe" $pkgDir/
+          Copy-Item "src/guest/vk_icd.json" $pkgDir/
+          if (Test-Path "third_party/zink/opengl32.dll") {
+            Copy-Item "third_party/zink/opengl32.dll" $pkgDir/
+          }
+          if (Test-Path "third_party/clvk/OpenCL.dll") {
+            Copy-Item "third_party/clvk/OpenCL.dll" $pkgDir/
+          }
+          Copy-Item "build/release/bin/vulkan-1.dll" $pkgDir/
+          Copy-Item "build/release/bin/*.dll" $pkgDir/
+
+          Compress-Archive -Path "$pkgDir/*" -DestinationPath "omnigpu-windows-x64.zip" -Force
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: omnigpu-windows-x64.zip
+
+  release-linux:
+    name: Package Linux Release
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-19 clang++-19 ninja-build mesa-utils
+
+      - name: Setup vcpkg
+        uses: friendlyanon/setup-vcpkg@v1
+        with:
+          cache: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generate intercept stubs
+        run: python gen/generate.py --manifest gen/vulkan_api.json --output src/guest/vk_intercept_gen.cpp
+
+      - name: Fetch translation layers
+        run: python third_party/fetch_clvk.py --output-dir third_party/clvk || echo "clvk fetch skipped"
+
+      - name: Configure (linux)
+        run: cmake --preset linux -DOMNIGPU_FETCH_CLVK=ON
+
+      - name: Build
+        run: cmake --build --preset linux
+
+      - name: Package
+        run: |
+          pkgDir="omnigpu-linux-x64"
+          mkdir -p $pkgDir
+
+          cp build/linux/bin/omnigpu_guest.so $pkgDir/ 2>/dev/null || true
+          cp build/linux/bin/omnigpu_host    $pkgDir/
+          cp src/guest/vk_icd.json $pkgDir/
+          cp third_party/clvk/*.so* $pkgDir/ 2>/dev/null || true
+
+          # Include system Mesa Zink (libGL that uses Zink)
+          cp /usr/lib/x86_64-linux-gnu/libGL.so* $pkgDir/ 2>/dev/null || true
+
+          tar czf "omnigpu-linux-x64.tar.gz" $pkgDir/
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            omnigpu-windows-x64.zip
+            omnigpu-linux-x64.tar.gz

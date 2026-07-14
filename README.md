@@ -51,3 +51,7 @@
 * **Phase 4: Packaging (Months 10-12):** Wrap everything into portable `.dll` and `.so` files, perfect for deploying on any setup—from a thin Lenovo ThinkBook to a heavy workstation.
 
 OmniGPU turns any weak virtual machine into a graphics powerhouse by seamlessly borrowing host GPU strength through the local network.
+
+## License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details

@@ -1,0 +1,490 @@
+{
+  "_comment": "OmniGPU Vulkan API manifest — expanded for Phase 3 code generation",
+  "functions": [
+    {
+      "name": "vkCreateInstance",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "const VkInstanceCreateInfo*", "name": "pCreateInfo", "kind": "struct_ptr" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" },
+        { "type": "VkInstance*", "name": "pInstance", "kind": "output_handle_ptr" }
+      ]
+    },
+    {
+      "name": "vkDestroyInstance",
+      "return_type": "void",
+      "params": [
+        { "type": "VkInstance", "name": "instance", "kind": "handle" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" }
+      ]
+    },
+    {
+      "name": "vkEnumeratePhysicalDevices",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkInstance", "name": "instance", "kind": "handle" },
+        { "type": "uint32_t*", "name": "pPhysicalDeviceCount", "kind": "value_ptr" },
+        { "type": "VkPhysicalDevice*", "name": "pPhysicalDevices", "kind": "output_handle_ptr" }
+      ]
+    },
+    {
+      "name": "vkCreateDevice",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkPhysicalDevice", "name": "physicalDevice", "kind": "handle" },
+        { "type": "const VkDeviceCreateInfo*", "name": "pCreateInfo", "kind": "struct_ptr" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" },
+        { "type": "VkDevice*", "name": "pDevice", "kind": "output_handle_ptr" }
+      ]
+    },
+    {
+      "name": "vkDestroyDevice",
+      "return_type": "void",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" }
+      ]
+    },
+    {
+      "name": "vkGetDeviceQueue",
+      "return_type": "void",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "uint32_t", "name": "queueFamilyIndex", "kind": "value" },
+        { "type": "uint32_t", "name": "queueIndex", "kind": "value" },
+        { "type": "VkQueue*", "name": "pQueue", "kind": "output_handle_ptr" }
+      ]
+    },
+    {
+      "name": "vkQueueSubmit",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkQueue", "name": "queue", "kind": "handle" },
+        { "type": "uint32_t", "name": "submitCount", "kind": "value" },
+        { "type": "const VkSubmitInfo*", "name": "pSubmits", "kind": "array" },
+        { "type": "VkFence", "name": "fence", "kind": "handle" }
+      ]
+    },
+    {
+      "name": "vkQueuePresentKHR",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkQueue", "name": "queue", "kind": "handle" },
+        { "type": "const VkPresentInfoKHR*", "name": "pPresentInfo", "kind": "struct_ptr" }
+      ]
+    },
+    {
+      "name": "vkAllocateCommandBuffers",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "const VkCommandBufferAllocateInfo*", "name": "pAllocateInfo", "kind": "struct_ptr" },
+        { "type": "VkCommandBuffer*", "name": "pCommandBuffers", "kind": "output_handle_ptr" }
+      ]
+    },
+    {
+      "name": "vkBeginCommandBuffer",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkCommandBuffer", "name": "commandBuffer", "kind": "handle" },
+        { "type": "const VkCommandBufferBeginInfo*", "name": "pBeginInfo", "kind": "struct_ptr" }
+      ]
+    },
+    {
+      "name": "vkEndCommandBuffer",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkCommandBuffer", "name": "commandBuffer", "kind": "handle" }
+      ]
+    },
+    {
+      "name": "vkAllocateMemory",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "const VkMemoryAllocateInfo*", "name": "pAllocateInfo", "kind": "struct_ptr" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" },
+        { "type": "VkDeviceMemory*", "name": "pMemory", "kind": "output_handle_ptr" }
+      ]
+    },
+    {
+      "name": "vkFreeMemory",
+      "return_type": "void",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "VkDeviceMemory", "name": "memory", "kind": "handle" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" }
+      ]
+    },
+    {
+      "name": "vkCreateBuffer",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "const VkBufferCreateInfo*", "name": "pCreateInfo", "kind": "struct_ptr" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" },
+        { "type": "VkBuffer*", "name": "pBuffer", "kind": "output_handle_ptr" }
+      ]
+    },
+    {
+      "name": "vkDestroyBuffer",
+      "return_type": "void",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "VkBuffer", "name": "buffer", "kind": "handle" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" }
+      ]
+    },
+    {
+      "name": "vkCreateImage",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "const VkImageCreateInfo*", "name": "pCreateInfo", "kind": "struct_ptr" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" },
+        { "type": "VkImage*", "name": "pImage", "kind": "output_handle_ptr" }
+      ]
+    },
+    {
+      "name": "vkDestroyImage",
+      "return_type": "void",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "VkImage", "name": "image", "kind": "handle" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" }
+      ]
+    },
+    {
+      "name": "vkCreateImageView",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "const VkImageViewCreateInfo*", "name": "pCreateInfo", "kind": "struct_ptr" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" },
+        { "type": "VkImageView*", "name": "pView", "kind": "output_handle_ptr" }
+      ]
+    },
+    {
+      "name": "vkDestroyImageView",
+      "return_type": "void",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "VkImageView", "name": "imageView", "kind": "handle" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" }
+      ]
+    },
+    {
+      "name": "vkCreateShaderModule",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "const VkShaderModuleCreateInfo*", "name": "pCreateInfo", "kind": "struct_ptr" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" },
+        { "type": "VkShaderModule*", "name": "pShaderModule", "kind": "output_handle_ptr" }
+      ]
+    },
+    {
+      "name": "vkDestroyShaderModule",
+      "return_type": "void",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "VkShaderModule", "name": "shaderModule", "kind": "handle" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" }
+      ]
+    },
+    {
+      "name": "vkCreatePipelineLayout",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "const VkPipelineLayoutCreateInfo*", "name": "pCreateInfo", "kind": "struct_ptr" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" },
+        { "type": "VkPipelineLayout*", "name": "pPipelineLayout", "kind": "output_handle_ptr" }
+      ]
+    },
+    {
+      "name": "vkDestroyPipelineLayout",
+      "return_type": "void",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "VkPipelineLayout", "name": "pipelineLayout", "kind": "handle" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" }
+      ]
+    },
+    {
+      "name": "vkCreateGraphicsPipelines",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "VkPipelineCache", "name": "pipelineCache", "kind": "handle" },
+        { "type": "uint32_t", "name": "createInfoCount", "kind": "value" },
+        { "type": "const VkGraphicsPipelineCreateInfo*", "name": "pCreateInfos", "kind": "array" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" },
+        { "type": "VkPipeline*", "name": "pPipelines", "kind": "output_handle_ptr" }
+      ]
+    },
+    {
+      "name": "vkCreateComputePipelines",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "VkPipelineCache", "name": "pipelineCache", "kind": "handle" },
+        { "type": "uint32_t", "name": "createInfoCount", "kind": "value" },
+        { "type": "const VkComputePipelineCreateInfo*", "name": "pCreateInfos", "kind": "array" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" },
+        { "type": "VkPipeline*", "name": "pPipelines", "kind": "output_handle_ptr" }
+      ]
+    },
+    {
+      "name": "vkDestroyPipeline",
+      "return_type": "void",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "VkPipeline", "name": "pipeline", "kind": "handle" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" }
+      ]
+    },
+    {
+      "name": "vkCreateRenderPass",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "const VkRenderPassCreateInfo*", "name": "pCreateInfo", "kind": "struct_ptr" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" },
+        { "type": "VkRenderPass*", "name": "pRenderPass", "kind": "output_handle_ptr" }
+      ]
+    },
+    {
+      "name": "vkDestroyRenderPass",
+      "return_type": "void",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "VkRenderPass", "name": "renderPass", "kind": "handle" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" }
+      ]
+    },
+    {
+      "name": "vkCreateFramebuffer",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "const VkFramebufferCreateInfo*", "name": "pCreateInfo", "kind": "struct_ptr" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" },
+        { "type": "VkFramebuffer*", "name": "pFramebuffer", "kind": "output_handle_ptr" }
+      ]
+    },
+    {
+      "name": "vkDestroyFramebuffer",
+      "return_type": "void",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "VkFramebuffer", "name": "framebuffer", "kind": "handle" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" }
+      ]
+    },
+    {
+      "name": "vkCreateDescriptorSetLayout",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "const VkDescriptorSetLayoutCreateInfo*", "name": "pCreateInfo", "kind": "struct_ptr" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" },
+        { "type": "VkDescriptorSetLayout*", "name": "pSetLayout", "kind": "output_handle_ptr" }
+      ]
+    },
+    {
+      "name": "vkDestroyDescriptorSetLayout",
+      "return_type": "void",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "VkDescriptorSetLayout", "name": "descriptorSetLayout", "kind": "handle" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" }
+      ]
+    },
+    {
+      "name": "vkCreateDescriptorPool",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "const VkDescriptorPoolCreateInfo*", "name": "pCreateInfo", "kind": "struct_ptr" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" },
+        { "type": "VkDescriptorPool*", "name": "pDescriptorPool", "kind": "output_handle_ptr" }
+      ]
+    },
+    {
+      "name": "vkDestroyDescriptorPool",
+      "return_type": "void",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "VkDescriptorPool", "name": "descriptorPool", "kind": "handle" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" }
+      ]
+    },
+    {
+      "name": "vkCreateFence",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "const VkFenceCreateInfo*", "name": "pCreateInfo", "kind": "struct_ptr" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" },
+        { "type": "VkFence*", "name": "pFence", "kind": "output_handle_ptr" }
+      ]
+    },
+    {
+      "name": "vkDestroyFence",
+      "return_type": "void",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "VkFence", "name": "fence", "kind": "handle" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" }
+      ]
+    },
+    {
+      "name": "vkCreateSemaphore",
+      "return_type": "VkResult",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "const VkSemaphoreCreateInfo*", "name": "pCreateInfo", "kind": "struct_ptr" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" },
+        { "type": "VkSemaphore*", "name": "pSemaphore", "kind": "output_handle_ptr" }
+      ]
+    },
+    {
+      "name": "vkDestroySemaphore",
+      "return_type": "void",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "VkSemaphore", "name": "semaphore", "kind": "handle" },
+        { "type": "const VkAllocationCallbacks*", "name": "pAllocator", "kind": "struct_ptr" }
+      ]
+    },
+    {
+      "name": "vkCmdDraw",
+      "return_type": "void",
+      "params": [
+        { "type": "VkCommandBuffer", "name": "commandBuffer", "kind": "handle" },
+        { "type": "uint32_t", "name": "vertexCount", "kind": "value" },
+        { "type": "uint32_t", "name": "instanceCount", "kind": "value" },
+        { "type": "uint32_t", "name": "firstVertex", "kind": "value" },
+        { "type": "uint32_t", "name": "firstInstance", "kind": "value" }
+      ]
+    },
+    {
+      "name": "vkCmdDrawIndexed",
+      "return_type": "void",
+      "params": [
+        { "type": "VkCommandBuffer", "name": "commandBuffer", "kind": "handle" },
+        { "type": "uint32_t", "name": "indexCount", "kind": "value" },
+        { "type": "uint32_t", "name": "instanceCount", "kind": "value" },
+        { "type": "uint32_t", "name": "firstIndex", "kind": "value" },
+        { "type": "int32_t", "name": "vertexOffset", "kind": "value" },
+        { "type": "uint32_t", "name": "firstInstance", "kind": "value" }
+      ]
+    },
+    {
+      "name": "vkCmdDispatch",
+      "return_type": "void",
+      "params": [
+        { "type": "VkCommandBuffer", "name": "commandBuffer", "kind": "handle" },
+        { "type": "uint32_t", "name": "groupCountX", "kind": "value" },
+        { "type": "uint32_t", "name": "groupCountY", "kind": "value" },
+        { "type": "uint32_t", "name": "groupCountZ", "kind": "value" }
+      ]
+    },
+    {
+      "name": "vkCmdBindPipeline",
+      "return_type": "void",
+      "params": [
+        { "type": "VkCommandBuffer", "name": "commandBuffer", "kind": "handle" },
+        { "type": "VkPipelineBindPoint", "name": "pipelineBindPoint", "kind": "value" },
+        { "type": "VkPipeline", "name": "pipeline", "kind": "handle" }
+      ]
+    },
+    {
+      "name": "vkCmdSetViewport",
+      "return_type": "void",
+      "params": [
+        { "type": "VkCommandBuffer", "name": "commandBuffer", "kind": "handle" },
+        { "type": "uint32_t", "name": "firstViewport", "kind": "value" },
+        { "type": "uint32_t", "name": "viewportCount", "kind": "value" },
+        { "type": "const VkViewport*", "name": "pViewports", "kind": "array" }
+      ]
+    },
+    {
+      "name": "vkCmdSetScissor",
+      "return_type": "void",
+      "params": [
+        { "type": "VkCommandBuffer", "name": "commandBuffer", "kind": "handle" },
+        { "type": "uint32_t", "name": "firstScissor", "kind": "value" },
+        { "type": "uint32_t", "name": "scissorCount", "kind": "value" },
+        { "type": "const VkRect2D*", "name": "pScissors", "kind": "array" }
+      ]
+    },
+    {
+      "name": "vkCmdPushConstants",
+      "return_type": "void",
+      "params": [
+        { "type": "VkCommandBuffer", "name": "commandBuffer", "kind": "handle" },
+        { "type": "VkPipelineLayout", "name": "layout", "kind": "handle" },
+        { "type": "VkShaderStageFlags", "name": "stageFlags", "kind": "value" },
+        { "type": "uint32_t", "name": "offset", "kind": "value" },
+        { "type": "uint32_t", "name": "size", "kind": "value" },
+        { "type": "const void*", "name": "pValues", "kind": "raw_ptr" }
+      ]
+    },
+    {
+      "name": "vkCmdBeginRenderPass",
+      "return_type": "void",
+      "params": [
+        { "type": "VkCommandBuffer", "name": "commandBuffer", "kind": "handle" },
+        { "type": "const VkRenderPassBeginInfo*", "name": "pRenderPassBegin", "kind": "struct_ptr" },
+        { "type": "VkSubpassContents", "name": "contents", "kind": "value" }
+      ]
+    },
+    {
+      "name": "vkCmdEndRenderPass",
+      "return_type": "void",
+      "params": [
+        { "type": "VkCommandBuffer", "name": "commandBuffer", "kind": "handle" }
+      ]
+    },
+    {
+      "name": "vkCmdCopyBuffer",
+      "return_type": "void",
+      "params": [
+        { "type": "VkCommandBuffer", "name": "commandBuffer", "kind": "handle" },
+        { "type": "VkBuffer", "name": "srcBuffer", "kind": "handle" },
+        { "type": "VkBuffer", "name": "dstBuffer", "kind": "handle" },
+        { "type": "uint32_t", "name": "regionCount", "kind": "value" },
+        { "type": "const VkBufferCopy*", "name": "pRegions", "kind": "array" }
+      ]
+    },
+    {
+      "name": "vkCmdPipelineBarrier",
+      "return_type": "void",
+      "params": [
+        { "type": "VkCommandBuffer", "name": "commandBuffer", "kind": "handle" },
+        { "type": "VkPipelineStageFlags", "name": "srcStageMask", "kind": "value" },
+        { "type": "VkPipelineStageFlags", "name": "dstStageMask", "kind": "value" },
+        { "type": "VkDependencyFlags", "name": "dependencyFlags", "kind": "value" },
+        { "type": "uint32_t", "name": "memoryBarrierCount", "kind": "value" },
+        { "type": "const VkMemoryBarrier*", "name": "pMemoryBarriers", "kind": "array" },
+        { "type": "uint32_t", "name": "bufferMemoryBarrierCount", "kind": "value" },
+        { "type": "const VkBufferMemoryBarrier*", "name": "pBufferMemoryBarriers", "kind": "array" },
+        { "type": "uint32_t", "name": "imageMemoryBarrierCount", "kind": "value" },
+        { "type": "const VkImageMemoryBarrier*", "name": "pImageMemoryBarriers", "kind": "array" }
+      ]
+    },
+    {
+      "name": "vkUpdateDescriptorSets",
+      "return_type": "void",
+      "params": [
+        { "type": "VkDevice", "name": "device", "kind": "handle" },
+        { "type": "uint32_t", "name": "descriptorWriteCount", "kind": "value" },
+        { "type": "const VkWriteDescriptorSet*", "name": "pDescriptorWrites", "kind": "array" },
+        { "type": "uint32_t", "name": "descriptorCopyCount", "kind": "value" },
+        { "type": "const VkCopyDescriptorSet*", "name": "pDescriptorCopies", "kind": "array" }
+      ]
+    }
+  ]
+}

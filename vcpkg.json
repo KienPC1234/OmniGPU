@@ -1,0 +1,17 @@
+{
+  "name": "omnigpu",
+  "version": "0.1.0",
+  "description": "Seamless Vulkan API Forwarding over LAN",
+  "homepage": "https://github.com/kien/OmniGPU",
+  "dependencies": [
+    "vulkan-headers",
+    "vulkan-loader",
+    "flatbuffers",
+    "lz4",
+    "libjpeg-turbo",
+    "spdlog",
+    "fmt",
+    "gtest",
+    "nlohmann-json"
+  ]
+}
