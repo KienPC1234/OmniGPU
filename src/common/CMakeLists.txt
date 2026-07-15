@@ -16,6 +16,7 @@ add_custom_command(
 
 add_library(omnigpu_common STATIC
   flatbuffers_utils.cpp
+  gpu_caps_store.cpp
   logger.cpp
   network_utils.cpp
 )

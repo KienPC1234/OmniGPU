@@ -61,12 +61,21 @@ jobs:
           if (Test-Path "third_party/clvk/OpenCL.dll") {
             Copy-Item "third_party/clvk/OpenCL.dll" $pkgDir/
           }
-          Copy-Item "build/release/bin/vulkan-1.dll" $pkgDir/
-          Copy-Item "build/release/bin/*.dll" $pkgDir/
+          Get-ChildItem "build/release/bin/*.dll" | ForEach-Object {
+            if (-not (Test-Path "$pkgDir/$($_.Name)")) {
+              Copy-Item $_.FullName $pkgDir/
+            }
+          }
 
           Compress-Archive -Path "$pkgDir/*" -DestinationPath "omnigpu-windows-x64.zip" -Force
 
-      - name: Upload release asset
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: omnigpu-windows-release
+          path: omnigpu-windows-x64.zip
+
+      - name: Upload release asset (Windows)
         uses: softprops/action-gh-release@v2
         with:
           files: omnigpu-windows-x64.zip
@@ -112,18 +121,20 @@ jobs:
           mkdir -p $pkgDir
 
           cp build/linux/bin/omnigpu_guest.so $pkgDir/ 2>/dev/null || true
-          cp build/linux/bin/omnigpu_host    $pkgDir/
+          cp build/linux/bin/omnigpu_host       $pkgDir/
           cp src/guest/vk_icd.json $pkgDir/
           cp third_party/clvk/*.so* $pkgDir/ 2>/dev/null || true
-
-          # Include system Mesa Zink (libGL that uses Zink)
           cp /usr/lib/x86_64-linux-gnu/libGL.so* $pkgDir/ 2>/dev/null || true
 
           tar czf "omnigpu-linux-x64.tar.gz" $pkgDir/
 
-      - name: Upload release asset
+      - name: Upload Linux package
+        uses: actions/upload-artifact@v4
+        with:
+          name: omnigpu-linux-release
+          path: omnigpu-linux-x64.tar.gz
+
+      - name: Upload release asset (Linux)
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            omnigpu-windows-x64.zip
-            omnigpu-linux-x64.tar.gz
+          files: omnigpu-linux-x64.tar.gz

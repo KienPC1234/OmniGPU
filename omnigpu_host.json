@@ -1,0 +1,18 @@
+{
+    "port": 9443,
+    "jpeg_quality": 85,
+    "multi_gpu_enabled": true,
+    "max_fps": 60,
+    "render_width": 800,
+    "render_height": 600,
+    "video_codec": "h264",
+    "video_bitrate_kbps": 8000,
+    "video_fps": 60,
+    "video_width": 800,
+    "video_height": 600,
+    "nvenc": {
+        "preset": "p4",
+        "tuning": "high_quality",
+        "gop_length": 0
+    }
+}

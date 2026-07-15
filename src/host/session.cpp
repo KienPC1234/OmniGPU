@@ -1,27 +1,95 @@
 #include "session.h"
 #include "gpu_manager.h"
 #include "handshake.h"
+#include "nvenc_encoder.h"
 #include "common/flatbuffers_utils.h"
+#include <chrono>
 #include <cstring>
 #include <spdlog/spdlog.h>
 
 namespace omnigpu {
 
-Session::Session(SOCKET clientFd, GpuManager& gpuMgr, int gpuIndex)
-    : clientFd_(clientFd), gpuMgr_(gpuMgr), gpuIndex_(gpuIndex) {}
+static VideoCodec codec_from_string(const std::string& s) {
+    std::string lower;
+    for (auto c : s) lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    if (lower == "hevc") return VideoCodec::HEVC;
+    if (lower == "av1") return VideoCodec::AV1;
+    return VideoCodec::H264;
+}
+
+Session::Session(SOCKET clientFd, GpuManager& gpuMgr,
+                 const std::vector<int>& gpuIndices, int sessionId,
+                 const HostConfig& hostConfig)
+    : clientFd_(clientFd), gpuMgr_(gpuMgr),
+      gpuIndices_(gpuIndices), sessionId_(sessionId),
+      config_(hostConfig) {
+
+    videoEncoder_ = create_best_encoder();
+    if (!videoEncoder_) return;
+
+    // Apply NVENC-specific settings if this is an NVENC encoder
+    if (auto* nvenc = dynamic_cast<NvencEncoder*>(videoEncoder_.get())) {
+        NvencSettings s;
+        s.preset = config_.nvenc.preset;
+        s.tuning = config_.nvenc.tuning;
+        s.gop_length = config_.nvenc.gop_length;
+        nvenc->set_settings(s);
+    }
+
+    uint32_t w = config_.video_width;
+    uint32_t h = config_.video_height;
+    int fps = config_.video_fps;
+    int bitrate = config_.video_bitrate_kbps;
+    VideoCodec codec = codec_from_string(config_.video_codec);
+
+    if (videoEncoder_->init(codec, w, h, fps, bitrate)) {
+        useVideoEncoder_ = true;
+        // Convert host VideoCodec (H264=0, HEVC=1, AV1=2) to fbs::VideoCodec (H264=1, HEVC=2, AV1=3)
+        active_video_codec_ = static_cast<uint8_t>(codec) + 1;
+        SPDLOG_INFO("Session #{}: Hardware encoder {} initialized successfully "
+                     "({}x{}, {}fps, {}kbps, codec={})",
+                     sessionId_, videoEncoder_->name(),
+                     w, h, fps, bitrate, config_.video_codec);
+    } else {
+        SPDLOG_WARN("Session #{}: Failed to initialize hardware encoder {}, "
+                     "falling back to software compression",
+                     sessionId_, videoEncoder_->name());
+        videoEncoder_.reset();
+    }
+}
 
 Session::~Session() { stop(); }
 
 void Session::start() {
     running_ = true;
+    fpsStart_ = std::chrono::steady_clock::now();
     thread_ = std::thread(&Session::handle_client, this);
 }
 
 void Session::stop() {
     running_ = false;
+    // Shutdown socket to interrupt blocking recv in handle_client
+    if (clientFd_ != INVALID_SOCKET) {
+        shutdown(clientFd_, SD_BOTH);
+    }
     if (thread_.joinable()) {
         thread_.join();
     }
+    if (videoEncoder_) {
+        videoEncoder_->shutdown();
+        videoEncoder_.reset();
+    }
+}
+
+SessionSummary Session::summary() const {
+    SessionSummary s;
+    s.id = sessionId_;
+    s.gpu_index = gpuIndices_.empty() ? -1 : gpuIndices_[0];
+    s.gpu_team_size = static_cast<int>(gpuIndices_.size());
+    s.fps = currentFps_.load();
+    s.frames_rendered = framesRendered_;
+    s.compressorStats = adaptiveCompressor_.stats();
+    return s;
 }
 
 bool Session::recv_message(std::vector<uint8_t>& buffer) {
@@ -30,6 +98,11 @@ bool Session::recv_message(std::vector<uint8_t>& buffer) {
         return false;
     }
 
+    msgSize = ntohl(msgSize);
+    if (msgSize > 64 * 1024 * 1024) {
+        SPDLOG_ERROR("Session #{}: message size {} exceeds 64MB limit", sessionId_, msgSize);
+        return false;
+    }
     buffer.resize(msgSize);
     return tcp::recv_all(clientFd_, buffer.data(), msgSize);
 }
@@ -39,7 +112,7 @@ bool Session::send_data_message(uint64_t data_id, const uint8_t* payload, size_t
         fbs::DataType_ImageData, data_id, payload, payload_size);
 
     auto span = builder.GetBufferSpan();
-    uint32_t totalSize = static_cast<uint32_t>(span.size());
+    uint32_t totalSize = htonl(static_cast<uint32_t>(span.size()));
 
     if (!tcp::send_all(clientFd_, reinterpret_cast<const uint8_t*>(&totalSize),
                         sizeof(totalSize))) {
@@ -49,16 +122,43 @@ bool Session::send_data_message(uint64_t data_id, const uint8_t* payload, size_t
     return tcp::send_all(clientFd_, span.data(), span.size());
 }
 
+bool Session::send_video_frame(uint64_t frame_id, uint8_t codec,
+                                const uint8_t* data, size_t data_size,
+                                uint32_t width, uint32_t height,
+                                uint64_t timestamp_ms, bool keyframe) {
+    flatbuffers::FlatBufferBuilder fbb;
+
+    auto data_vec = fbb.CreateVector(data, data_size);
+    auto vf = fbs::CreateVideoFrame(
+        fbb, static_cast<fbs::VideoCodec>(codec),
+        frame_id, width, height, timestamp_ms, keyframe, data_vec);
+    auto msg = fbs::CreateMessage(fbb, fbs::MessagePayload_VideoFrame, vf.Union());
+    fbb.Finish(msg);
+
+    auto span = fbb.GetBufferSpan();
+    uint32_t net_size = htonl(static_cast<uint32_t>(span.size()));
+
+    return tcp::send_all(clientFd_, reinterpret_cast<const uint8_t*>(&net_size),
+                          sizeof(net_size)) &&
+           tcp::send_all(clientFd_, span.data(), span.size());
+}
+
 void Session::handle_client() {
-    SPDLOG_INFO("Session started for client fd={} on GPU {}",
-                static_cast<int>(clientFd_), gpuIndex_);
+    std::string gpuList;
+    for (size_t i = 0; i < gpuIndices_.size(); ++i) {
+        if (i > 0) gpuList += ", ";
+        gpuList += std::to_string(gpuIndices_[i]);
+    }
+
+    SPDLOG_INFO("Session #{} started for client fd={} on GPU(s) [{}]",
+                sessionId_, static_cast<int>(clientFd_), gpuList);
 
     // Handle initial handshake (capabilities request from guest)
     {
         std::vector<uint8_t> hb;
         if (!recv_message(hb)) {
-            SPDLOG_ERROR("Failed to receive handshake from guest");
-            gpuMgr_.release_gpu(gpuIndex_);
+            SPDLOG_ERROR("Session #{}: Failed to receive handshake", sessionId_);
+            for (int idx : gpuIndices_) gpuMgr_.release_gpu(idx);
             tcp::close_socket(clientFd_);
             clientFd_ = INVALID_SOCKET;
             return;
@@ -66,27 +166,90 @@ void Session::handle_client() {
 
         auto* msg = protocol::verify_root(hb.data(), hb.size());
         if (msg && msg->payload_type() == fbs::MessagePayload_CapabilitiesRequest) {
-            SPDLOG_INFO("Guest requested capabilities for GPU {}", gpuIndex_);
+            SPDLOG_INFO("Guest requested capabilities for GPU {}", gpuList);
             handshake::handle_capabilities_request(clientFd_);
         } else {
             SPDLOG_WARN("Expected CapabilitiesRequest as first message");
         }
     }
 
-    VkPhysicalDevice physDevice = gpuMgr_.gpu_device(gpuIndex_);
-    if (!renderer_.init(physDevice, 800, 600)) {
-        SPDLOG_ERROR("Failed to initialize headless renderer");
-        gpuMgr_.release_gpu(gpuIndex_);
+    uint32_t rw = config_.render_width;
+    uint32_t rh = config_.render_height;
+    if (!multiRenderer_.init(gpuMgr_, gpuIndices_, rw, rh)) {
+        SPDLOG_ERROR("Session #{}: Failed to initialize multi-GPU renderer", sessionId_);
+        for (int idx : gpuIndices_) gpuMgr_.release_gpu(idx);
         tcp::close_socket(clientFd_);
         clientFd_ = INVALID_SOCKET;
         return;
     }
 
+    // Initialize command dispatcher with the host Vulkan device
+    commandDispatcher_.set_device(
+        multiRenderer_.first_physical_device(),
+        multiRenderer_.first_device(),
+        multiRenderer_.first_queue(),
+        multiRenderer_.first_queue_family(),
+        multiRenderer_.first_command_pool());
+    commandDispatcher_.set_framebuffer_size(rw, rh);
+    commandDispatcher_.setup_framebuffer();
+
     while (running_) {
         std::vector<uint8_t> msgBuffer;
         if (!recv_message(msgBuffer)) {
-            SPDLOG_INFO("Client disconnected or error receiving");
+            SPDLOG_INFO("Session #{}: Client disconnected or error receiving", sessionId_);
             break;
+        }
+
+        // Check for synchronous query (16-byte non-FlatBuffer messages)
+        if (msgBuffer.size() == 16) {
+            uint64_t query_type = 0;
+            uint64_t query_arg = 0;
+            std::memcpy(&query_type, msgBuffer.data(), 8);
+            std::memcpy(&query_arg, msgBuffer.data() + 8, 8);
+
+            auto respond = [&](uint64_t val) {
+                uint8_t resp[8];
+                std::memcpy(resp, &val, 8);
+                tcp::send_all(clientFd_, resp, sizeof(resp));
+            };
+
+            switch (query_type) {
+            case 0x80: { // DEVICE_ADDRESS_QUERY
+                VkBuffer hostBuf = commandDispatcher_.mapper().get_buffer(query_arg);
+                if (hostBuf) {
+                    VkBufferDeviceAddressInfo bdai{};
+                    bdai.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+                    bdai.buffer = hostBuf;
+                    respond(vkGetBufferDeviceAddress(
+                        commandDispatcher_.mapper().device(), &bdai));
+                } else { respond(0); }
+                continue;
+            }
+            case 0x81: { // BUFFER_OPAQUE_CAPTURE_ADDRESS_QUERY
+                VkBuffer hostBuf = commandDispatcher_.mapper().get_buffer(query_arg);
+                if (hostBuf) {
+                    VkBufferDeviceAddressInfo bdai{};
+                    bdai.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+                    bdai.buffer = hostBuf;
+                    respond(vkGetBufferOpaqueCaptureAddress(
+                        commandDispatcher_.mapper().device(), &bdai));
+                } else { respond(0); }
+                continue;
+            }
+            case 0x82: { // MEMORY_OPAQUE_CAPTURE_ADDRESS_QUERY
+                VkDeviceMemory hostMem = commandDispatcher_.mapper().get_device_memory(query_arg);
+                if (hostMem) {
+                    VkDeviceMemoryOpaqueCaptureAddressInfo mai{};
+                    mai.sType = VK_STRUCTURE_TYPE_DEVICE_MEMORY_OPAQUE_CAPTURE_ADDRESS_INFO;
+                    mai.memory = hostMem;
+                    respond(vkGetDeviceMemoryOpaqueCaptureAddress(
+                        commandDispatcher_.mapper().device(), &mai));
+                } else { respond(0); }
+                continue;
+            }
+            default:
+                break;
+            }
         }
 
         auto* msg = protocol::verify_root(msgBuffer.data(), msgBuffer.size());
@@ -100,30 +263,80 @@ void Session::handle_client() {
             auto* cmd = msg->payload_as_CommandMessage();
             if (!cmd) break;
 
-            SPDLOG_DEBUG("Received command: func_id={}, request_id={}",
-                         static_cast<int>(cmd->func_id()), cmd->request_id());
+            auto func_id = cmd->func_id();
+            auto* args = cmd->args();
+            size_t args_size = args ? args->size() : 0;
 
-            if (cmd->func_id() == fbs::FunctionId_vkQueueSubmit ||
-                cmd->func_id() == fbs::FunctionId_vkQueuePresentKHR) {
+            SPDLOG_DEBUG("Session #{}: Received command: func_id={}, request_id={}",
+                         sessionId_,
+                         static_cast<int>(func_id), cmd->request_id());
 
-                VkCommandBuffer vkCmd = renderer_.begin_frame();
-                if (vkCmd == VK_NULL_HANDLE) {
-                    SPDLOG_ERROR("begin_frame failed");
+            // Dispatch to command replay engine for ALL commands
+            if (args && args_size > 0) {
+                commandDispatcher_.dispatch(func_id, args->data(), args_size);
+            }
+
+            // On vkQueueSubmit / vkQueuePresentKHR: flush and readback
+            if (func_id == fbs::FunctionId_vkQueueSubmit ||
+                func_id == fbs::FunctionId_vkQueuePresentKHR) {
+
+                std::vector<uint8_t> pixels;
+                if (!commandDispatcher_.flush_and_readback(pixels)) {
+                    SPDLOG_ERROR("flush_and_readback failed");
                     break;
                 }
+                // Use the rendered pixels for encoding/sending
+                framebufferPixels_ = std::move(pixels);
 
-                if (!renderer_.submit_and_readback(framebufferPixels_)) {
-                    SPDLOG_ERROR("submit_and_readback failed");
-                    break;
+                if (useVideoEncoder_) {
+                    std::vector<EncodedPacket> packets;
+                    if (videoEncoder_->encode(framebufferPixels_, packets)) {
+                        auto sendStart = std::chrono::steady_clock::now();
+                        for (const auto& packet : packets) {
+                            send_video_frame(
+                                cmd->request_id(),
+                                active_video_codec_,
+                                packet.data.data(), packet.data.size(),
+                                rw, rh,
+                                packet.pts,
+                                packet.isKeyframe);
+                        }
+                        auto sendEnd = std::chrono::steady_clock::now();
+                        double sendMs = std::chrono::duration<double, std::milli>(
+                            sendEnd - sendStart).count();
+                        if (!packets.empty()) {
+                            adaptiveCompressor_.record_send(packets[0].data.size(), sendMs);
+                        }
+                    }
+                } else {
+                    auto compressed = adaptiveCompressor_.compress(
+                        framebufferPixels_, rw, rh);
+
+                    if (!compressed.empty()) {
+                        auto sendStart = std::chrono::steady_clock::now();
+
+                        send_video_frame(cmd->request_id(), 0,
+                                         compressed.data(), compressed.size(),
+                                         rw, rh,
+                                         std::chrono::duration_cast<std::chrono::milliseconds>(
+                                             std::chrono::steady_clock::now().time_since_epoch()).count(),
+                                         true);
+
+                        auto sendEnd = std::chrono::steady_clock::now();
+                        double sendMs = std::chrono::duration<double, std::milli>(
+                            sendEnd - sendStart).count();
+
+                        adaptiveCompressor_.record_send(compressed.size(), sendMs);
+                    }
                 }
 
-                auto compressed = compressor_.compress_jpeg(
-                    framebufferPixels_, 800, 600, 85);
-
-                if (!compressed.empty()) {
-                    send_data_message(cmd->request_id(),
-                                      compressed.data(), compressed.size());
-                    SPDLOG_DEBUG("Sent compressed frame ({} bytes)", compressed.size());
+                framesRendered_++;
+                auto now = std::chrono::steady_clock::now();
+                auto elapsed = std::chrono::duration<double>(now - fpsStart_).count();
+                if (elapsed >= 1.0) {
+                    currentFps_.store(static_cast<double>(framesRendered_) / elapsed);
+                    fpsStart_ = now;
+                    framesRendered_ = 0;
                 }
             }
 
@@ -140,16 +353,45 @@ void Session::handle_client() {
                          payload ? payload->size() : 0);
             break;
         }
+        case fbs::MessagePayload_ResourceCacheUpload: {
+            auto* upload = msg->payload_as_ResourceCacheUpload();
+            if (!upload) break;
+
+            auto payload = upload->data();
+            if (payload) {
+                resourceCache_.upload(upload->resource_id(),
+                                      static_cast<uint32_t>(upload->resource_type()),
+                                      payload->data(), payload->size());
+            }
+            break;
+        }
+        case fbs::MessagePayload_ResourceCacheEvictRequest: {
+            auto* evict = msg->payload_as_ResourceCacheEvictRequest();
+            if (!evict) break;
+
+            bool ok = resourceCache_.evict(evict->resource_id());
+
+            flatbuffers::FlatBufferBuilder fbb;
+            auto resp = fbs::CreateResourceCacheEvictResponse(fbb, evict->resource_id(), ok);
+            auto rmsg = fbs::CreateMessage(fbb, fbs::MessagePayload_ResourceCacheEvictResponse, resp.Union());
+            fbb.Finish(rmsg);
+
+            auto span = fbb.GetBufferSpan();
+            uint32_t netSize = htonl(static_cast<uint32_t>(span.size()));
+            tcp::send_all(clientFd_, reinterpret_cast<const uint8_t*>(&netSize), sizeof(netSize));
+            tcp::send_all(clientFd_, span.data(), span.size());
+            break;
+        }
         default:
             break;
         }
     }
 
-    renderer_.shutdown();
-    gpuMgr_.release_gpu(gpuIndex_);
+    multiRenderer_.shutdown();
     tcp::close_socket(clientFd_);
     clientFd_ = INVALID_SOCKET;
-    SPDLOG_INFO("Session ended");
+    running_ = false;
+    SPDLOG_INFO("Session #{} ended", sessionId_);
 }
 
 } // namespace omnigpu

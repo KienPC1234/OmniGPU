@@ -74,6 +74,17 @@ bool CacheManager::load(caps::GpuCapabilities& caps) const {
         caps.max_per_stage_resources = data.value("max_per_stage_resources", 32U);
         caps.max_image_dimension_2d = data.value("max_image_dimension_2d", 8192U);
         caps.timestamp = saved_ts;
+        caps.vendor_id = data.value("vendor_id", 0x10DEU);
+        caps.device_id = data.value("device_id", 0x2684U);
+        caps.device_type = data.value("device_type", 2U);
+        caps.max_framebuffer_width = data.value("max_fb_w", 16384U);
+        caps.max_framebuffer_height = data.value("max_fb_h", 16384U);
+        caps.max_memory_heaps = data.value("mem_heaps", 2U);
+        caps.memory_heap_size_0 = data.value("mem_heap_0", 24ULL * 1024 * 1024 * 1024);
+        caps.memory_heap_size_1 = data.value("mem_heap_1", 16ULL * 1024 * 1024 * 1024);
+        caps.memory_type_count = data.value("mem_types", 4U);
+        caps.max_sampler_anisotropy = data.value("max_aniso", 16.0f);
+        caps.subgroup_size = data.value("subgroup", 32U);
 
         SPDLOG_INFO("Loaded cached GPU caps for {}: {}", cache_key_,
                     caps.gpu_name);
@@ -112,6 +123,17 @@ bool CacheManager::save(const caps::GpuCapabilities& caps) {
         entry["max_per_stage_resources"] = caps.max_per_stage_resources;
         entry["max_image_dimension_2d"] = caps.max_image_dimension_2d;
         entry["timestamp"] = caps.timestamp;
+        entry["vendor_id"] = caps.vendor_id;
+        entry["device_id"] = caps.device_id;
+        entry["device_type"] = caps.device_type;
+        entry["max_fb_w"] = caps.max_framebuffer_width;
+        entry["max_fb_h"] = caps.max_framebuffer_height;
+        entry["mem_heaps"] = caps.max_memory_heaps;
+        entry["mem_heap_0"] = caps.memory_heap_size_0;
+        entry["mem_heap_1"] = caps.memory_heap_size_1;
+        entry["mem_types"] = caps.memory_type_count;
+        entry["max_aniso"] = caps.max_sampler_anisotropy;
+        entry["subgroup"] = caps.subgroup_size;
 
         j[cache_key_] = entry;
 

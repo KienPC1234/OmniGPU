@@ -1,10 +1,11 @@
 #include "server.h"
 #include "session.h"
+#include <algorithm>
 #include <spdlog/spdlog.h>
 
 namespace omnigpu {
 
-Server::Server(uint16_t port) : port_(port) {}
+Server::Server(const HostConfig& config) : config_(config), port_(config.port) {}
 
 Server::~Server() { stop(); }
 
@@ -51,6 +52,7 @@ bool Server::start() {
     }
 
     running_ = true;
+    print_config(config_);
     SPDLOG_INFO("Server listening on port {} ({} GPU(s))",
                 port_, gpuMgr_.gpu_count());
     return true;
@@ -104,9 +106,14 @@ void Server::run() {
 
             tcp::set_tcp_nodelay(clientFd);
 
-            int gpuIndex = gpuMgr_.acquire_gpu();
+            int sessionId = nextSessionId_++;
 
-            auto session = std::make_unique<Session>(clientFd, gpuMgr_, gpuIndex);
+            // Use 2 GPUs if available, else 1
+            int teamSize = (gpuMgr_.gpu_count() >= 2) ? 2 : 1;
+            auto gpuIndices = gpuMgr_.acquire_gpu_team(teamSize);
+
+            auto session = std::make_unique<Session>(
+                clientFd, gpuMgr_, gpuIndices, sessionId, config_);
             session->start();
 
             {
@@ -119,16 +126,15 @@ void Server::run() {
     }
 
     // Stop all remaining sessions
-    std::lock_guard<std::mutex> lock(sessionsMutex_);
-    for (auto& s : sessions_) {
-        if (s) s->stop();
+    {
+        std::lock_guard<std::mutex> lock(sessionsMutex_);
+        for (auto& s : sessions_) {
+            if (s) s->stop();
+        }
+        sessions_.clear();
     }
-    sessions_.clear();
-}
 
-void Server::stop() {
-    running_ = false;
-
+    // Close listen socket after loop exits
     if (listenFd_ != INVALID_SOCKET) {
         tcp::close_socket(listenFd_);
         listenFd_ = INVALID_SOCKET;
@@ -136,6 +142,11 @@ void Server::stop() {
 
     tcp::cleanup();
     SPDLOG_INFO("Server stopped");
+}
+
+void Server::stop() {
+    running_ = false;
+    SPDLOG_INFO("Server stopping... (waiting for accept loop)");
 }
 
 void Server::cleanup_stopped_sessions() {
@@ -147,6 +158,39 @@ void Server::cleanup_stopped_sessions() {
             ++it;
         }
     }
+}
+
+int Server::gpu_count() const {
+    return gpuMgr_.gpu_count();
+}
+
+GpuInfo Server::gpu_info(int index) const {
+    return gpuMgr_.gpu_info(index);
+}
+
+std::vector<SessionSummary> Server::session_summaries() const {
+    std::lock_guard<std::mutex> lock(sessionsMutex_);
+    std::vector<SessionSummary> summaries;
+    for (auto& s : sessions_) {
+        if (s && s->is_running()) {
+            summaries.push_back(s->summary());
+        }
+    }
+    return summaries;
+}
+
+bool Server::disconnect_session(int sessionId) {
+    std::lock_guard<std::mutex> lock(sessionsMutex_);
+    for (auto& s : sessions_) {
+        if (s && s->is_running()) {
+            auto sum = s->summary();
+            if (sum.id == sessionId) {
+                s->stop();
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 } // namespace omnigpu

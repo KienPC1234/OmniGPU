@@ -29,6 +29,7 @@ public:
     VkFramebuffer framebuffer() const { return framebuffer_; }
     VkExtent2D extent() const { return {width_, height_}; }
     VkCommandPool command_pool() const { return cmdPool_; }
+    VkPhysicalDevice physical_device() const { return physDevice_; }
 
 private:
     VkPhysicalDevice physDevice_ = VK_NULL_HANDLE;

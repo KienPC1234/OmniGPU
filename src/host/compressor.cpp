@@ -47,7 +47,7 @@ std::vector<uint8_t> Compressor::compress_jpeg(const std::vector<uint8_t>& rgba,
     unsigned char* jpegBuf = nullptr;
     unsigned long jpegSize = 0;
 
-    int flags = TJFLAG_FASTDCT | TJFLAG_NOREALLOC;
+    int flags = TJFLAG_FASTDCT;
 
     int ret = tjCompress2(handle,
                           const_cast<unsigned char*>(rgba.data()),

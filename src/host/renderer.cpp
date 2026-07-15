@@ -19,7 +19,6 @@ bool Renderer::init(VkPhysicalDevice physDevice, uint32_t width, uint32_t height
     if (!create_device()) return false;
     if (!create_render_target()) return false;
     if (!create_readback_buffer()) return false;
-    if (!create_semaphore()) return false;
 
     return true;
 }
@@ -28,7 +27,10 @@ void Renderer::shutdown() {
     if (device_ == VK_NULL_HANDLE) return;
     vkDeviceWaitIdle(device_);
 
-    if (semaphore_) vkDestroySemaphore(device_, semaphore_, nullptr);
+    if (frameCmd_) {
+        vkFreeCommandBuffers(device_, cmdPool_, 1, &frameCmd_);
+        frameCmd_ = VK_NULL_HANDLE;
+    }
     if (cmdPool_) vkDestroyCommandPool(device_, cmdPool_, nullptr);
     if (readbackMemory_) vkFreeMemory(device_, readbackMemory_, nullptr);
     if (readbackBuffer_) vkDestroyBuffer(device_, readbackBuffer_, nullptr);
@@ -277,12 +279,6 @@ bool Renderer::create_readback_buffer() {
     return true;
 }
 
-bool Renderer::create_semaphore() {
-    VkSemaphoreCreateInfo info{};
-    info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    return vkCreateSemaphore(device_, &info, nullptr, &semaphore_) == VK_SUCCESS;
-}
-
 void Renderer::record_transition_layout(VkCommandBuffer cmd, VkImage image,
                                          VkImageLayout oldLayout, VkImageLayout newLayout) {
     VkImageMemoryBarrier barrier{};
@@ -308,6 +304,12 @@ void Renderer::record_transition_layout(VkCommandBuffer cmd, VkImage image,
 }
 
 VkCommandBuffer Renderer::begin_frame() {
+    // Free previous command buffer if not yet consumed
+    if (frameCmd_ != VK_NULL_HANDLE) {
+        vkFreeCommandBuffers(device_, cmdPool_, 1, &frameCmd_);
+        frameCmd_ = VK_NULL_HANDLE;
+    }
+
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.commandPool = cmdPool_;
@@ -374,25 +376,16 @@ bool Renderer::submit_and_readback(std::vector<uint8_t>& out_pixels) {
                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                            readbackBuffer_, 1, &copy);
 
-    VkImageMemoryBarrier backBarrier{};
-    backBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    backBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    backBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    backBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    backBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    backBarrier.image = colorImage_;
-    backBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    backBarrier.subresourceRange.levelCount = 1;
-    backBarrier.subresourceRange.layerCount = 1;
-    backBarrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    backBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-
-    vkCmdPipelineBarrier(frameCmd_,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                         0, 0, nullptr, 0, nullptr, 1, &backBarrier);
-
     if (vkEndCommandBuffer(frameCmd_) != VK_SUCCESS) {
+        vkFreeCommandBuffers(device_, cmdPool_, 1, &frameCmd_);
+        frameCmd_ = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkFence fence = VK_NULL_HANDLE;
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    if (vkCreateFence(device_, &fenceInfo, nullptr, &fence) != VK_SUCCESS) {
         vkFreeCommandBuffers(device_, cmdPool_, 1, &frameCmd_);
         frameCmd_ = VK_NULL_HANDLE;
         return false;
@@ -402,25 +395,16 @@ bool Renderer::submit_and_readback(std::vector<uint8_t>& out_pixels) {
     submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &frameCmd_;
-    submit.signalSemaphoreCount = 1;
-    submit.pSignalSemaphores = &semaphore_;
 
-    if (vkQueueSubmit(queue_, 1, &submit, VK_NULL_HANDLE) != VK_SUCCESS) {
+    if (vkQueueSubmit(queue_, 1, &submit, fence) != VK_SUCCESS) {
+        vkDestroyFence(device_, fence, nullptr);
         vkFreeCommandBuffers(device_, cmdPool_, 1, &frameCmd_);
         frameCmd_ = VK_NULL_HANDLE;
         return false;
     }
 
-    VkSemaphoreWaitInfo waitInfo{};
-    waitInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
-    waitInfo.semaphoreCount = 1;
-    waitInfo.pSemaphores = &semaphore_;
-    waitInfo.pValues = nullptr;
-
-    VkResult waitRes = vkWaitSemaphores(device_, &waitInfo, UINT64_MAX);
-    if (waitRes != VK_SUCCESS && waitRes != VK_TIMEOUT) {
-        SPDLOG_WARN("vkWaitSemaphores returned {}", static_cast<int>(waitRes));
-    }
+    vkWaitForFences(device_, 1, &fence, VK_TRUE, UINT64_MAX);
+    vkDestroyFence(device_, fence, nullptr);
     vkFreeCommandBuffers(device_, cmdPool_, 1, &frameCmd_);
     frameCmd_ = VK_NULL_HANDLE;
 

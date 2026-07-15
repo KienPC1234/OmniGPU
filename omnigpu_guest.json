@@ -1,0 +1,10 @@
+{
+    "_comment": "OmniGPU Guest Configuration",
+    "host": "127.0.0.1",
+    "port": 9443,
+    "zink_enabled": true,
+    "clvk_enabled": true,
+    "cache_ttl_seconds": 86400,
+    "adaptive_batching": true,
+    "max_batch_interval_ms": 16
+}

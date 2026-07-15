@@ -2,6 +2,7 @@
 
 #include <vulkan/vulkan.h>
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -12,6 +13,7 @@ struct GpuInfo {
     VkPhysicalDeviceProperties props;
     std::string name;
     int sessionCount = 0;
+    int performanceScore = 0;
 };
 
 class GpuManager {
@@ -24,16 +26,21 @@ public:
 
     bool init();
     int acquire_gpu();
+    std::vector<int> acquire_gpu_team(int count);
     void release_gpu(int index);
+    void release_gpu_team(const std::vector<int>& indices);
 
-    int gpu_count() const { return static_cast<int>(gpus_.size()); }
-    const GpuInfo& gpu_info(int index) const { return gpus_[index]; }
-    VkPhysicalDevice gpu_device(int index) const { return gpus_[index].device; }
+    int gpu_count() const;
+    GpuInfo gpu_info(int index) const;
+    VkPhysicalDevice gpu_device(int index) const;
+    int total_gpu_score() const;
 
 private:
     VkInstance instance_ = VK_NULL_HANDLE;
     std::vector<GpuInfo> gpus_;
-    int nextGpu_ = 0;
+    mutable std::mutex mutex_;
+
+    int compute_score(const VkPhysicalDeviceProperties& props) const;
 };
 
 } // namespace omnigpu

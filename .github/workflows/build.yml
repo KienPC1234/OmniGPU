@@ -66,7 +66,7 @@ jobs:
         run: cmake --build --preset ${{ matrix.preset }}
 
       - name: Run tests
-        run: ctest --preset ${{ matrix.preset }} --output-on-failure || echo "Tests completed"
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure || echo "Tests completed (non-fatal)"
 
       - name: Package Windows artifacts
         shell: pwsh
@@ -146,7 +146,7 @@ jobs:
         run: cmake --build --preset ${{ matrix.preset }}
 
       - name: Run tests
-        run: ctest --preset ${{ matrix.preset }} --output-on-failure || echo "Tests completed"
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure || echo "Tests completed (non-fatal)"
 
       - name: Package Linux artifacts
         run: |

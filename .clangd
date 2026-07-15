@@ -1,0 +1,24 @@
+CompileFlags:
+  CompilationDatabase: build/release
+  Remove:
+    - "@*"
+  Add:
+    - "--driver-mode=cl"
+    - "-imsvc"
+    - "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/include"
+    - "-imsvc"
+    - "C:/Program Files (x86)/Windows Kits/10/include/10.0.26100.0/ucrt"
+    - "-imsvc"
+    - "C:/Program Files (x86)/Windows Kits/10/include/10.0.26100.0/shared"
+    - "-imsvc"
+    - "C:/Program Files (x86)/Windows Kits/10/include/10.0.26100.0/um"
+    - "-Wno-pragma-once-outside-header"
+    - "-Wno-unknown-pragmas"
+
+Diagnostics:
+  Suppress:
+    - "clang-diagnostic-pragma-once-outside-header"
+    - "clang-diagnostic-unknown-pragmas"
+
+Index:
+  Background: Build

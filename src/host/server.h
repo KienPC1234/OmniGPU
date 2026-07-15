@@ -1,7 +1,9 @@
 #pragma once
 
 #include "common/network_utils.h"
+#include "config.h"
 #include "gpu_manager.h"
+#include "session.h"
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -14,7 +16,7 @@ class Session;
 
 class Server {
 public:
-    explicit Server(uint16_t port);
+    explicit Server(const HostConfig& config);
     ~Server();
 
     Server(const Server&) = delete;
@@ -26,13 +28,22 @@ public:
     void run();
     void stop();
 
+    // CLI queries
+    int gpu_count() const;
+    GpuInfo gpu_info(int index) const;
+    std::vector<SessionSummary> session_summaries() const;
+    bool disconnect_session(int sessionId);
+    const HostConfig& config() const { return config_; }
+
 private:
+    HostConfig config_;
     uint16_t port_;
+    int nextSessionId_ = 1;
     SOCKET listenFd_ = INVALID_SOCKET;
     std::atomic<bool> running_{false};
     GpuManager gpuMgr_;
 
-    std::mutex sessionsMutex_;
+    mutable std::mutex sessionsMutex_;
     std::vector<std::unique_ptr<Session>> sessions_;
 
     void cleanup_stopped_sessions();

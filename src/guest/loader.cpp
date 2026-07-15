@@ -98,15 +98,31 @@ bool detect_clvk(const std::string& dir) {
 }
 
 bool setup_icd_manifest(const std::string& dir) {
-#ifdef _WIN32
     auto manifest_path = dir + "vk_icd.json";
+#ifdef _WIN32
+    // Respect externally-set VK_ICD_FILENAMES (e.g. from SSH test command,
+    // launcher, or system-wide deployment)
+    char existing[MAX_PATH] = {};
+    DWORD ret = GetEnvironmentVariableA("VK_ICD_FILENAMES", existing,
+                                        sizeof(existing));
+    if (ret > 0 && ret < sizeof(existing)) {
+        SPDLOG_INFO("VK_ICD_FILENAMES already set externally: {}",
+                     existing);
+        g_layers.icd_manifest_path = existing;
+        return true;
+    }
     if (!SetEnvironmentVariableA("VK_ICD_FILENAMES", manifest_path.c_str())) {
         SPDLOG_WARN("Failed to set VK_ICD_FILENAMES: {}",
                     GetLastError());
         return false;
     }
 #else
-    auto manifest_path = dir + "vk_icd.json";
+    if (getenv("VK_ICD_FILENAMES")) {
+        SPDLOG_INFO("VK_ICD_FILENAMES already set externally: {}",
+                     getenv("VK_ICD_FILENAMES"));
+        g_layers.icd_manifest_path = getenv("VK_ICD_FILENAMES");
+        return true;
+    }
     if (setenv("VK_ICD_FILENAMES", manifest_path.c_str(), 1) != 0) {
         SPDLOG_WARN("Failed to set VK_ICD_FILENAMES");
         return false;
@@ -118,55 +134,48 @@ bool setup_icd_manifest(const std::string& dir) {
 
 } // namespace
 
-bool initialize() {
+bool initialize(bool enable_zink, bool enable_clvk) {
     if (g_initialized) return true;
 
     SPDLOG_INFO("Initializing OmniGPU translation layers...");
 
     auto runtime_dir = get_module_dir();
     g_layers.runtime_dir = runtime_dir;
+    g_layers.zink_enabled = enable_zink;
+    g_layers.clvk_enabled = enable_clvk;
 
-    g_layers.zink_available = detect_zink(runtime_dir);
-    g_layers.clvk_available = detect_clvk(runtime_dir);
+    if (enable_zink) {
+        g_layers.zink_available = detect_zink(runtime_dir);
+    }
+    if (enable_clvk) {
+        g_layers.clvk_available = detect_clvk(runtime_dir);
+    }
 
     g_layers.vulkan_icd_ready = setup_icd_manifest(runtime_dir);
 
-    if (g_layers.zink_available) {
-        SPDLOG_INFO("  [OK] Zink (OpenGL→Vulkan) detected at {}{}",
-                    runtime_dir,
-#ifdef _WIN32
-                    "opengl32.dll"
-#else
-                    "libGL.so"
-#endif
-        );
+    if (g_layers.zink_available && enable_zink) {
+        SPDLOG_INFO("  [OK] Zink (OpenGL→Vulkan) detected");
     } else {
-        SPDLOG_INFO("  [--] Zink (OpenGL→Vulkan) not found — OpenGL apps will not be intercepted");
+        SPDLOG_INFO("  [--] Zink (OpenGL→Vulkan) {}",
+                    enable_zink ? "not found" : "disabled in config");
     }
 
-    if (g_layers.clvk_available) {
-        SPDLOG_INFO("  [OK] clvk (OpenCL→Vulkan) detected at {}{}",
-                    runtime_dir,
-#ifdef _WIN32
-                    "OpenCL.dll"
-#else
-                    "libOpenCL.so"
-#endif
-        );
+    if (g_layers.clvk_available && enable_clvk) {
+        SPDLOG_INFO("  [OK] clvk (OpenCL→Vulkan) detected");
     } else {
-        SPDLOG_INFO("  [--] clvk (OpenCL→Vulkan) not found — OpenCL apps will not be intercepted");
+        SPDLOG_INFO("  [--] clvk (OpenCL→Vulkan) {}",
+                    enable_clvk ? "not found" : "disabled in config");
     }
 
     if (g_layers.vulkan_icd_ready) {
-        SPDLOG_INFO("  [OK] Vulkan ICD manifest set: {}",
-                    g_layers.icd_manifest_path);
+        SPDLOG_INFO("  [OK] Vulkan ICD manifest set");
     } else {
         SPDLOG_WARN("  [!!] Failed to set Vulkan ICD manifest");
     }
 
     SPDLOG_INFO("Translation pipeline: {}",
                 g_layers.vulkan_icd_ready
-                    ? "OpenGL/OpenCL/Vulkan → Vulkan → omniGPU → Host GPU"
+                    ? "OpenGL/OpenCL/Vulkan → omniGPU → Host GPU"
                     : "Vulkan → omniGPU → Host GPU (limited)");
 
     g_initialized = true;

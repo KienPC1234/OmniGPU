@@ -18,11 +18,29 @@
       }
     },
     {
+      "name": "release-x86",
+      "displayName": "Clang + Ninja (Release x86)",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_CXX_CLANG_TIDY": "",
+        "VCPKG_TARGET_TRIPLET": "x86-windows-static-md",
+        "CMAKE_C_FLAGS": "-m32",
+        "CMAKE_CXX_FLAGS": "-m32 /EHsc",
+        "OMNIGPU_FETCH_ZINK": "ON",
+        "OMNIGPU_FETCH_CLVK": "OFF"
+      }
+    },
+    {
       "name": "release",
       "displayName": "Clang + Ninja (Release)",
       "inherits": "default",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_CXX_CLANG_TIDY": "",
+        "CMAKE_CXX_FLAGS": "/EHsc",
+        "OMNIGPU_FETCH_ZINK": "ON",
+        "OMNIGPU_FETCH_CLVK": "ON"
       }
     },
     {
@@ -30,7 +48,9 @@
       "displayName": "Clang + Ninja (Debug)",
       "inherits": "default",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
+        "CMAKE_BUILD_TYPE": "Debug",
+        "OMNIGPU_FETCH_ZINK": "ON",
+        "OMNIGPU_FETCH_CLVK": "ON"
       }
     },
     {
@@ -60,12 +80,32 @@
     {
       "name": "debug",
       "configurePreset": "debug"
+    },
+    {
+      "name": "release-x86",
+      "configurePreset": "release-x86"
     }
   ],
   "testPresets": [
     {
       "name": "default",
-      "configurePreset": "default"
+      "configurePreset": "default",
+      "output": {"outputOnFailure": true}
+    },
+    {
+      "name": "debug",
+      "configurePreset": "debug",
+      "output": {"outputOnFailure": true}
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "output": {"outputOnFailure": true}
+    },
+    {
+      "name": "linux",
+      "configurePreset": "linux",
+      "output": {"outputOnFailure": true}
     }
   ]
 }

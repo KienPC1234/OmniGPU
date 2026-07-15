@@ -1,0 +1,15 @@
+[Unit]
+Description=OmniGPU Host Server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/omnigpu_host
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment=VK_ICD_FILENAMES=/usr/local/share/omnigpu/vk_icd.json
+
+[Install]
+WantedBy=multi-user.target

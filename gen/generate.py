@@ -45,6 +45,7 @@ INIT_TEMPLATE_RENAMED = r"""//==================================================
 
 #include "vk_intercept.h"
 #include "vulkan_serializer.h"
+#include "vulkan_struct_serializer.h"
 #include "command_batch.h"
 #include <vulkan/vulkan.h>
 #include <fmt/core.h>
@@ -52,12 +53,25 @@ INIT_TEMPLATE_RENAMED = r"""//==================================================
 #include <atomic>
 #include <unordered_map>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 namespace omnigpu::intercept {
 
 namespace {
 
-// Global original function pointer table
-std::unordered_map<std::string, void*> g_original_fns;
+// Thread-safe / static-initialization-safe accessor for global maps
+std::unordered_map<std::string, void*>& get_original_fns() {
+    static std::unordered_map<std::string, void*> fns;
+    return fns;
+}
+
+std::unordered_map<std::string, void*>& get_hook_fns() {
+    static std::unordered_map<std::string, void*> fns;
+    return fns;
+}
+
 bool g_initialized = false;
 
 // Global batch for command accumulation
@@ -100,16 +114,63 @@ uint32_t next_request_id() {
         g_batch->append(builder);
     }
 
-    // Call original
+    // Call original (safe with null check)
     auto original = reinterpret_cast<{{ func.return_type }} (VKAPI_PTR*)(
         {%- for param in func.params -%}
         {{ param.type }} {{ param.name }}{% if not loop.last %}, {% endif %}
         {%- endfor -%}
-    )>(g_original_fns["{{ func.name }}"]);
+    )>(get_original_fns()["{{ func.name }}"]);
 
+    if (!original) {
+        {% if func.return_type == "void" %}
+        return;
+        {% else %}
+        return {};
+        {% endif %}
+    }
     return original({% for param in func.params %}{{ param.name }}{% if not loop.last %}, {% endif %}{% endfor %});
 }
 {% endfor %}
+
+// ---------------------------------------------------------------------------
+// Real Vulkan loader handle
+// ---------------------------------------------------------------------------
+#ifdef _WIN32
+static void* s_real_vulkan = nullptr;
+static void load_real_vulkan() {
+    // Pure ICD mode: we do not chain to any local loader or driver.
+    // Keeping s_real_vulkan as nullptr ensures we act as a pure forwarding driver.
+    s_real_vulkan = nullptr;
+}
+static void* get_real_proc(const char* name) {
+    return nullptr;
+}
+#else
+static void* s_real_vulkan = nullptr;
+static void load_real_vulkan() {
+    s_real_vulkan = nullptr;
+}
+static void* get_real_proc(const char* name) {
+    return nullptr;
+}
+#endif
+
+// ---------------------------------------------------------------------------
+// Lookup dispatch for ICD entrypoint
+// ---------------------------------------------------------------------------
+void register_manual_hook(const char* name, void* func) {
+    get_hook_fns()[name] = func;
+}
+
+PFN_vkVoidFunction get_intercept_proc(const char* name) {
+    auto& hook_fns = get_hook_fns();
+    auto it = hook_fns.find(name);
+    if (it != hook_fns.end() && it->second) {
+        return reinterpret_cast<PFN_vkVoidFunction>(it->second);
+    }
+    // Fallback to real Vulkan loader functions
+    return reinterpret_cast<PFN_vkVoidFunction>(get_real_proc(name));
+}
 
 // ---------------------------------------------------------------------------
 // Initialization
@@ -119,13 +180,21 @@ void initialize_hooks() {
 
     SPDLOG_INFO("OmniGPU intercept initializing...");
 
-    // TODO: populate g_original_fns with vkGetInstanceProcAddr / vkGetDeviceProcAddr
+    load_real_vulkan();
+
+    // Populate original function pointers and hook pointers
     {% for func in functions %}
-    // hook {{ func.name }}
+    get_original_fns()["{{ func.name }}"] = get_real_proc("{{ func.name }}");
+    get_hook_fns()["{{ func.name }}"] = reinterpret_cast<void*>({{ func.name }}_hook);
     {% endfor %}
 
+    // Register manual hooks from vk_intercept.cpp (only if they exist)
+    // These are linked from vk_intercept.cpp and registered here
+    // to ensure they're available in the hook map.
+
     g_initialized = true;
-    SPDLOG_INFO("OmniGPU intercept initialized ({} functions hooked)", {{ functions | length }});
+    SPDLOG_INFO("OmniGPU intercept initialized ({} functions hooked from real loader)",
+                {{ functions | length }});
 }
 
 void set_batch(batch::CommandBatch* batch) {
@@ -137,13 +206,27 @@ void set_batch(batch::CommandBatch* batch) {
 void shutdown_hooks() {
     if (!g_initialized) return;
     g_batch = nullptr;
-    g_original_fns.clear();
+    get_original_fns().clear();
     g_initialized = false;
+#ifdef _WIN32
+    if (s_real_vulkan) {
+        ::FreeLibrary(static_cast<HMODULE>(s_real_vulkan));
+        s_real_vulkan = nullptr;
+    }
+#endif
     SPDLOG_INFO("OmniGPU intercept shut down");
 }
 
 } // namespace omnigpu::intercept
 """
+
+
+def get_pure_type(ptype: str) -> str:
+    """Get the base type without const/pointer/array qualifiers."""
+    t = ptype.replace("const ", "").strip()
+    t = re.sub(r'\s*\*+$', '', t)
+    t = re.sub(r'\[.*?\]', '', t)
+    return t.strip()
 
 
 def get_serialize_code(param: dict, all_params: list[dict]) -> str:
@@ -154,6 +237,10 @@ def get_serialize_code(param: dict, all_params: list[dict]) -> str:
 
     # Handle special cases with external count/size parameters
     if kind == "raw_ptr":
+        # Check for explicit byte_size in the manifest
+        byte_size = param.get("byte_size", None)
+        if byte_size is not None:
+            return f'ser.write_raw(reinterpret_cast<const void*>({name}), {byte_size});'
         # Find the size parameter (usually named "size" or "dataSize")
         size_param = None
         for p in all_params:
@@ -161,21 +248,13 @@ def get_serialize_code(param: dict, all_params: list[dict]) -> str:
                 size_param = p["name"]
                 break
         if size_param:
-            return f'ser.write_raw({name}, {size_param});'
-        return f'ser.write_raw({name}, 0);  // raw pointer (unknown size)'
+            return f'ser.write_raw(reinterpret_cast<const void*>({name}), {size_param});'
+        # Fallback: look for a count param for arrays-of-structs
+        return f'ser.write_raw(reinterpret_cast<const void*>({name}), 0);  // raw pointer (unknown size)'
 
     if kind == "array":
-        count_param = None
-        # Find count: look for the NEAREST uint32_t value param preceding this one
-        param_idx = next((i for i, p in enumerate(all_params) if p["name"] == name), -1)
-        for j in range(param_idx - 1, -1, -1):
-            p = all_params[j]
-            if p.get("kind") == "value" and p["type"] == "uint32_t":
-                count_param = p["name"]
-                break
-        if not count_param:
-            count_param = name[1:] + 'Count' if name.startswith('p') else name + 'Count'
-        return f'ser.write_array({name}, {count_param});'
+        count_param = find_count_param(name, all_params)
+        return get_array_serialize_code(param, all_params)
 
     if kind == "handle":
         return f'ser.write_handle(reinterpret_cast<uint64_t>({name}));'
@@ -184,25 +263,75 @@ def get_serialize_code(param: dict, all_params: list[dict]) -> str:
         return f'ser.write_handle(reinterpret_cast<uint64_t>({name}));'
 
     if kind == "value":
-        # Check if it's a float type
+        # 64-bit integer types
+        if ptype in ("uint64_t", "VkDeviceSize", "VkDeviceAddress"):
+            return f'ser.write_u64(static_cast<uint64_t>({name}));'
+        # Float types
         if ptype in ("float", "VkFloat"):
             return f'ser.write_f32({name});'
         # VkBool32
         if ptype == "VkBool32":
             return f'ser.write_bool({name});'
-        # Default: uint32_t
+        # Default: 32-bit
         return f'ser.write_u32(static_cast<uint32_t>({name}));'
 
     if kind == "value_ptr":
+        # void** needs special handling (output pointer for mapped memory)
+        if "void**" in ptype or "void* " in ptype:
+            return f'ser.write_handle(reinterpret_cast<uint64_t>({name} ? *{name} : nullptr));'
         return f'ser.write_u32({name} ? *{name} : 0);'
 
     if kind == "struct_ptr":
+        # Check for complex structs that need custom serialization
+        core_type = get_pure_type(ptype)
+        if core_type in ("VkRenderPassBeginInfo", "VkRenderingInfo", "VkDependencyInfo",
+                         "VkPipelineViewportStateCreateInfo", "VkShaderModuleCreateInfo",
+                         "VkSemaphoreCreateInfo", "VkDescriptorUpdateTemplateCreateInfo"):
+            return f'serializer::write_{core_type}(ser, {name});'
         return f'ser.write_raw({name}, sizeof(*{name}));'
 
     if kind == "string":
         return f'ser.write_string({name});'
 
     return f'ser.write_raw(&{name}, sizeof({name}));  // fallback'
+
+
+def get_array_serialize_code(param: dict, all_params: list[dict]) -> str:
+    """Generate serializer code for array-type parameters (pointer + count)."""
+    name = param["name"]
+    ptype = param["type"]
+    core_type = get_pure_type(ptype)
+
+    # Complex struct arrays
+    complex_arrays = {
+        "VkGraphicsPipelineCreateInfo": "serializer::write_VkGraphicsPipelineCreateInfo",
+        "VkComputePipelineCreateInfo":  "serializer::write_VkComputePipelineCreateInfo",
+        "VkWriteDescriptorSet":         "serializer::write_VkWriteDescriptorSet",
+        "VkSubmitInfo":                 "serializer::write_VkSubmitInfo",
+        "VkSubmitInfo2":                "serializer::write_VkSubmitInfo2",
+    }
+
+    if core_type in complex_arrays:
+        fn = complex_arrays[core_type]
+        # Find the count parameter
+        count_name = find_count_param(name, all_params)
+        return f'{{ ser.write_u32({count_name}); for (uint32_t _i = 0; _i < {count_name}; _i++) {fn}(ser, &{name}[_i]); }}'
+
+    # Find count for regular array
+    count_name = find_count_param(name, all_params)
+    return f'ser.write_array({name}, {count_name});'
+
+
+def find_count_param(name: str, all_params: list[dict]) -> str:
+    """Find the uint32_t count parameter for an array."""
+    param_idx = next((i for i, p in enumerate(all_params) if p["name"] == name), -1)
+    for j in range(param_idx - 1, -1, -1):
+        p = all_params[j]
+        if p.get("kind") == "value" and p["type"] in ("uint32_t", "VkBool32"):
+            pn = p["name"].lower()
+            if "count" in pn or "size" in pn:
+                return p["name"]
+    return name[1:] + 'Count' if name.startswith('p') else name + 'Count'
 
 
 def generate(
@@ -214,6 +343,90 @@ def generate(
     if jinja2 is None:
         print("ERROR: jinja2 is required. Install with: pip install -r gen/requirements.txt", file=sys.stderr)
         sys.exit(1)
+
+    # Functions that have manual implementations in vk_intercept.cpp
+    # These are NOT auto-generated — they handle instance/device creation,
+    # physical device queries, enumeration, and other loader-critical operations.
+    manual_functions = {
+        # Instance / Device / Enum
+        "vkCreateInstance", "vkDestroyInstance",
+        "vkEnumeratePhysicalDevices",
+        "vkCreateDevice", "vkDestroyDevice",
+        "vkGetDeviceQueue", "vkGetDeviceQueue2",
+        "vkGetInstanceProcAddr", "vkGetDeviceProcAddr",
+        "vkEnumerateInstanceExtensionProperties",
+        "vkEnumerateDeviceExtensionProperties",
+        "vkEnumerateInstanceLayerProperties",
+        "vkEnumerateDeviceLayerProperties",
+        "vkEnumerateInstanceVersion",
+        "vkEnumeratePhysicalDeviceGroups",
+        # Physical device queries (1.0)
+        "vkGetPhysicalDeviceProperties",
+        "vkGetPhysicalDeviceProperties2",
+        "vkGetPhysicalDeviceFeatures",
+        "vkGetPhysicalDeviceFeatures2",
+        "vkGetPhysicalDeviceMemoryProperties",
+        "vkGetPhysicalDeviceMemoryProperties2",
+        "vkGetPhysicalDeviceQueueFamilyProperties",
+        "vkGetPhysicalDeviceQueueFamilyProperties2",
+        "vkGetPhysicalDeviceFormatProperties",
+        "vkGetPhysicalDeviceFormatProperties2",
+        "vkGetPhysicalDeviceImageFormatProperties",
+        "vkGetPhysicalDeviceImageFormatProperties2",
+        "vkGetPhysicalDeviceSparseImageFormatProperties",
+        "vkGetPhysicalDeviceSparseImageFormatProperties2",
+        # Physical device queries (1.1)
+        "vkGetPhysicalDeviceExternalBufferProperties",
+        "vkGetPhysicalDeviceExternalFenceProperties",
+        "vkGetPhysicalDeviceExternalSemaphoreProperties",
+        "vkGetPhysicalDeviceToolProperties",
+        "vkGetPhysicalDeviceToolPropertiesEXT",
+        # Device queries
+        "vkGetBufferMemoryRequirements",
+        "vkGetBufferMemoryRequirements2",
+        "vkGetImageMemoryRequirements",
+        "vkGetImageMemoryRequirements2",
+        "vkGetImageSparseMemoryRequirements",
+        "vkGetImageSparseMemoryRequirements2",
+        "vkGetDeviceMemoryCommitment",
+        "vkGetFenceStatus",
+        "vkGetEventStatus",
+        "vkGetRenderAreaGranularity",
+        "vkGetImageSubresourceLayout",
+        "vkGetQueryPoolResults",
+        "vkGetPipelineCacheData",
+        "vkGetDescriptorSetLayoutSupport",
+        "vkGetBufferDeviceAddress",
+        "vkGetBufferOpaqueCaptureAddress",
+        "vkGetDeviceMemoryOpaqueCaptureAddress",
+        # KHR surface
+        "vkGetPhysicalDeviceSurfaceSupportKHR",
+        "vkGetPhysicalDeviceSurfaceCapabilitiesKHR",
+        "vkGetPhysicalDeviceSurfaceFormatsKHR",
+        "vkGetPhysicalDeviceSurfacePresentModesKHR",
+        "vkGetPhysicalDevicePresentRectanglesKHR",
+        # KHR display
+        "vkGetPhysicalDeviceDisplayPropertiesKHR",
+        "vkGetPhysicalDeviceDisplayPlanePropertiesKHR",
+        "vkGetDisplayPlaneSupportedDisplaysKHR",
+        "vkGetDisplayModePropertiesKHR",
+        "vkGetDisplayPlaneCapabilitiesKHR",
+        "vkCreateDisplayModeKHR",
+        "vkCreateDisplayPlaneSurfaceKHR",
+        "vkDestroySurfaceKHR",
+        # Private data (1.3)
+        "vkGetPrivateData",
+        # Platform-specific (need VK_USE_PLATFORM_WIN32_KHR)
+        "vkCreateWin32SurfaceKHR",
+        "vkGetPhysicalDeviceWin32PresentationSupportKHR",
+        "vkCreateHeadlessSurfaceEXT",
+        "vkCreateMetalSurfaceEXT",
+        "vkCreateWaylandSurfaceKHR",
+        "vkCreateXcbSurfaceKHR",
+        "vkCreateXlibSurfaceKHR",
+        "vkCreateAndroidSurfaceKHR",
+    }
+    auto_functions = [f for f in functions if f["name"] not in manual_functions]
 
     def serialize_param(param, loop):
         return get_serialize_code(param, loop)
@@ -230,13 +443,13 @@ def generate(
     rendered = template.render(
         source=source,
         timestamp=datetime.now().isoformat(),
-        functions=functions,
+        functions=auto_functions,
     )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(rendered, encoding="utf-8")
 
-    print(f"Generated {output_path} with {len(functions)} intercepted functions")
+    print(f"Generated {output_path} with {len(auto_functions)} intercepted functions ({len(functions)} total, {len(functions)-len(auto_functions)} manual)")
 
 
 def parse_manifest(manifest_path: Path) -> list[dict[str, Any]]:

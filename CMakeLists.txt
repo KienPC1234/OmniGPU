@@ -28,6 +28,7 @@ option(OMNIGPU_BUILD_HOST "Build host server" ON)
 option(OMNIGPU_BUILD_GUEST "Build guest client" ON)
 option(OMNIGPU_FETCH_ZINK "Download Mesa Zink (OpenGL→Vulkan) for guest" OFF)
 option(OMNIGPU_FETCH_CLVK "Download clvk (OpenCL→Vulkan) for guest" OFF)
+option(OMNIGPU_USE_FFMPEG "Use FFmpeg for H.264/H.265/AV1 decoding" ON)
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
 
@@ -50,6 +51,28 @@ endif()
 
 if(OMNIGPU_BUILD_GUEST)
   add_subdirectory(src/guest)
+endif()
+
+add_subdirectory(src/launcher)
+
+# Vulkan compute test tool (standalone, uses system Vulkan loader)
+add_executable(omnigpu_vk_test src/tools/vk_compute_test.cpp)
+target_include_directories(omnigpu_vk_test PRIVATE ${VulkanHeaders_INCLUDE_DIRS})
+target_link_libraries(omnigpu_vk_test PRIVATE Vulkan::Headers Vulkan::Loader)
+if(WIN32)
+  target_link_libraries(omnigpu_vk_test PRIVATE ws2_32)
+endif()
+
+# Guest control CLI
+add_executable(omnigpu_guestctl src/tools/omnigpu_guestctl.cpp)
+if(WIN32)
+  target_compile_options(omnigpu_guestctl PRIVATE /EHsc)
+endif()
+
+# Guest control GUI (Win32, no Qt needed)
+add_executable(omnigpu_guestgui WIN32 src/tools/omnigpu_guestgui.cpp)
+if(WIN32)
+  target_link_libraries(omnigpu_guestgui PRIVATE user32 gdi32)
 endif()
 
 if(OMNIGPU_BUILD_TESTS)
