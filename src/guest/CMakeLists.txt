@@ -29,61 +29,15 @@ if(WIN32)
 endif()
 
 # Optional FFmpeg integration for H.264/H.265/AV1 decoding
-if(OMNIGPU_USE_FFMPEG)
-  set(FFMPEG_FOUND 0)
-
-  # Method 1: vcpkg / CMake config
-  find_package(FFmpeg QUIET COMPONENTS avcodec swscale avutil)
-  if(FFmpeg_FOUND)
-    target_compile_definitions(omnigpu_guest PRIVATE OMNIGPU_USE_FFMPEG=1)
-    target_sources(omnigpu_guest PRIVATE ffmpeg_decoder.cpp)
-    target_link_libraries(omnigpu_guest PRIVATE FFmpeg::avcodec FFmpeg::swscale FFmpeg::avutil)
-    message(STATUS "FFmpeg found (CMake): ${FFmpeg_VERSION}")
-    set(FFMPEG_FOUND 1)
-  endif()
-
-  # Method 2: pkg-config (Linux / manual install)
-  if(NOT FFMPEG_FOUND)
-    find_package(PkgConfig QUIET)
-    if(PkgConfig_FOUND)
-      pkg_check_modules(AVCODEC libavcodec)
-      pkg_check_modules(SWSCALE libswscale)
-      pkg_check_modules(AVUTIL libavutil)
-    endif()
-    if(AVCODEC_FOUND AND SWSCALE_FOUND AND AVUTIL_FOUND)
-      target_compile_definitions(omnigpu_guest PRIVATE OMNIGPU_USE_FFMPEG=1)
-      target_sources(omnigpu_guest PRIVATE ffmpeg_decoder.cpp)
-      target_include_directories(omnigpu_guest PRIVATE
-        ${AVCODEC_INCLUDE_DIRS} ${SWSCALE_INCLUDE_DIRS} ${AVUTIL_INCLUDE_DIRS})
-      target_link_libraries(omnigpu_guest PRIVATE
-        ${AVCODEC_LIBRARIES} ${SWSCALE_LIBRARIES} ${AVUTIL_LIBRARIES})
-      message(STATUS "FFmpeg found (pkg-config): AVCODEC=${AVCODEC_VERSION}")
-      set(FFMPEG_FOUND 1)
-    endif()
-  endif()
-
-  if(NOT FFMPEG_FOUND)
-    message(WARNING "OMNIGPU_USE_FFMPEG is ON but FFmpeg not found! "
-                    "Install: libavcodec-dev libswscale-dev libavutil-dev "
-                    "(Linux) or add ffmpeg to vcpkg (Windows). "
-                    "Falling back to built-in decoders.")
-  endif()
-
-  # Copy FFmpeg DLLs to output directory (Windows dynamic builds)
-  if(WIN32 AND FFMPEG_FOUND)
-    set(FFMPEG_DLL_DIR "${CMAKE_INSTALL_PREFIX}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/bin")
-    if(EXISTS "${FFMPEG_DLL_DIR}")
-      file(GLOB FFMPEG_DLLS "${FFMPEG_DLL_DIR}/avcodec*.dll"
-                            "${FFMPEG_DLL_DIR}/avutil*.dll"
-                            "${FFMPEG_DLL_DIR}/swscale*.dll")
-      foreach(DLL ${FFMPEG_DLLS})
-        add_custom_command(TARGET omnigpu_guest POST_BUILD
-          COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-            "${DLL}" "$<TARGET_FILE_DIR:omnigpu_guest>/"
-          COMMENT "Copying FFmpeg DLL: ${DLL}")
-      endforeach()
-    endif()
-  endif()
+if(OMNIGPU_BUILD_FFMPEG AND FFMPEG_FOUND)
+  target_compile_definitions(omnigpu_guest PRIVATE OMNIGPU_USE_FFMPEG=1)
+  target_sources(omnigpu_guest PRIVATE ffmpeg_decoder.cpp)
+  target_include_directories(omnigpu_guest PRIVATE ${FFMPEG_INC_DIR})
+  target_link_directories(omnigpu_guest PRIVATE ${FFMPEG_LIB_DIR})
+  target_link_libraries(omnigpu_guest PRIVATE avcodec.lib swscale.lib avutil.lib)
+  message(STATUS "FFmpeg: enabled for guest decoder")
+else()
+  message(STATUS "FFmpeg: disabled for guest — will fall back to built-in decoders")
 endif()
 
 # Standalone test client executable
@@ -122,13 +76,12 @@ if(WIN32)
   target_link_libraries(omnigpu_guest_test PRIVATE ws2_32)
   target_link_libraries(omnigpu_guest_test PRIVATE mfplat mfuuid mf ole32)
 endif()
-if(FFMPEG_FOUND)
+if(OMNIGPU_BUILD_FFMPEG AND FFMPEG_FOUND)
   target_compile_definitions(omnigpu_guest_test PRIVATE OMNIGPU_USE_FFMPEG=1)
   target_sources(omnigpu_guest_test PRIVATE ffmpeg_decoder.cpp)
-  target_include_directories(omnigpu_guest_test PRIVATE
-    ${AVCODEC_INCLUDE_DIRS} ${SWSCALE_INCLUDE_DIRS} ${AVUTIL_INCLUDE_DIRS})
-  target_link_libraries(omnigpu_guest_test PRIVATE
-    ${FFmpeg_LIBRARIES})
+  target_include_directories(omnigpu_guest_test PRIVATE ${FFMPEG_INC_DIR})
+  target_link_directories(omnigpu_guest_test PRIVATE ${FFMPEG_LIB_DIR})
+  target_link_libraries(omnigpu_guest_test PRIVATE avcodec.lib swscale.lib avutil.lib)
 endif()
 
 
@@ -188,13 +141,13 @@ if(DEFINED ZINK_DLL_X86 AND EXISTS "${ZINK_DLL_X86}")
 endif()
 
 if(DEFINED CLVK_DLL AND EXISTS "${CLVK_DLL}")
-  configure_file("${CLVK_DLL}" "${CMAKE_CURRENT_BINARY_DIR}/OpenCL.dll" COPYONLY)
-  install(FILES "${CLVK_DLL}" DESTINATION "${CMAKE_INSTALL_BINDIR}")
+  get_filename_component(CLVK_DLL_NAME "${CLVK_DLL}" NAME)
+  configure_file("${CLVK_DLL}" "${CMAKE_CURRENT_BINARY_DIR}/${CLVK_DLL_NAME}" COPYONLY)
   add_custom_command(TARGET omnigpu_guest POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy
-      "${CMAKE_CURRENT_BINARY_DIR}/OpenCL.dll"
-      "$<TARGET_FILE_DIR:omnigpu_guest>/OpenCL.dll"
-    COMMENT "Deploying clvk OpenCL.dll..."
+      "${CMAKE_CURRENT_BINARY_DIR}/${CLVK_DLL_NAME}"
+      "$<TARGET_FILE_DIR:omnigpu_guest>/${CLVK_DLL_NAME}"
+    COMMENT "Deploying clvk ${CLVK_DLL_NAME}..."
   )
 endif()
 

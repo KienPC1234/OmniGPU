@@ -1,0 +1,4 @@
+[submodule "third_party/clvk"]
+	path = third_party/clvk
+	url = https://github.com/kpet/clvk.git
+

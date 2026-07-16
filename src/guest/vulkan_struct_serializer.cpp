@@ -261,7 +261,6 @@ void write_VkWriteDescriptorSet(VulkanSerializer& ser, const VkWriteDescriptorSe
         if (info->pImageInfo)
             write_VkDescriptorImageInfo(ser, &info->pImageInfo[i]);
         else {
-            VkDescriptorImageInfo dummy{};
             ser.write_handle(0); ser.write_handle(0); ser.write_u32(0);
         }
     }

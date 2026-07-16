@@ -5,6 +5,8 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <unistd.h>
 #endif
 
 namespace omnigpu {
@@ -82,7 +84,8 @@ bool Client::send_data(const uint8_t* data, size_t size) {
         HANDLE pipe = reinterpret_cast<HANDLE>(static_cast<intptr_t>(ipc_pipe_handle_));
         return WriteFile(pipe, data, static_cast<DWORD>(size), &w, nullptr) && w == size;
 #else
-        return false;
+        ssize_t written = ::write(ipc_pipe_handle_, data, size);
+        return written == static_cast<ssize_t>(size);
 #endif
     }
     return tcp::send_all(socket_, data, size);
@@ -95,7 +98,13 @@ bool Client::receive_data(uint8_t* buffer, size_t size) {
         HANDLE pipe = reinterpret_cast<HANDLE>(static_cast<intptr_t>(ipc_pipe_handle_));
         return ReadFile(pipe, buffer, static_cast<DWORD>(size), &r, nullptr) && r == size;
 #else
-        return false;
+        size_t total = 0;
+        while (total < size) {
+            ssize_t r = ::read(ipc_pipe_handle_, buffer + total, size - total);
+            if (r <= 0) return false;
+            total += static_cast<size_t>(r);
+        }
+        return true;
 #endif
     }
     return tcp::recv_all(socket_, buffer, size);

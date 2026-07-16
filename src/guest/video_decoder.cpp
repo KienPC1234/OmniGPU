@@ -17,31 +17,6 @@
 namespace omnigpu::video {
 
 // ==========================================================================
-// Generic YUV420p → RGBA conversion (no swscale dependency)
-// ==========================================================================
-static void yuv420_to_rgba(const uint8_t* y, const uint8_t* u, const uint8_t* v,
-                            int w, int h, int stride_y, int stride_uv,
-                            std::vector<uint8_t>& rgba) {
-    rgba.resize(static_cast<size_t>(w) * h * 4);
-    for (int row = 0; row < h; row++) {
-        for (int col = 0; col < w; col++) {
-            int yi = y[row * stride_y + col];
-            int ui = u[(row / 2) * stride_uv + (col / 2)] - 128;
-            int vi = v[(row / 2) * stride_uv + (col / 2)] - 128;
-            int r = yi + (int)(1.402f * vi);
-            int g = yi - (int)(0.344f * ui) - (int)(0.714f * vi);
-            int b = yi + (int)(1.772f * ui);
-            auto clamp = [](int v) { return (uint8_t)std::max(0, std::min(255, v)); };
-            int idx = (row * w + col) * 4;
-            rgba[idx + 0] = clamp(r);
-            rgba[idx + 1] = clamp(g);
-            rgba[idx + 2] = clamp(b);
-            rgba[idx + 3] = 255;
-        }
-    }
-}
-
-// ==========================================================================
 // Win32 display window
 // ==========================================================================
 #ifdef _WIN32
@@ -342,7 +317,6 @@ bool MfH264Decoder::process_output() {
         if (out_data && out_len > 0) {
             int w = (int)frame_w_, h = (int)frame_h_;
             int y_size = w * h;
-            int uv_size = w * h / 4;
             auto y_plane = out_data;
             auto uv_plane = out_data + y_size;
 

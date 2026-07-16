@@ -5,8 +5,14 @@
 
 namespace omnigpu::ipc {
 
-// Named pipe name for daemon communication
-constexpr const char* kPipeName = "\\\\.\\pipe\\OmniGPU_Guest";
+// Named pipe / socket path for daemon communication
+#ifdef _WIN32
+constexpr const char* kPipeName   = "\\\\.\\pipe\\OmniGPU_Guest";
+#else
+// Unix Domain Socket — equivalent of Named Pipe on Linux/macOS.
+// Stored in /tmp so it is accessible by any user without root.
+constexpr const char* kSocketPath = "/tmp/omnigpu_guest.sock";
+#endif
 
 // IPC message types
 enum class IpcMessageType : uint32_t {

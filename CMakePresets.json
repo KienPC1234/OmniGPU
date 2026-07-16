@@ -12,7 +12,7 @@
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_TARGET_TRIPLET": "x64-windows-static-md",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CMAKE_LINKER": "lld-link",
+        "CMAKE_LINKER": "link.exe",
         "CMAKE_AR": "llvm-lib",
         "CMAKE_RANLIB": "llvm-ranlib"
       }
@@ -26,9 +26,7 @@
         "CMAKE_CXX_CLANG_TIDY": "",
         "VCPKG_TARGET_TRIPLET": "x86-windows-static-md",
         "CMAKE_C_FLAGS": "-m32",
-        "CMAKE_CXX_FLAGS": "-m32 /EHsc",
-        "OMNIGPU_FETCH_ZINK": "ON",
-        "OMNIGPU_FETCH_CLVK": "OFF"
+        "CMAKE_CXX_FLAGS": "-m32 /EHsc"
       }
     },
     {
@@ -38,9 +36,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_CXX_CLANG_TIDY": "",
-        "CMAKE_CXX_FLAGS": "/EHsc",
-        "OMNIGPU_FETCH_ZINK": "ON",
-        "OMNIGPU_FETCH_CLVK": "ON"
+        "CMAKE_CXX_FLAGS": "/EHsc"
       }
     },
     {
@@ -48,9 +44,7 @@
       "displayName": "Clang + Ninja (Debug)",
       "inherits": "default",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "OMNIGPU_FETCH_ZINK": "ON",
-        "OMNIGPU_FETCH_CLVK": "ON"
+        "CMAKE_BUILD_TYPE": "Debug"
       }
     },
     {
@@ -84,6 +78,10 @@
     {
       "name": "release-x86",
       "configurePreset": "release-x86"
+    },
+    {
+      "name": "linux",
+      "configurePreset": "linux"
     }
   ],
   "testPresets": [

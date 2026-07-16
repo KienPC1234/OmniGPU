@@ -8,32 +8,34 @@
 ┌──────────────────────────┐         TCP LAN              ┌───────────────────────────┐
 │        GUEST (VM)        │  ◄───────────────────────►   │        HOST (Server)      │
 │                          │  FlatBuffers · LZ4/TurboJPEG │                           │
-│  Application (game/ML)   │                              │  GPU Manager              │
-│    ↓ (intercepted)       │                              │    ├─ NVIDIA (NVENC)      │
-│  ┌─────────────────────┐ │                              │    ├─ AMD (AMF)           │
-│  │ Zink (OpenGL→Vulkan)│ │                              │    └─ Intel (VA-API)      │
-│  │ clvk (OpenCL→Vulkan)│ │                              │  Multi-GPU Split Renderer │
-│  └───────┬─────────────┘ │                              │  Resource Cache           │
-│          │ serialized    │                              │  Video Encoder            │
-│  ┌───────┴───────────┐   │                              └───────────────────────────┘
+│  Application (game/ML)   │                              │  FFmpeg (NVENC/AMF/VA-API)│
+│    ↓ (intercepted)       │                              │  GPU Manager              │
+│  ┌─────────────────────┐ │                              │  Multi-GPU Split Renderer │
+│  │ Zink (OpenGL→Vulkan)│ │                              │  Resource Cache           │
+│  │ clvk (OpenCL→Vulkan)│ │                              └───────────────────────────┘
+│  └───────┬─────────────┘ │
+│          │ serialized    │
+│  ┌───────┴───────────┐   │
+│  │ OmniGPU Guest DLL │───┤
+│  │ (Vulkan ICD)      │   │
+│  └───────────────────┘   │
 │  │ OmniGPU Guest DLL │───┤
 │  │ (Vulkan ICD)      │   │
 │  └───────────────────┘   │
 └──────────────────────────┘
 ```
 
-The **Guest** intercepts graphics/compute API calls via Zink (OpenGL→Vulkan) and clvk (OpenCL→Vulkan), serializes them with FlatBuffers, and ships them over TCP to the **Host**, which executes them on its physical GPU(s) and returns compressed framebuffer data (LZ4 / TurboJPEG / NVENC / AMF / VA-API).
+The **Guest** intercepts graphics/compute API calls via Zink (OpenGL→Vulkan) and clvk (OpenCL→Vulkan), serializes them with FlatBuffers, and ships them over TCP to the **Host**, which executes them on its physical GPU(s) and returns compressed framebuffer data — encoded via FFmpeg (NVENC/AMF/VA-API) or fallback JPEG.
 
 ## Features
 
 - **Multi-GPU Split Rendering** — Distribute rendering across multiple host GPUs. Each GPU renders a horizontal strip of the frame.
-- **Video Encoding** — Hardware-accelerated encoding via NVENC (NVIDIA), AMF (AMD), and VA-API (Intel). Falls back to TurboJPEG + LZ4.
+- **Video Encoding** — FFmpeg-powered encoding with hardware acceleration (NVENC / AMF / VA-API). Falls back to JPEG + LZ4.
 - **Zink (OpenGL→Vulkan)** — Mesa's Zink translation layer runs inside the guest, translating OpenGL calls to Vulkan before serialization.
 - **clvk (OpenCL→Vulkan)** — OpenCL-on-Vulkan translation for compute workloads.
 - **Adaptive Batching** — Commands are batched dynamically based on byte size and command count (`min_batch_bytes` / `max_batch_bytes`, `min_batch_commands` / `max_batch_commands`), with a max latency cap (`max_batch_interval_ms`).
 - **GPU Capability Caching** — GPU properties are queried once on first connection and cached locally (`cache_ttl_seconds`) to avoid repeated synchronous round-trips.
 - **Windows Service Mode** — The host can run as a Windows service (`--install` / `--uninstall` / `--service`).
-- **Guest Launcher** — `omnigpu_launcher.exe` deploys `opengl32.dll` (Zink), `OpenCL.dll` (clvk), and sets `VK_ICD_FILENAMES` automatically, then launches the target application.
 - **Cross-Platform** — Windows and Linux support for both host and guest.
 
 ## Requirements
@@ -43,7 +45,7 @@ The **Guest** intercepts graphics/compute API calls via Zink (OpenGL→Vulkan) a
 | Component | Requirement |
 |-----------|-------------|
 | OS | Windows 10+ or Linux |
-| GPU | NVIDIA (with NVENC), AMD (with AMF), or Intel (with VA-API) |
+| GPU | Any GPU with Vulkan support (NVENC/AMF/VA-API auto-detected via FFmpeg) |
 | Driver | Latest GPU driver with Vulkan support |
 | Vulkan SDK | [Vulkan SDK](https://vulkan.lunarg.com/) 1.3+ |
 | CMake | 3.28+ |
@@ -78,40 +80,19 @@ Output goes to `build/release/bin/`.
 | `OMNIGPU_BUILD_TESTS` | `ON` | Build test suite |
 | `OMNIGPU_BUILD_HOST` | `ON` | Build host server |
 | `OMNIGPU_BUILD_GUEST` | `ON` | Build guest client |
-| `OMNIGPU_FETCH_ZINK` | `OFF` | Download Mesa Zink (`opengl32.dll`) for the guest |
-| `OMNIGPU_FETCH_CLVK` | `OFF` | Download clvk (`OpenCL.dll`) for the guest |
+| `OMNIGPU_FETCH_MESA3D` | `OFF` | Download Mesa3D package for the guest |
 
-The `release` and `debug` presets enable both `OMNIGPU_FETCH_ZINK` and `OMNIGPU_FETCH_CLVK` by default.
+| `OMNIGPU_BUILD_FFMPEG` | `ON` | Download FFmpeg pre-built with HW acceleration (NVENC/AMF/QSV) |
 
-### Building with Zink
+### Mesa3D (OpenGL support)
 
-Zink is auto-fetched in the `release` / `debug` presets. To enable manually:
+Mesa3D (Zink OpenGL→Vulkan) is auto-downloaded when `OMNIGPU_FETCH_MESA3D=ON` (default).
+Includes `opengl32.dll` (Zink) and `libgallium_wgl.dll` (OpenGL compatibility).
 
-```powershell
-cmake --preset release -DOMNIGPU_FETCH_ZINK=ON
-cmake --build --preset release
-```
+### clvk (OpenCL support)
 
-### Building with clvk
-
-clvk requires building clvk first (it is not pre-built). On Windows:
-
-```powershell
-scripts\windows\build_clvk.bat
-```
-
-Then configure with:
-
-```powershell
-cmake --preset release -DOMNIGPU_FETCH_CLVK=ON
-cmake --build --preset release
-```
-
-On Linux:
-
-```bash
-./scripts/linux/build_clvk.sh
-```
+clvk translates OpenCL to Vulkan. Place the built `OpenCL.dll` in `third_party/clvk-bin/`
+and CMake automatically enables OpenCL forwarding. No build option needed.
 
 ### Linux
 
@@ -157,20 +138,11 @@ Copy these files from `build/release/bin/` to the VM:
 |------|---------|
 | `omnigpu_guest.dll` | Vulkan ICD driver (intercepts Vulkan calls) |
 | `vk_icd.json` | Vulkan ICD manifest pointing to `omnigpu_guest.dll` |
-| `opengl32.dll` | Mesa Zink (OpenGL→Vulkan) — only if `OMNIGPU_FETCH_ZINK=ON` |
-| `OpenCL.dll` | clvk (OpenCL→Vulkan) — only if `OMNIGPU_FETCH_CLVK=ON` |
-| `omnigpu_launcher.exe` | Optional: launcher that auto-deploys layers and launches apps |
+| `opengl32.dll` | Mesa Zink (OpenGL→Vulkan) — only if `OMNIGPU_FETCH_MESA3D=ON` |
+| `OpenCL.dll` | clvk (OpenCL→Vulkan) — only if built and present |
 | `omnigpu_guest.json` | Guest configuration file (optional, uses defaults if absent) |
 
 ### 4. Run an Application on the Guest
-
-**Via launcher (recommended):**
-
-```powershell
-.\omnigpu_launcher.exe your_app.exe
-```
-
-The launcher copies `opengl32.dll` / `OpenCL.dll` next to the game, sets `VK_ICD_FILENAMES`, and launches it.
 
 **Manually:**
 
@@ -226,7 +198,7 @@ The **guest is NOT a background service or daemon**. It is a **Vulkan Installabl
 
 | Method | Mechanism | Use Case |
 |--------|-----------|----------|
-| **Launcher** (`omnigpu_launcher.exe`) | Sets `VK_ICD_FILENAMES`, copies Zink/clvk, launches app | Per-application — no system-wide changes |
+
 | **System-wide (Windows)** | Register `vk_icd.json` in registry | All Vulkan apps auto-use OmniGPU |
 | **System-wide (Linux)** | Copy ICD manifest to `/usr/share/vulkan/icd.d/` | All Vulkan apps auto-use OmniGPU |
 
@@ -274,30 +246,14 @@ Place next to `omnigpu_host.exe` or pass as CLI argument (e.g. `omnigpu_host.exe
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `video_codec` | `"h264"` | Codec for hardware video encoding. Supported: `"h264"`, `"hevc"`. |
+| `video_codec` | `"h264"` | Codec for video encoding via FFmpeg. Supported: `"h264"`, `"hevc"`. |
 | `video_bitrate_kbps` | `4000` | Target bitrate in kbps (e.g. `8000` = 8 Mbps). Higher = better quality, more bandwidth. |
 | `video_fps` | `60` | Target frames per second for encoding |
 | `video_width` | `800` | Video encoding width in pixels (should match `render_width`) |
 | `video_height` | `600` | Video encoding height in pixels (should match `render_height`) |
-
-#### NVENC-Specific Settings
-
-These apply only when the host GPU is NVIDIA and NVENC is selected as the video encoder.
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `nvenc.preset` | `"p1"` | Encoder preset — controls encoding speed vs. compression efficiency. Valid values: `"p1"` (fastest, lowest compression) through `"p7"` (slowest, best compression). `"p1"` is recommended for real-time streaming. |
-| `nvenc.tuning` | `"low_latency"` | Tuning profile optimizes for the use case. Valid values: `"high_quality"`, `"low_latency"`, `"ultra_low_latency"`, `"lossless"`, `"ultra_high_quality"`. |
-| `nvenc.gop_length` | `0` | Group of Pictures length (number of frames between keyframes). `0` = infinite (only one keyframe at the start, subsequent frames are P-frames). Set to `30` for a 0.5s keyframe interval at 60 FPS. |
-
-**Preset vs. Tuning guide:**
-
-| Use Case | Preset | Tuning |
-|----------|--------|--------|
-| Real-time game streaming | `p1` | `low_latency` |
-| Low-bandwidth streaming | `p4` | `low_latency` |
-| Recording/local archive | `p7` | `high_quality` |
-| Lossless capture | `p1` | `lossless` |
+| `nvenc.preset` | `"p1"` | NVENC-specific: encoder preset (`"p1"` fastest — `"p7"` best compression). Ignored on non-NVIDIA GPUs. |
+| `nvenc.tuning` | `"low_latency"` | NVENC-specific: tuning profile (`"high_quality"`, `"low_latency"`, `"ultra_low_latency"`, `"lossless"`, `"ultra_high_quality"`). Ignored on non-NVIDIA GPUs. |
+| `nvenc.gop_length` | `0` | NVENC-specific: GOP length. `0` = infinite (keyframe only at start). Ignored on non-NVIDIA GPUs. |
 
 ### Guest (`omnigpu_guest.json`)
 
@@ -380,17 +336,17 @@ OmniGPU/
 │   │   ├── loader               # Shared library loader
 │   │   ├── resource_tracker     # Guest-side resource tracking
 │   │   └── video_decoder        # Decode compressed frames
-│   └── launcher/                # Guest application launcher
-│       └── launcher.cpp         # Deploys Zink/clvk, sets env, launches app
+
 ├── scripts/
 │   ├── windows/                 # Windows automation scripts
 │   └── linux/                   # Linux automation scripts
 ├── tools/
 │   └── windows/
 │       └── OmniGPU-Manager.ps1  # GUI manager
-├── third_party/                 # Third-party fetch scripts
-│   ├── fetch_zink.py            # Downloads Mesa Zink binaries
-│   └── fetch_clvk.py            # Downloads clvk binaries
+├── third_party/                 # Third-party dependencies
+│   ├── fetch_mesa3d.py          # Downloads Mesa3D binaries (Zink)
+│   ├── mesa3d/                  # Mesa3D runtime (downloaded)
+│   └── clvk/                    # clvk submodule (OpenCL→Vulkan)
 ├── gen/                         # Code generation
 │   ├── generate.py              # Generates vk_intercept_gen.cpp from Vulkan XML
 │   └── vulkan_api.json          # Vulkan API registry data
@@ -423,16 +379,15 @@ clvk requires a recent Clang and the OpenCL headers. On Windows, run `scripts\wi
 
 ### Zink / OpenGL apps not working
 
-- Ensure `opengl32.dll` is deployed next to the application (the launcher does this automatically).
+- Ensure `opengl32.dll` is deployed next to the application.
 - Verify `zink_enabled: true` in `omnigpu_guest.json`.
 - Check the guest log for "Zink initialized" messages.
 
 ### Performance is poor
 
 - Reduce `jpeg_quality` (lower = faster but lower quality).
-- Enable hardware video encoding (NVENC/AMF/VA-API) if available on the host GPU.
+- Switch to a video codec (`video_codec: "h264"`) for better quality at lower bitrates.
 - Adjust `max_batch_interval_ms` — lower values reduce latency, higher values improve throughput.
-- Ensure `TCP_NODELAY` is enabled (enabled by default).
 - Use a wired LAN connection if on WiFi.
 - Check `max_fps` — lower values reduce GPU load.
 

@@ -185,7 +185,7 @@ if (Test-Path $clvkDll) {
     $size = (Get-Item $clvkDll).Length / 1MB
     Write-Host "  [OK] clvk (OpenCL.dll, $([math]::Round($size, 1)) MB)" -ForegroundColor Green
 } else {
-    Write-Host "  [WARN] clvk (OpenCL.dll) missing - run scripts/build_clvk_windows.bat" -ForegroundColor Yellow
+    Write-Host "  [WARN] clvk (OpenCL.dll) missing - run scripts/windows/build_clvk.bat" -ForegroundColor Yellow
     $warnings++
 }
 

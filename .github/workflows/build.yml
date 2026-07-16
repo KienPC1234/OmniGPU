@@ -34,7 +34,7 @@ jobs:
 
       - name: Install LLVM/Clang
         run: |
-          choco install llvm --version=19.1.7 -y --no-progress
+          choco install llvm -y --no-progress
           echo "C:\Program Files\LLVM\bin" | Out-File -Append $env:GITHUB_PATH
 
       - name: Install Ninja
@@ -45,10 +45,9 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Fetch translation layers (Zink, clvk)
+      - name: Fetch translation layers (Mesa3D)
         run: |
-          python third_party/fetch_zink.py --output-dir third_party/zink || echo "Zink fetch skipped"
-          python third_party/fetch_clvk.py --output-dir third_party/clvk || echo "clvk fetch skipped"
+          python third_party/fetch_mesa3d.py --output-dir third_party/mesa3d || echo "Mesa3D fetch skipped"
 
       - name: Generate intercept stubs
         run: python gen/generate.py --manifest gen/vulkan_api.json --output src/guest/vk_intercept_gen.cpp
@@ -60,7 +59,7 @@ jobs:
           cmake --version
 
       - name: Configure CMake (${{ matrix.preset }})
-        run: cmake --preset ${{ matrix.preset }} -DOMNIGPU_FETCH_ZINK=ON -DOMNIGPU_FETCH_CLVK=ON
+        run: cmake --preset ${{ matrix.preset }} -DOMNIGPU_FETCH_MESA3D=ON
 
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
@@ -74,11 +73,31 @@ jobs:
           $binDir = "build/${{ matrix.preset }}/bin"
           $pkgDir = "omnigpu-windows-${{ matrix.preset }}"
           New-Item -ItemType Directory -Path $pkgDir -Force
+          New-Item -ItemType Directory -Path "$pkgDir/scripts" -Force
+          New-Item -ItemType Directory -Path "$pkgDir/docs" -Force
 
-          # Core binaries
-          Copy-Item "$binDir/omnigpu_guest.dll" $pkgDir/
-          Copy-Item "$binDir/omnigpu_host.exe" $pkgDir/
-          Copy-Item "$binDir/vk_icd.json" $pkgDir/
+          # Copy all executable binaries
+          $binaries = @(
+            "omnigpu_guest.dll",
+            "omnigpu_host.exe",
+            "omnigpu_guestd.exe",
+            "omnigpu_vk_test.exe",
+            "vk_icd.json"
+          )
+          foreach ($bin in $binaries) {
+            if (Test-Path "$binDir/$bin") {
+              Copy-Item "$binDir/$bin" $pkgDir/
+            }
+          }
+
+          # Copy scripts
+          Copy-Item "scripts/windows/quick-install.ps1" "$pkgDir/scripts/" -ErrorAction SilentlyContinue
+          Copy-Item "scripts/windows/install_guest.ps1" "$pkgDir/scripts/" -ErrorAction SilentlyContinue
+
+          # Copy configs & docs
+          Copy-Item "omnigpu_guest.json" $pkgDir/ -ErrorAction SilentlyContinue
+          Copy-Item "README.md" "$pkgDir/docs/" -ErrorAction SilentlyContinue
+          Copy-Item "AGENTS.md" "$pkgDir/docs/" -ErrorAction SilentlyContinue
 
           # Translation layers (if fetched)
           if (Test-Path "third_party/zink/opengl32.dll") {
@@ -136,11 +155,8 @@ jobs:
       - name: Generate intercept stubs
         run: python gen/generate.py --manifest gen/vulkan_api.json --output src/guest/vk_intercept_gen.cpp
 
-      - name: Fetch translation layers (clvk)
-        run: python third_party/fetch_clvk.py --output-dir third_party/clvk || echo "clvk fetch skipped"
-
       - name: Configure CMake (${{ matrix.preset }})
-        run: cmake --preset ${{ matrix.preset }} -DOMNIGPU_FETCH_ZINK=OFF -DOMNIGPU_FETCH_CLVK=ON
+        run: cmake --preset ${{ matrix.preset }} -DOMNIGPU_FETCH_MESA3D=OFF
 
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
@@ -151,15 +167,32 @@ jobs:
       - name: Package Linux artifacts
         run: |
           pkgDir="omnigpu-linux-${{ matrix.preset }}"
-          mkdir -p $pkgDir
+          mkdir -p "$pkgDir"
+          mkdir -p "$pkgDir/scripts"
+          mkdir -p "$pkgDir/docs"
 
-          cp build/${{ matrix.preset }}/bin/omnigpu_guest.so $pkgDir/ 2>/dev/null || true
-          cp build/${{ matrix.preset }}/bin/omnigpu_host    $pkgDir/ 2>/dev/null || true
-          cp build/${{ matrix.preset }}/lib/*.so $pkgDir/ 2>/dev/null || true
-          cp src/guest/vk_icd.json $pkgDir/
-          cp third_party/clvk/*.so* $pkgDir/ 2>/dev/null || true
+          # Core binaries
+          cp build/${{ matrix.preset }}/bin/omnigpu_guest.so "$pkgDir/" 2>/dev/null || true
+          cp build/${{ matrix.preset }}/bin/omnigpu_host    "$pkgDir/" 2>/dev/null || true
+          cp build/${{ matrix.preset }}/bin/omnigpu_guestd   "$pkgDir/" 2>/dev/null || true
+          cp build/${{ matrix.preset }}/bin/omnigpu_guest_test "$pkgDir/" 2>/dev/null || true
+          cp build/${{ matrix.preset }}/bin/omnigpu_vk_test "$pkgDir/" 2>/dev/null || true
+          cp src/guest/vk_icd.json "$pkgDir/"
 
-          tar czf "$pkgDir.tar.gz" $pkgDir/
+          # Scripts and configs
+          cp scripts/linux/install_guest.sh "$pkgDir/scripts/" 2>/dev/null || true
+          cp scripts/linux/diagnose.sh "$pkgDir/scripts/" 2>/dev/null || true
+          cp omnigpu_guest.json "$pkgDir/" 2>/dev/null || true
+
+          # Docs
+          cp README.md "$pkgDir/docs/" 2>/dev/null || true
+          cp AGENTS.md "$pkgDir/docs/" 2>/dev/null || true
+
+          # Translation layers & libraries
+          cp build/${{ matrix.preset }}/lib/*.so "$pkgDir/" 2>/dev/null || true
+          cp third_party/clvk/*.so* "$pkgDir/" 2>/dev/null || true
+
+          tar czf "$pkgDir.tar.gz" "$pkgDir/"
           echo "Packaged: $pkgDir.tar.gz"
 
       - name: Upload build artifacts

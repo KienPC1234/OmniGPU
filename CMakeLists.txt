@@ -1,5 +1,16 @@
 cmake_minimum_required(VERSION 3.28)
 
+# Auto-discover vcpkg toolchain if not explicitly specified
+if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+  if(DEFINED ENV{VCPKG_ROOT})
+    set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+    message(STATUS "Auto-detected vcpkg toolchain from VCPKG_ROOT: ${CMAKE_TOOLCHAIN_FILE}")
+  elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake")
+    set(CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
+    message(STATUS "Auto-detected local vcpkg toolchain: ${CMAKE_TOOLCHAIN_FILE}")
+  endif()
+endif()
+
 project(OmniGPU
   VERSION 0.1.0
   DESCRIPTION "Seamless Vulkan API Forwarding over LAN"
@@ -23,12 +34,19 @@ if(NOT DEFINED CMAKE_CXX_CLANG_TIDY)
   endif()
 endif()
 
+# Warning flags — ensure all warnings are visible
+if(MSVC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(/W3)
+else()
+  add_compile_options(-Wall -Wextra)
+endif()
+
 option(OMNIGPU_BUILD_TESTS "Build tests" ON)
 option(OMNIGPU_BUILD_HOST "Build host server" ON)
 option(OMNIGPU_BUILD_GUEST "Build guest client" ON)
-option(OMNIGPU_FETCH_ZINK "Download Mesa Zink (OpenGL→Vulkan) for guest" OFF)
-option(OMNIGPU_FETCH_CLVK "Download clvk (OpenCL→Vulkan) for guest" OFF)
-option(OMNIGPU_USE_FFMPEG "Use FFmpeg for H.264/H.265/AV1 decoding" ON)
+option(OMNIGPU_FETCH_MESA3D "Download Mesa3D (OpenGL→Vulkan) for guest" ON)
+option(OMNIGPU_BUILD_FFMPEG "Download FFmpeg pre-built with HW acceleration" ON)
+
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
 
@@ -42,18 +60,36 @@ find_package(VulkanHeaders CONFIG REQUIRED)
 find_package(VulkanLoader CONFIG REQUIRED)
 find_package(lz4 CONFIG REQUIRED)
 find_package(libjpeg-turbo CONFIG REQUIRED)
+find_package(Threads REQUIRED)
 
 add_subdirectory(src/common)
 
 if(OMNIGPU_BUILD_HOST)
   add_subdirectory(src/host)
+  if(OMNIGPU_BUILD_FFMPEG)
+    if(TARGET omnigpu_fetch_ffmpeg)
+      add_dependencies(omnigpu_host omnigpu_fetch_ffmpeg)
+    endif()
+    if(TARGET omnigpu_copy_ffmpeg_dlls)
+      add_dependencies(omnigpu_host omnigpu_copy_ffmpeg_dlls)
+    endif()
+  endif()
 endif()
 
 if(OMNIGPU_BUILD_GUEST)
   add_subdirectory(src/guest)
+  if(OMNIGPU_FETCH_MESA3D AND TARGET omnigpu_fetch_mesa3d AND NOT MESA3D_AVAILABLE)
+    add_dependencies(omnigpu_guest omnigpu_fetch_mesa3d)
+  endif()
+  if(OMNIGPU_BUILD_FFMPEG)
+    if(TARGET omnigpu_fetch_ffmpeg)
+      add_dependencies(omnigpu_guest omnigpu_fetch_ffmpeg)
+    endif()
+    if(TARGET omnigpu_copy_ffmpeg_dlls)
+      add_dependencies(omnigpu_guest omnigpu_copy_ffmpeg_dlls)
+    endif()
+  endif()
 endif()
-
-add_subdirectory(src/launcher)
 
 # Vulkan compute test tool (standalone, uses system Vulkan loader)
 add_executable(omnigpu_vk_test src/tools/vk_compute_test.cpp)
@@ -61,18 +97,6 @@ target_include_directories(omnigpu_vk_test PRIVATE ${VulkanHeaders_INCLUDE_DIRS}
 target_link_libraries(omnigpu_vk_test PRIVATE Vulkan::Headers Vulkan::Loader)
 if(WIN32)
   target_link_libraries(omnigpu_vk_test PRIVATE ws2_32)
-endif()
-
-# Guest control CLI
-add_executable(omnigpu_guestctl src/tools/omnigpu_guestctl.cpp)
-if(WIN32)
-  target_compile_options(omnigpu_guestctl PRIVATE /EHsc)
-endif()
-
-# Guest control GUI (Win32, no Qt needed)
-add_executable(omnigpu_guestgui WIN32 src/tools/omnigpu_guestgui.cpp)
-if(WIN32)
-  target_link_libraries(omnigpu_guestgui PRIVATE user32 gdi32)
 endif()
 
 if(OMNIGPU_BUILD_TESTS)

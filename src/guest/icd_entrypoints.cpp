@@ -1,5 +1,3 @@
-#define _CRT_SECURE_NO_WARNINGS
-
 #include "vk_intercept.h"
 #include "guest_init.h"
 #include <spdlog/spdlog.h>

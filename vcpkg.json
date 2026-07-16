@@ -2,7 +2,7 @@
   "name": "omnigpu",
   "version": "0.1.0",
   "description": "Seamless Vulkan API Forwarding over LAN",
-  "homepage": "https://github.com/kien/OmniGPU",
+  "homepage": "https://github.com/KienPC1234/OmniGPU",
   "dependencies": [
     "vulkan-headers",
     "vulkan-loader",

@@ -1,5 +1,3 @@
-#define _CRT_SECURE_NO_WARNINGS
-
 #include "icd_registry.h"
 #include <cstdio>
 #include <spdlog/spdlog.h>
@@ -214,8 +212,6 @@ bool register_vulkan_driver_name(const char* manifest_path_64,
     char guid[MAX_PATH] = {};
     DWORD guid_size = sizeof(guid);
     int idx = 0;
-    bool found = false;
-
     while (RegEnumKeyExA(hkBase, idx, guid, &guid_size, nullptr, nullptr,
                           nullptr, nullptr) == ERROR_SUCCESS) {
         // Check for Video subkey

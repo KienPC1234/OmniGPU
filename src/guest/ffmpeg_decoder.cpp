@@ -86,7 +86,6 @@ void FFmpegVideoDecoder::shutdown() {
     if (impl_->frame) { av_frame_free(&impl_->frame); }
     if (impl_->sw_frame) { av_frame_free(&impl_->sw_frame); }
     if (impl_->ctx) {
-        avcodec_close(impl_->ctx);
         avcodec_free_context(&impl_->ctx);
     }
     if (impl_->hw_device_ctx) { av_buffer_unref(&impl_->hw_device_ctx); }
@@ -166,7 +165,6 @@ bool FFmpegVideoDecoder::decode(Codec codec, bool is_keyframe,
     // Re-init on codec change
     if (!impl_->ctx || new_id != impl_->av_codec_id) {
         if (impl_->ctx) {
-            avcodec_close(impl_->ctx);
             avcodec_free_context(&impl_->ctx);
         }
         impl_->av_codec_id = new_id;
@@ -255,8 +253,9 @@ bool FFmpegVideoDecoder::decode(Codec codec, bool is_keyframe,
         int w = src->width;
         int h = src->height;
 
-        impl_->sws = sws_getCachedContext(impl_->sws,
-            w, h, src->format,
+        if (impl_->sws) { sws_freeContext(impl_->sws); impl_->sws = nullptr; }
+        impl_->sws = sws_getContext(
+            w, h, static_cast<AVPixelFormat>(src->format),
             w, h, AV_PIX_FMT_RGBA,
             SWS_BILINEAR, nullptr, nullptr, nullptr);
 

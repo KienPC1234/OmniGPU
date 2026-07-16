@@ -32,7 +32,6 @@ public:
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
-    bool initialized_ = false;
 };
 
 #endif // OMNIGPU_USE_FFMPEG

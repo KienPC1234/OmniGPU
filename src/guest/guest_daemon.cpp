@@ -1,12 +1,15 @@
-#define _CRT_SECURE_NO_WARNINGS
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <winsock2.h>
 #include <windows.h>
 #include <winsvc.h>
+#endif
 
 #include "common/logger.h"
 #include "common/network_utils.h"
 #include "guest_ipc.h"
+#include "guest_config.h"
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -19,6 +22,7 @@
 
 using namespace omnigpu;
 
+#ifdef _WIN32
 static std::atomic<bool> g_running{false};
 static std::string g_host = "127.0.0.1";
 static uint16_t g_port = 9443;
@@ -186,9 +190,9 @@ static void WINAPI service_main(DWORD, LPSTR*) {
     update_service_status(SERVICE_START_PENDING, NO_ERROR, 5000);
 
     // Read config
-    char env_buf[256] = {};
-    if (GetEnvironmentVariableA("OMNIGPU_HOST", env_buf, sizeof(env_buf)) && env_buf[0]) g_host = env_buf;
-    if (GetEnvironmentVariableA("OMNIGPU_PORT", env_buf, sizeof(env_buf)) && env_buf[0]) g_port = (uint16_t)std::atoi(env_buf);
+    auto cfg = config::load();
+    g_host = cfg.host;
+    g_port = cfg.port;
 
     g_running = true;
 
@@ -283,10 +287,10 @@ static bool uninstall_service() {
 int main(int argc, char* argv[]) {
     omnigpu::init_logger();
 
-    // Read config from env
-    char env_buf[256] = {};
-    if (GetEnvironmentVariableA("OMNIGPU_HOST", env_buf, sizeof(env_buf)) && env_buf[0]) g_host = env_buf;
-    if (GetEnvironmentVariableA("OMNIGPU_PORT", env_buf, sizeof(env_buf)) && env_buf[0]) g_port = (uint16_t)std::atoi(env_buf);
+    // Read config from json (env vars override inside config::load)
+    auto cfg = config::load();
+    g_host = cfg.host;
+    g_port = cfg.port;
 
     if (argc > 1 && strcmp(argv[1], "--status") == 0) {
         BOOL exists = WaitNamedPipeA(ipc::kPipeName, 0);
@@ -359,3 +363,185 @@ int main(int argc, char* argv[]) {
     }
     return 0;
 }
+#else
+// =========================================================================
+// Linux / macOS daemon — Unix Domain Socket server
+// Equivalent of Windows Named Pipe server above.
+// Socket path: /tmp/omnigpu_guest.sock
+// =========================================================================
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <signal.h>
+#include <cerrno>
+#include <csignal>
+
+using namespace omnigpu;
+
+static std::atomic<bool> g_running{false};
+static std::string g_host = "127.0.0.1";
+static uint16_t g_port = 9443;
+
+// Bridge one Unix socket client fd ↔ one TCP connection to Host
+static void client_thread_func(int client_fd) {
+    SPDLOG_INFO("Client connected via unix socket, connecting to host {}:{}", g_host, g_port);
+
+    int tcp_fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (tcp_fd < 0) {
+        SPDLOG_ERROR("Failed to create TCP socket: {}", strerror(errno));
+        ::close(client_fd);
+        return;
+    }
+
+    struct sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port   = htons(g_port);
+    if (::inet_pton(AF_INET, g_host.c_str(), &addr.sin_addr) != 1) {
+        SPDLOG_ERROR("Invalid host address: {}", g_host);
+        ::close(tcp_fd);
+        ::close(client_fd);
+        return;
+    }
+
+    if (::connect(tcp_fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
+        SPDLOG_ERROR("Failed to connect to host {}:{} — {}", g_host, g_port, strerror(errno));
+        ::close(tcp_fd);
+        ::close(client_fd);
+        return;
+    }
+
+    tcp::set_tcp_nodelay(tcp_fd);
+    SPDLOG_INFO("Daemon bridging unix socket ↔ TCP {}:{}", g_host, g_port);
+
+    // Thread: TCP → Unix socket
+    std::thread tcp_to_uds([client_fd, tcp_fd]() {
+        std::vector<uint8_t> buf(65536);
+        while (g_running) {
+            ssize_t r = ::recv(tcp_fd, buf.data(), buf.size(), 0);
+            if (r <= 0) break;
+            if (::write(client_fd, buf.data(), static_cast<size_t>(r)) < 0) break;
+        }
+        ::shutdown(client_fd, SHUT_WR);
+    });
+
+    // Main: Unix socket → TCP
+    std::vector<uint8_t> buf(65536);
+    while (g_running) {
+        ssize_t r = ::read(client_fd, buf.data(), buf.size());
+        if (r <= 0) break;
+        if (!tcp::send_all(tcp_fd, buf.data(), static_cast<size_t>(r))) break;
+    }
+
+    ::close(tcp_fd);
+    if (tcp_to_uds.joinable()) tcp_to_uds.join();
+    ::close(client_fd);
+    SPDLOG_INFO("Client disconnected, closed unix socket and TCP connection");
+}
+
+static void unix_socket_server_func() {
+    // Remove stale socket file if it exists
+    ::unlink(ipc::kSocketPath);
+
+    int server_fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    if (server_fd < 0) {
+        SPDLOG_ERROR("Failed to create unix server socket: {}", strerror(errno));
+        return;
+    }
+
+    struct sockaddr_un addr{};
+    addr.sun_family = AF_UNIX;
+    ::strncpy(addr.sun_path, ipc::kSocketPath, sizeof(addr.sun_path) - 1);
+
+    if (::bind(server_fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
+        SPDLOG_ERROR("Failed to bind unix socket {}: {}", ipc::kSocketPath, strerror(errno));
+        ::close(server_fd);
+        return;
+    }
+
+    // Allow any local user to connect (same as Windows open DACL)
+    ::chmod(ipc::kSocketPath, 0777);
+
+    if (::listen(server_fd, 16) < 0) {
+        SPDLOG_ERROR("Failed to listen on unix socket: {}", strerror(errno));
+        ::close(server_fd);
+        ::unlink(ipc::kSocketPath);
+        return;
+    }
+
+    SPDLOG_INFO("Unix socket server listening at {}", ipc::kSocketPath);
+
+    while (g_running) {
+        int client_fd = ::accept(server_fd, nullptr, nullptr);
+        if (client_fd < 0) {
+            if (errno == EINTR || errno == ECONNABORTED) continue;
+            if (g_running) SPDLOG_ERROR("accept() failed: {}", strerror(errno));
+            break;
+        }
+        std::thread t(client_thread_func, client_fd);
+        t.detach();
+    }
+
+    ::close(server_fd);
+    ::unlink(ipc::kSocketPath);
+    SPDLOG_INFO("Unix socket server stopped");
+}
+
+int main(int argc, char* argv[]) {
+    omnigpu::init_logger();
+
+    auto cfg = config::load();
+    g_host = cfg.host;
+    g_port = cfg.port;
+
+    if (argc > 1 && strcmp(argv[1], "--status") == 0) {
+        // Try to connect briefly to detect if daemon is running
+        int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+        struct sockaddr_un addr{};
+        addr.sun_family = AF_UNIX;
+        ::strncpy(addr.sun_path, ipc::kSocketPath, sizeof(addr.sun_path) - 1);
+        bool running = (fd >= 0 && ::connect(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == 0);
+        if (fd >= 0) ::close(fd);
+        printf(running ? "RUNNING\n" : "NOT RUNNING\n");
+        return 0;
+    }
+
+    if (argc > 1 && strcmp(argv[1], "--stop") == 0) {
+        // Signal the daemon to stop by removing the socket file
+        system("pkill -f omnigpu_guestd 2>/dev/null");
+        printf("STOPPED\n");
+        return 0;
+    }
+
+    if (argc > 1 && strcmp(argv[1], "--foreground") == 0) {
+        printf("OmniGPU daemon (foreground) host=%s:%d\n", g_host.c_str(), g_port);
+        signal(SIGTERM, [](int) { g_running = false; });
+        signal(SIGINT,  [](int) { g_running = false; });
+        g_running = true;
+        unix_socket_server_func();
+        return 0;
+    }
+
+    // Default: daemonize and run in background
+    pid_t pid = fork();
+    if (pid < 0) {
+        fprintf(stderr, "fork() failed: %s\n", strerror(errno));
+        return 1;
+    }
+    if (pid > 0) {
+        // Parent: print PID and exit
+        printf("OmniGPU daemon started (PID %d)\n", pid);
+        return 0;
+    }
+
+    // Child: run as background daemon
+    setsid();
+    signal(SIGTERM, [](int) { g_running = false; });
+    signal(SIGINT,  [](int) { g_running = false; });
+    g_running = true;
+    unix_socket_server_func();
+    return 0;
+}
+
+#endif
+

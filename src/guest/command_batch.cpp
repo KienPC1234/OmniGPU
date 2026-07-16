@@ -40,14 +40,12 @@ void CommandBatch::append_raw(const uint8_t* data, size_t size) {
 void CommandBatch::flush() {
     // Lock: extract all pending commands atomically
     std::vector<std::vector<uint8_t>> batch;
-    size_t batch_cmds = 0;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (pending_cmds_.empty()) {
             return;
         }
         batch.swap(pending_cmds_);
-        batch_cmds = command_count_;
         command_count_ = 0;
         total_pending_bytes_ = 0;
         {
@@ -57,7 +55,7 @@ void CommandBatch::flush() {
     }
 
     SPDLOG_TRACE("Flushing batch: {} commands, {} bytes total, adaptive={}",
-                 batch_cmds, batch.size() > 0 ? 
+                 command_count_, batch.size() > 0 ? 
                  (batch[0].size() * batch.size()) : 0, adaptive_);
 
     {

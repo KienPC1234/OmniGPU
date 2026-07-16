@@ -36,7 +36,12 @@ target_link_libraries(omnigpu_common PUBLIC
   nlohmann_json::nlohmann_json
   Vulkan::Headers
   Vulkan::Loader
+  Threads::Threads
 )
+
+if(MSVC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  target_compile_options(omnigpu_common PRIVATE /EHsc)
+endif()
 
 target_link_libraries(omnigpu_common PUBLIC
   flatbuffers::flatbuffers

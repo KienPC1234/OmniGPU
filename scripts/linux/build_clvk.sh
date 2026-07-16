@@ -10,15 +10,15 @@ echo "This process can take 2 to 4 hours and requires high RAM / disk space."
 echo ""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLVK_DIR="$SCRIPT_DIR/../third_party/clvk-src"
-OUTPUT_DIR="$SCRIPT_DIR/../third_party/clvk"
+CLVK_DIR="$SCRIPT_DIR/../../third_party/clvk"
+OUTPUT_DIR="$CLVK_DIR"
 
-if [ ! -d "$CLVK_DIR" ]; then
-    echo "[1/4] Cloning clvk repository (recursively)..."
-    git clone --recursive https://github.com/kpet/clvk.git "$CLVK_DIR"
-else
-    echo "[1/4] clvk repository already exists."
+if [ ! -f "$CLVK_DIR/CMakeLists.txt" ]; then
+    echo "ERROR: clvk submodule is not initialized. Run:"
+    echo "  git submodule update --init --recursive"
+    exit 1
 fi
+echo "[1/4] clvk submodule verified."
 
 echo "[2/4] Fetching clspv dependencies (LLVM, Clang, SPIR-V)..."
 cd "$CLVK_DIR/external/clspv"

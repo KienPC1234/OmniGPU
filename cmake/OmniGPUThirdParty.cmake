@@ -1,87 +1,143 @@
 # OmniGPU Third-Party Dependency Management
 #
-# Manages fetching Mesa Zink (OpenGL→Vulkan) and clvk (OpenCL→Vulkan)
-# pre-built binaries for the guest translation layer.
-
-option(OMNIGPU_FETCH_ZINK "Download Mesa Zink (opengl32.dll) for guest" OFF)
-option(OMNIGPU_FETCH_CLVK "Download clvk (OpenCL.dll) for guest" OFF)
+# Manages fetching Mesa3D (OpenGL→Vulkan) pre-built binaries
+# and integrating clvk (OpenCL→Vulkan) built from submodule.
 
 # ---------------------------------------------------------------------------
-# Zink — OpenGL → Vulkan via Mesa
+# Mesa3D — OpenGL → Vulkan via Mesa
 # ---------------------------------------------------------------------------
-if(OMNIGPU_FETCH_ZINK AND OMNIGPU_BUILD_GUEST)
-    set(ZINK_OUTPUT_DIR "${CMAKE_SOURCE_DIR}/third_party/zink")
-    set(ZINK_DLL "${ZINK_OUTPUT_DIR}/opengl32.dll")
-    set(ZINK_GALLIUM_WGL "${ZINK_OUTPUT_DIR}/libgallium_wgl.dll")
+if(OMNIGPU_FETCH_MESA3D AND OMNIGPU_BUILD_GUEST)
+    set(MESA3D_OUTPUT_DIR "${CMAKE_SOURCE_DIR}/third_party/mesa3d")
 
-    set(ZINK_DLL_X86 "${ZINK_OUTPUT_DIR}/x86/opengl32.dll")
-    set(ZINK_GALLIUM_WGL_X86 "${ZINK_OUTPUT_DIR}/x86/libgallium_wgl.dll")
-
-    add_custom_target(omnigpu_fetch_zink
-        COMMAND "${Python3_EXECUTABLE}"
-                "${CMAKE_SOURCE_DIR}/third_party/fetch_zink.py"
-                --output-dir "${ZINK_OUTPUT_DIR}"
-        COMMENT "Fetching Mesa Zink (OpenGL→Vulkan) binaries..."
-    )
+    if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+        set(ZINK_DLL "${MESA3D_OUTPUT_DIR}/x86/opengl32.dll")
+        set(ZINK_GALLIUM_WGL "${MESA3D_OUTPUT_DIR}/x86/libgallium_wgl.dll")
+    else()
+        set(ZINK_DLL "${MESA3D_OUTPUT_DIR}/x64/opengl32.dll")
+        set(ZINK_GALLIUM_WGL "${MESA3D_OUTPUT_DIR}/x64/libgallium_wgl.dll")
+        set(ZINK_DLL_X86 "${MESA3D_OUTPUT_DIR}/x86/opengl32.dll")
+        set(ZINK_GALLIUM_WGL_X86 "${MESA3D_OUTPUT_DIR}/x86/libgallium_wgl.dll")
+    endif()
 
     if(EXISTS "${ZINK_DLL}")
-        set(ZINK_AVAILABLE TRUE)
-        message(STATUS "Zink: ${ZINK_DLL} (found)")
+        set(MESA3D_AVAILABLE TRUE)
+        message(STATUS "Mesa3D (core): ${ZINK_DLL} (found)")
         if(EXISTS "${ZINK_GALLIUM_WGL}")
-            message(STATUS "Zink Gallium: ${ZINK_GALLIUM_WGL} (found)")
-        endif()
-        if(EXISTS "${ZINK_DLL_X86}")
-            message(STATUS "Zink (32-bit): ${ZINK_DLL_X86} (found)")
+            message(STATUS "Mesa3D Gallium: ${ZINK_GALLIUM_WGL} (found)")
         endif()
     else()
-        message(STATUS "Zink: not found — run 'cmake --build . --target omnigpu_fetch_zink' or download manually")
+        if(NOT Python3_EXECUTABLE)
+            message(FATAL_ERROR "Mesa3D fetch requires Python3, but Python3 was not found. "
+                                "Install Python3 or download Mesa3D manually to third_party/mesa3d")
+        endif()
+
+        find_program(SEVEN_ZIP 7z)
+        if(NOT SEVEN_ZIP)
+            message(FATAL_ERROR "Mesa3D fetch requires 7z (7-Zip) command-line tool. "
+                                "Install 7-Zip and ensure 7z is in PATH, "
+                                "or download Mesa3D manually to third_party/mesa3d")
+        endif()
+
+        add_custom_target(omnigpu_fetch_mesa3d
+            COMMAND "${Python3_EXECUTABLE}"
+                    "${CMAKE_SOURCE_DIR}/third_party/fetch_mesa3d.py"
+                    --output-dir "${MESA3D_OUTPUT_DIR}"
+            COMMENT "Fetching Mesa3D (OpenGL→Vulkan) binaries..."
+        )
+
+        message(STATUS "Mesa3D: not found — will fetch automatically during build")
     endif()
 endif()
 
 # ---------------------------------------------------------------------------
-# clvk — OpenCL → Vulkan
-# ---------------------------------------------------------------------------
-if(OMNIGPU_FETCH_CLVK AND OMNIGPU_BUILD_GUEST)
-    set(CLVK_OUTPUT_DIR "${CMAKE_SOURCE_DIR}/third_party/clvk")
-
-    if(WIN32)
-        set(CLVK_DLL "${CLVK_OUTPUT_DIR}/OpenCL.dll")
-    else()
-        set(CLVK_DLL "${CLVK_OUTPUT_DIR}/libOpenCL.so")
-    endif()
-
-    add_custom_target(omnigpu_fetch_clvk
-        COMMAND "${Python3_EXECUTABLE}"
-                "${CMAKE_SOURCE_DIR}/third_party/fetch_clvk.py"
-                --output-dir "${CLVK_OUTPUT_DIR}"
-        COMMENT "Fetching clvk (OpenCL→Vulkan) binaries..."
-    )
-
-    if(EXISTS "${CLVK_DLL}")
-        set(CLVK_AVAILABLE TRUE)
-        message(STATUS "clvk: ${CLVK_DLL} (found)")
-    else()
-        message(STATUS "clvk: not found — run 'cmake --build . --target omnigpu_fetch_clvk' or download manually")
-    endif()
-endif()
-
-# ---------------------------------------------------------------------------
-# Install rules: deploy third-party DLLs alongside the guest intercept
+# clvk — OpenCL → Vulkan (built from submodule in third_party/clvk)
 # ---------------------------------------------------------------------------
 if(OMNIGPU_BUILD_GUEST)
-    # Zink (64-bit)
-    foreach(ZFILE "${ZINK_DLL}" "${ZINK_GALLIUM_WGL}")
-        if(DEFINED ZFILE AND EXISTS "${ZFILE}")
-            install(FILES "${ZFILE}" DESTINATION "${CMAKE_INSTALL_BINDIR}")
-        endif()
-    endforeach()
-    # Zink (32-bit)
-    foreach(ZFILE "${ZINK_DLL_X86}" "${ZINK_GALLIUM_WGL_X86}")
-        if(DEFINED ZFILE AND EXISTS "${ZFILE}")
-            install(FILES "${ZFILE}" DESTINATION "${CMAKE_INSTALL_BINDIR}/x86")
-        endif()
-    endforeach()
+    if(EXISTS "${CMAKE_SOURCE_DIR}/third_party/clvk-bin/OpenCL.dll")
+        set(CLVK_DLL "${CMAKE_SOURCE_DIR}/third_party/clvk-bin/OpenCL.dll")
+        set(CLVK_AVAILABLE TRUE)
+        message(STATUS "clvk: found in third_party/clvk-bin")
+    elseif(EXISTS "${CMAKE_SOURCE_DIR}/third_party/clvk/libOpenCL.so")
+        set(CLVK_DLL "${CMAKE_SOURCE_DIR}/third_party/clvk/libOpenCL.so")
+        set(CLVK_AVAILABLE TRUE)
+        message(STATUS "clvk: found in third_party/clvk")
+    else()
+        message(STATUS "clvk: not found — place OpenCL.dll in third_party/clvk-bin/ to enable OpenCL forwarding")
+    endif()
+endif()
 
+# ---------------------------------------------------------------------------
+# FFmpeg — built from submodule with HW acceleration support
+# ---------------------------------------------------------------------------
+if(OMNIGPU_BUILD_FFMPEG)
+    if(WIN32)
+        # Windows: download pre-built shared binaries (no MSYS2 required)
+        set(FFMPEG_BIN_DIR "${CMAKE_SOURCE_DIR}/third_party/ffmpeg-bin")
+        set(FFMPEG_LIB_DIR "${FFMPEG_BIN_DIR}/lib")
+        set(FFMPEG_INC_DIR "${FFMPEG_BIN_DIR}/include")
+
+        if(NOT EXISTS "${FFMPEG_LIB_DIR}/avcodec.lib")
+            if(NOT Python3_EXECUTABLE)
+                message(FATAL_ERROR "FFmpeg download requires Python3.")
+            endif()
+            add_custom_target(omnigpu_fetch_ffmpeg
+                COMMAND "${Python3_EXECUTABLE}"
+                        "${CMAKE_SOURCE_DIR}/third_party/fetch_ffmpeg.py"
+                        --output-dir "${FFMPEG_BIN_DIR}"
+                COMMENT "Downloading FFmpeg shared binaries..."
+            )
+            message(STATUS "FFmpeg: not found — will download automatically during build")
+        else()
+            message(STATUS "FFmpeg: found in third_party/ffmpeg-bin")
+        endif()
+
+        if(EXISTS "${FFMPEG_LIB_DIR}/avcodec.lib")
+            set(FFMPEG_FOUND TRUE)
+        endif()
+    else()
+        # Linux: use system FFmpeg (pkg-config)
+        find_package(PkgConfig QUIET)
+        if(PkgConfig_FOUND)
+            pkg_check_modules(AVCODEC libavcodec)
+            pkg_check_modules(SWSCALE libswscale)
+            pkg_check_modules(AVUTIL libavutil)
+        endif()
+        if(AVCODEC_FOUND AND SWSCALE_FOUND AND AVUTIL_FOUND)
+            set(FFMPEG_FOUND TRUE)
+        endif()
+    endif()
+
+    if(FFMPEG_FOUND)
+        set(OMNIGPU_USE_FFMPEG 1)
+        # Copy FFmpeg DLLs to output directory for packaging
+        add_custom_target(omnigpu_copy_ffmpeg_dlls ALL
+            COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                "${FFMPEG_BIN_DIR}/bin/"
+                "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/"
+            COMMENT "Copying FFmpeg shared DLLs to output..."
+        )
+        message(STATUS "FFmpeg: enabled (pre-built, HW accel via FFmpeg)")
+    else()
+        set(OMNIGPU_USE_FFMPEG 0)
+        message(STATUS "FFmpeg: not yet downloaded — run build to fetch")
+    endif()
+else()
+    set(OMNIGPU_USE_FFMPEG 0)
+    message(STATUS "FFmpeg: disabled (set OMNIGPU_BUILD_FFMPEG=ON)")
+endif()
+
+if(OMNIGPU_BUILD_GUEST)
+    # Copy full Mesa3D directory to output (when available)
+    if(EXISTS "${MESA3D_OUTPUT_DIR}")
+        add_custom_command(TARGET omnigpu_guest POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy_directory
+                "${MESA3D_OUTPUT_DIR}"
+                "$<TARGET_FILE_DIR:omnigpu_guest>/mesa3d"
+            COMMENT "Copying Mesa3D distribution..."
+        )
+    endif()
+
+    # clvk DLLs
     if(DEFINED CLVK_DLL AND EXISTS "${CLVK_DLL}")
         install(FILES "${CLVK_DLL}" DESTINATION "${CMAKE_INSTALL_BINDIR}")
     endif()

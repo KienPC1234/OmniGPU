@@ -1,8 +1,10 @@
 #include "session.h"
 #include "gpu_manager.h"
 #include "handshake.h"
-#include "nvenc_encoder.h"
 #include "common/flatbuffers_utils.h"
+#if defined(OMNIGPU_USE_FFMPEG)
+#include "ffmpeg_encoder.h"
+#endif
 #include <chrono>
 #include <cstring>
 #include <spdlog/spdlog.h>
@@ -27,14 +29,11 @@ Session::Session(SOCKET clientFd, GpuManager& gpuMgr,
     videoEncoder_ = create_best_encoder();
     if (!videoEncoder_) return;
 
-    // Apply NVENC-specific settings if this is an NVENC encoder
-    if (auto* nvenc = dynamic_cast<NvencEncoder*>(videoEncoder_.get())) {
-        NvencSettings s;
-        s.preset = config_.nvenc.preset;
-        s.tuning = config_.nvenc.tuning;
-        s.gop_length = config_.nvenc.gop_length;
-        nvenc->set_settings(s);
+#if defined(OMNIGPU_USE_FFMPEG)
+    if (auto* ffmpeg = dynamic_cast<FFmpegEncoder*>(videoEncoder_.get())) {
+        ffmpeg->set_encoder_options(config_.nvenc.preset, config_.nvenc.tuning, config_.nvenc.gop_length);
     }
+#endif
 
     uint32_t w = config_.video_width;
     uint32_t h = config_.video_height;
@@ -346,7 +345,6 @@ void Session::handle_client() {
             auto* data = msg->payload_as_DataMessage();
             if (!data) break;
 
-            auto payload = data->payload();
             SPDLOG_DEBUG("Received data: type={}, id={}, size={}",
                          static_cast<int>(data->data_type()),
                          data->data_id(),
