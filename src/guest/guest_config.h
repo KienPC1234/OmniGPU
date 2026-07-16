@@ -8,8 +8,6 @@ namespace omnigpu::config {
 struct GuestConfig {
     std::string host = "127.0.0.1";
     uint16_t port = 9443;
-    bool zink_enabled = true;
-    bool clvk_enabled = true;
     uint64_t cache_ttl_seconds = 86400;
 
     // Adaptive batching
@@ -22,6 +20,8 @@ struct GuestConfig {
 };
 
 GuestConfig load(const std::string& path = "");
+GuestConfig from_json_string(const std::string& json);
+std::string to_json_string(const GuestConfig& cfg);
 const char* config_path();
 
 } // namespace omnigpu::config

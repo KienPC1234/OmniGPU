@@ -1,6 +1,7 @@
 #include "command_dispatcher.h"
 #include "vulkan_struct_deserializer.h"
 #include "omnigpu_protocol_generated.h"
+#include "../guest/vulkan_serializer.h"
 #include <atomic>
 #include <spdlog/spdlog.h>
 #include <cstring>
@@ -78,9 +79,9 @@ CommandDispatcher::CommandDispatcher() {
     REGISTER(fbs::FunctionId_vkFreeCommandBuffers, [](auto& d, auto& r) {
         r.read_handle(); // device
         uint64_t pool = r.read_handle();
-        uint32_t count = r.read_u32();
+        r.read_u32();
         auto poolH = d.mapper_.get_command_pool(pool);
-        auto cbs = r.read_array<uint64_t>();
+        auto cbs = r.template read_array<uint64_t>();
         for (auto& gcb : cbs) {
             auto cb = d.mapper_.get_command_buffer(gcb);
             if (cb && poolH) vkFreeCommandBuffers(d.mapper_.device(), poolH, 1, &cb);
@@ -138,14 +139,14 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); auto c = r.read_u32(); r.skip(c * sizeof(VkMappedMemoryRange));
     });
     REGISTER(fbs::FunctionId_vkBindBufferMemory, [](auto& d, auto& r) {
-        auto dev = r.read_handle();
+        r.read_handle();
         auto buf = r.read_handle(); auto mem = r.read_handle(); auto off = r.read_u64();
         auto b = d.mapper_.get_buffer(buf);
         auto m = d.mapper_.get_device_memory(mem);
         if (b && m) vkBindBufferMemory(d.mapper_.device(), b, m, off);
     });
     REGISTER(fbs::FunctionId_vkBindImageMemory, [](auto& d, auto& r) {
-        auto dev = r.read_handle();
+        r.read_handle();
         auto img = r.read_handle(); auto mem = r.read_handle(); auto off = r.read_u64();
         auto i = d.mapper_.get_image(img);
         auto m = d.mapper_.get_device_memory(mem);
@@ -205,7 +206,7 @@ CommandDispatcher::CommandDispatcher() {
         r.skip(sizeof(VkAllocationCallbacks));
         uint64_t pView = r.read_handle();
         // Map guest image handle to host image handle
-        uint64_t gImg = reinterpret_cast<uint64_t>(ci.image);
+        uint64_t gImg = handle_to_u64(ci.image);
         ci.image = d.mapper_.get_image(gImg);
         VkImageView view;
         if (vkCreateImageView(d.mapper_.device(), &ci, nullptr, &view) == VK_SUCCESS) {
@@ -290,7 +291,7 @@ CommandDispatcher::CommandDispatcher() {
         uint64_t pCache = r.read_handle();
         VkPipelineCache cache = d.mapper_.get_pipeline_cache(pCache);
         uint32_t count = r.read_u32();
-        uint64_t pPipelines = r.read_handle();
+        r.read_handle();
 
         std::vector<VkGraphicsPipelineCreateInfo> infos(count);
         for (uint32_t i = 0; i < count; i++)
@@ -315,7 +316,7 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); uint64_t pCache = r.read_handle();
         VkPipelineCache cache = d.mapper_.get_pipeline_cache(pCache);
         uint32_t count = r.read_u32();
-        uint64_t pPipelines = r.read_handle();
+        r.read_handle();
 
         std::vector<VkComputePipelineCreateInfo> infos(count);
         for (uint32_t i = 0; i < count; i++)
@@ -443,8 +444,8 @@ CommandDispatcher::CommandDispatcher() {
         }
     });
     REGISTER(fbs::FunctionId_vkFreeDescriptorSets, [](auto& d, auto& r) {
-        r.read_handle(); auto dp = r.read_handle(); uint32_t c = r.read_u32();
-        auto v = r.read_array<uint64_t>();
+        r.read_handle(); auto dp = r.read_handle(); r.read_u32();
+        auto v = r.template read_array<uint64_t>();
         auto pool = d.mapper_.get_dp(dp);
         for (auto& gds : v) {
             auto ds = d.mapper_.get_ds(gds);
@@ -467,18 +468,18 @@ CommandDispatcher::CommandDispatcher() {
 
         // Remap handles
         for (auto& w : writes) {
-            w.dstSet = d.mapper_.get_ds(reinterpret_cast<uint64_t>(w.dstSet));
+            w.dstSet = d.mapper_.get_ds(handle_to_u64(w.dstSet));
             if (w.pImageInfo) {
                 for (uint32_t j = 0; j < w.descriptorCount; j++) {
                     auto* img = const_cast<VkDescriptorImageInfo*>(&w.pImageInfo[j]);
-                    img->sampler = d.mapper_.get_sampler(reinterpret_cast<uint64_t>(img->sampler));
-                    img->imageView = d.mapper_.get_image_view(reinterpret_cast<uint64_t>(img->imageView));
+                    img->sampler = d.mapper_.get_sampler(handle_to_u64(img->sampler));
+                    img->imageView = d.mapper_.get_image_view(handle_to_u64(img->imageView));
                 }
             }
             if (w.pBufferInfo) {
                 for (uint32_t j = 0; j < w.descriptorCount; j++) {
                     auto* buf = const_cast<VkDescriptorBufferInfo*>(&w.pBufferInfo[j]);
-                    buf->buffer = d.mapper_.get_buffer(reinterpret_cast<uint64_t>(buf->buffer));
+                    buf->buffer = d.mapper_.get_buffer(handle_to_u64(buf->buffer));
                 }
             }
         }
@@ -513,7 +514,7 @@ CommandDispatcher::CommandDispatcher() {
         if (fence) vkDestroyFence(d.mapper_.device(), fence, nullptr);
     });
     REGISTER(fbs::FunctionId_vkWaitForFences, [](auto& d, auto& r) {
-        auto dev = r.read_handle();
+        r.read_handle();
         uint32_t count = r.read_u32();
         r.skip(count * sizeof(uint64_t)); // fence handles
         VkBool32 waitAll = r.read_bool();
@@ -609,9 +610,9 @@ CommandDispatcher::CommandDispatcher() {
     });
     REGISTER(fbs::FunctionId_vkCmdBindVertexBuffers, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint32_t first = r.read_u32(); uint32_t count = r.read_u32();
-        auto buf_handles = r.read_array<uint64_t>();
-        auto offsets = r.read_array<uint64_t>();
+        uint32_t first = r.read_u32(); r.read_u32();
+        auto buf_handles = r.template read_array<uint64_t>();
+        auto offsets = r.template read_array<uint64_t>();
         if (cb && buf_handles.size() > 0) {
             std::vector<VkBuffer> bufs;
             for (auto& g : buf_handles) bufs.push_back(d.mapper_.get_buffer(g));
@@ -631,10 +632,10 @@ CommandDispatcher::CommandDispatcher() {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         VkPipelineBindPoint bp = static_cast<VkPipelineBindPoint>(r.read_u32());
         uint64_t layout = r.read_handle();
-        uint32_t firstSet = r.read_u32(); uint32_t descCount = r.read_u32();
-        auto desc_handles = r.read_array<uint64_t>();
+        uint32_t firstSet = r.read_u32(); r.read_u32();
+        auto desc_handles = r.template read_array<uint64_t>();
         uint32_t dynCount = r.read_u32();
-        auto dynOffsets = r.read_array<uint32_t>();
+        auto dynOffsets = r.template read_array<uint32_t>();
         if (cb) {
             VkPipelineLayout pl = d.mapper_.get_pipeline_layout(layout);
             std::vector<VkDescriptorSet> dss;
@@ -646,22 +647,22 @@ CommandDispatcher::CommandDispatcher() {
     });
     REGISTER(fbs::FunctionId_vkCmdSetViewport, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint32_t first = r.read_u32(); uint32_t count = r.read_u32();
-        auto vps = r.read_array<VkViewport>();
+        uint32_t first = r.read_u32(); r.read_u32();
+        auto vps = r.template read_array<VkViewport>();
         if (cb) vkCmdSetViewport(cb, first, static_cast<uint32_t>(vps.size()), vps.data());
     });
     REGISTER(fbs::FunctionId_vkCmdSetScissor, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint32_t first = r.read_u32(); uint32_t count = r.read_u32();
-        auto scis = r.read_array<VkRect2D>();
+        uint32_t first = r.read_u32(); r.read_u32();
+        auto scis = r.template read_array<VkRect2D>();
         if (cb) vkCmdSetScissor(cb, first, static_cast<uint32_t>(scis.size()), scis.data());
     });
     REGISTER(fbs::FunctionId_vkCmdPushConstants, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint64_t layout = r.read_handle();
         VkShaderStageFlags stages = r.read_u32();
-        uint32_t offset = r.read_u32(); uint32_t size = r.read_u32();
-        auto data = r.read_array<uint8_t>();
+        uint32_t offset = r.read_u32(); r.read_u32();
+        auto data = r.template read_array<uint8_t>();
         VkPipelineLayout pl = d.mapper_.get_pipeline_layout(layout);
         if (cb && data.size() > 0)
             vkCmdPushConstants(cb, pl, stages, offset, static_cast<uint32_t>(data.size()), data.data());
@@ -734,8 +735,8 @@ CommandDispatcher::CommandDispatcher() {
     REGISTER(fbs::FunctionId_vkCmdCopyBuffer, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint64_t src = r.read_handle(); uint64_t dst = r.read_handle();
-        uint32_t rc = r.read_u32();
-        auto regions = r.read_array<VkBufferCopy>();
+        r.read_u32();
+        auto regions = r.template read_array<VkBufferCopy>();
         auto s = d.mapper_.get_buffer(src); auto d2 = d.mapper_.get_buffer(dst);
         if (cb && s && d2)
             vkCmdCopyBuffer(cb, s, d2, static_cast<uint32_t>(regions.size()), regions.data());
@@ -744,7 +745,7 @@ CommandDispatcher::CommandDispatcher() {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint64_t src = r.read_handle(); r.read_u32(); // srcLayout
         uint64_t dst = r.read_handle(); r.read_u32(); // dstLayout
-        uint32_t rc = r.read_u32(); auto regions = r.read_array<VkImageCopy>();
+        r.read_u32(); auto regions = r.template read_array<VkImageCopy>();
         auto s = d.mapper_.get_image(src); auto d2 = d.mapper_.get_image(dst);
         if (cb && s && d2) vkCmdCopyImage(cb, s, VK_IMAGE_LAYOUT_GENERAL, d2, VK_IMAGE_LAYOUT_GENERAL,
                                            static_cast<uint32_t>(regions.size()), regions.data());
@@ -753,8 +754,8 @@ CommandDispatcher::CommandDispatcher() {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint64_t src = r.read_handle(); VkImageLayout srcLayout = static_cast<VkImageLayout>(r.read_u32());
         uint64_t dst = r.read_handle(); VkImageLayout dstLayout = static_cast<VkImageLayout>(r.read_u32());
-        uint32_t rc = r.read_u32();
-        auto regions = r.read_array<VkImageBlit>();
+        r.read_u32();
+        auto regions = r.template read_array<VkImageBlit>();
         VkFilter filter = static_cast<VkFilter>(r.read_u32());
         auto s = d.mapper_.get_image(src);
         auto d2 = d.mapper_.get_image(dst);
@@ -777,8 +778,8 @@ CommandDispatcher::CommandDispatcher() {
     REGISTER(fbs::FunctionId_vkCmdUpdateBuffer, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint64_t dst = r.read_handle();
-        uint64_t off = r.read_u64(); uint64_t sz = r.read_u64();
-        auto data = r.read_array<uint8_t>();
+        uint64_t off = r.read_u64(); r.read_u64();
+        auto data = r.template read_array<uint8_t>();
         auto b = d.mapper_.get_buffer(dst);
         if (cb && b && data.size() > 0)
             vkCmdUpdateBuffer(cb, b, off, data.size(), data.data());
@@ -796,8 +797,8 @@ CommandDispatcher::CommandDispatcher() {
         VkImageLayout layout = static_cast<VkImageLayout>(r.read_u32());
         VkClearColorValue color;
         r.read_raw(&color, sizeof(VkClearColorValue));
-        uint32_t rc = r.read_u32();
-        auto ranges = r.read_array<VkImageSubresourceRange>();
+        r.read_u32();
+        auto ranges = r.template read_array<VkImageSubresourceRange>();
         auto i = d.mapper_.get_image(img);
         if (cb && i)
             vkCmdClearColorImage(cb, i, layout, &color,
@@ -847,8 +848,8 @@ CommandDispatcher::CommandDispatcher() {
         r.read_u32(); // contents
         if (cb) {
             // Map guest render pass and framebuffer to host handles
-            bi.renderPass = d.mapper_.get_render_pass(reinterpret_cast<uint64_t>(bi.renderPass));
-            bi.framebuffer = d.mapper_.get_framebuffer(reinterpret_cast<uint64_t>(bi.framebuffer));
+            bi.renderPass = d.mapper_.get_render_pass(handle_to_u64(bi.renderPass));
+            bi.framebuffer = d.mapper_.get_framebuffer(handle_to_u64(bi.framebuffer));
             vkCmdBeginRenderPass(cb, &bi, VK_SUBPASS_CONTENTS_INLINE);
         }
     });
@@ -976,13 +977,13 @@ CommandDispatcher::CommandDispatcher() {
     REGISTER(fbs::FunctionId_vkCmdSetViewportWithCount, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint32_t count = r.read_u32();
-        auto vps = r.read_array<VkViewport>();
+        auto vps = r.template read_array<VkViewport>();
         if (cb) vkCmdSetViewportWithCount(cb, count, vps.data());
     });
     REGISTER(fbs::FunctionId_vkCmdSetScissorWithCount, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint32_t count = r.read_u32();
-        auto scis = r.read_array<VkRect2D>();
+        auto scis = r.template read_array<VkRect2D>();
         if (cb) vkCmdSetScissorWithCount(cb, count, scis.data());
     });
 
@@ -990,7 +991,7 @@ CommandDispatcher::CommandDispatcher() {
     REGISTER(fbs::FunctionId_vkCmdPipelineBarrier2, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         // Read VkDependencyInfo counts, then skip individual barriers
-        uint32_t dep_flags = r.read_u32();
+        r.read_u32();
         uint32_t mem_br = r.read_u32(); r.skip(mem_br * sizeof(VkMemoryBarrier2));
         uint32_t buf_br = r.read_u32(); r.skip(buf_br * sizeof(VkBufferMemoryBarrier2));
         uint32_t img_br = r.read_u32(); r.skip(img_br * sizeof(VkImageMemoryBarrier2));
@@ -1007,8 +1008,8 @@ CommandDispatcher::CommandDispatcher() {
             // Remap image view handles in attachments
             for (uint32_t i = 0; i < ri.colorAttachmentCount && ri.pColorAttachments; i++) {
                 auto& att = const_cast<VkRenderingAttachmentInfo&>(ri.pColorAttachments[i]);
-                att.imageView = d.mapper_.get_image_view(reinterpret_cast<uint64_t>(att.imageView));
-                att.resolveImageView = d.mapper_.get_image_view(reinterpret_cast<uint64_t>(att.resolveImageView));
+                att.imageView = d.mapper_.get_image_view(handle_to_u64(att.imageView));
+                att.resolveImageView = d.mapper_.get_image_view(handle_to_u64(att.resolveImageView));
             }
             vkCmdBeginRendering(cb, &ri);
         }
@@ -1064,7 +1065,7 @@ CommandDispatcher::CommandDispatcher() {
         r.read_raw(&ci, sizeof(ci));
         ci.pNext = nullptr;
         r.skip(sizeof(VkAllocationCallbacks));
-        uint64_t pSC = r.read_handle();
+        r.read_handle();
         VkSwapchainKHR sc;
         if (vkCreateSwapchainKHR(d.mapper_.device(), &ci, nullptr, &sc) == VK_SUCCESS) {
         }
@@ -1124,7 +1125,7 @@ CommandDispatcher::CommandDispatcher() {
         uint64_t gTpl = r.read_handle();
         auto ds = d.mapper_.get_ds(gDS);
         auto tpl = d.mapper_.get_descriptor_update_template(gTpl);
-        auto data = r.read_array<uint8_t>();
+        auto data = r.template read_array<uint8_t>();
         if (dev && ds && tpl && data.size() > 0) {
             vkUpdateDescriptorSetWithTemplate(dev, ds, tpl, data.data());
         }
@@ -1259,11 +1260,11 @@ CommandDispatcher::CommandDispatcher() {
     // --- Bind vertex buffers 2 (1.3) ---
     REGISTER(fbs::FunctionId_vkCmdBindVertexBuffers2, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint32_t first = r.read_u32(); uint32_t count = r.read_u32();
-        auto bufs = r.read_array<uint64_t>();
-        auto offs = r.read_array<uint64_t>();
-        auto sizes = r.read_array<uint64_t>();
-        auto strides = r.read_array<uint64_t>();
+        uint32_t first = r.read_u32(); r.read_u32();
+        auto bufs = r.template read_array<uint64_t>();
+        auto offs = r.template read_array<uint64_t>();
+        auto sizes = r.template read_array<uint64_t>();
+        auto strides = r.template read_array<uint64_t>();
         if (cb && bufs.size() > 0) {
             std::vector<VkBuffer> hbufs;
             for (auto& g : bufs) hbufs.push_back(d.mapper_.get_buffer(g));
@@ -1484,7 +1485,8 @@ void CommandDispatcher::dispatch(fbs::FunctionId func_id,
                                   const uint8_t* args, size_t args_size) {
     auto it = handlers_.find(static_cast<int>(func_id));
     if (it == handlers_.end()) {
-        SPDLOG_DEBUG("Host: no handler for func_id={}", static_cast<int>(func_id));
+        SPDLOG_DEBUG("Host: no handler for {} (id={})",
+                     fbs::EnumNameFunctionId(func_id), static_cast<int>(func_id));
         return;
     }
 
@@ -1492,7 +1494,8 @@ void CommandDispatcher::dispatch(fbs::FunctionId func_id,
     try {
         it->second(*this, reader);
     } catch (const std::exception& e) {
-        SPDLOG_ERROR("Handler for func_id={} threw: {}", static_cast<int>(func_id), e.what());
+        SPDLOG_ERROR("Handler for {} (id={}) threw: {}",
+                     fbs::EnumNameFunctionId(func_id), static_cast<int>(func_id), e.what());
     }
 }
 
@@ -1597,7 +1600,7 @@ void ResourceMapper::cleanup() {
     for (auto& [_, v] : queryPools_) if (v) vkDestroyQueryPool(dev, v, nullptr);
     for (auto& [_, v] : memories_) if (v) vkFreeMemory(dev, v, nullptr);
     for (auto& [_, v] : cmdPools_) if (v) vkDestroyCommandPool(dev, v, nullptr);
-    for (auto& [_, v] : cmdBufs_) {}  // freed with pool
+    for (auto& entry : cmdBufs_) { (void)entry; }  // freed with pool
     for (auto& [_, v] : privateDataSlots_) if (v) vkDestroyPrivateDataSlot(dev, v, nullptr);
 }
 

@@ -53,3 +53,23 @@ constexpr bool is_vulkan_handle(uint64_t val) {
 }
 
 } // namespace omnigpu::serializer
+
+namespace omnigpu {
+
+// Convert any Vulkan handle type to uint64_t safely (works on both 32 and 64-bit)
+template<typename T>
+inline uint64_t handle_to_u64(T ptr) {
+    uint64_t val = 0;
+    memcpy(&val, &ptr, sizeof(ptr));
+    return val;
+}
+
+// Convert uint64_t back to a Vulkan handle
+template<typename T>
+inline T handle_from_u64(uint64_t val) {
+    T ptr = T{};
+    memcpy(&ptr, &val, sizeof(ptr));
+    return ptr;
+}
+
+} // namespace omnigpu

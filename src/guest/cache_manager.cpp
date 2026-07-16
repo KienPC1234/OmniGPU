@@ -86,6 +86,24 @@ bool CacheManager::load(caps::GpuCapabilities& caps) const {
         caps.max_sampler_anisotropy = data.value("max_aniso", 16.0f);
         caps.subgroup_size = data.value("subgroup", 32U);
 
+        caps.max_bound_descriptor_sets_ext = data.value("max_bound_descriptor_sets_ext", 32U);
+        caps.max_per_stage_descriptor_samplers = data.value("max_per_stage_descriptor_samplers", 2048U);
+        caps.max_per_stage_descriptor_uniform_buffers = data.value("max_per_stage_descriptor_uniform_buffers", 2048U);
+        caps.max_per_stage_descriptor_storage_buffers = data.value("max_per_stage_descriptor_storage_buffers", 2048U);
+        caps.max_per_stage_descriptor_sampled_images = data.value("max_per_stage_descriptor_sampled_images", 2048U);
+        caps.max_per_stage_descriptor_storage_images = data.value("max_per_stage_descriptor_storage_images", 2048U);
+        caps.max_per_stage_resources_ext = data.value("max_per_stage_resources_ext", 1000000U);
+        caps.max_compute_work_group_count_x = data.value("max_compute_work_group_count_x", 65535U);
+        caps.max_compute_work_group_count_y = data.value("max_compute_work_group_count_y", 65535U);
+        caps.max_compute_work_group_count_z = data.value("max_compute_work_group_count_z", 65535U);
+        caps.max_compute_work_group_invocations = data.value("max_compute_work_group_invocations", 1024U);
+        caps.max_compute_shared_memory_size = data.value("max_compute_shared_memory_size", 49152U);
+        caps.max_clip_distances = data.value("max_clip_distances", 8U);
+        caps.max_cull_distances = data.value("max_cull_distances", 8U);
+        caps.max_combined_clip_and_cull_distances = data.value("max_combined_clip_and_cull_distances", 8U);
+        caps.max_tessellation_factor = data.value("max_tessellation_factor", 64U);
+        caps.max_fragment_output_attachments = data.value("max_fragment_output_attachments", 8U);
+
         SPDLOG_INFO("Loaded cached GPU caps for {}: {}", cache_key_,
                     caps.gpu_name);
         return true;
@@ -134,6 +152,24 @@ bool CacheManager::save(const caps::GpuCapabilities& caps) {
         entry["mem_types"] = caps.memory_type_count;
         entry["max_aniso"] = caps.max_sampler_anisotropy;
         entry["subgroup"] = caps.subgroup_size;
+
+        entry["max_bound_descriptor_sets_ext"] = caps.max_bound_descriptor_sets_ext;
+        entry["max_per_stage_descriptor_samplers"] = caps.max_per_stage_descriptor_samplers;
+        entry["max_per_stage_descriptor_uniform_buffers"] = caps.max_per_stage_descriptor_uniform_buffers;
+        entry["max_per_stage_descriptor_storage_buffers"] = caps.max_per_stage_descriptor_storage_buffers;
+        entry["max_per_stage_descriptor_sampled_images"] = caps.max_per_stage_descriptor_sampled_images;
+        entry["max_per_stage_descriptor_storage_images"] = caps.max_per_stage_descriptor_storage_images;
+        entry["max_per_stage_resources_ext"] = caps.max_per_stage_resources_ext;
+        entry["max_compute_work_group_count_x"] = caps.max_compute_work_group_count_x;
+        entry["max_compute_work_group_count_y"] = caps.max_compute_work_group_count_y;
+        entry["max_compute_work_group_count_z"] = caps.max_compute_work_group_count_z;
+        entry["max_compute_work_group_invocations"] = caps.max_compute_work_group_invocations;
+        entry["max_compute_shared_memory_size"] = caps.max_compute_shared_memory_size;
+        entry["max_clip_distances"] = caps.max_clip_distances;
+        entry["max_cull_distances"] = caps.max_cull_distances;
+        entry["max_combined_clip_and_cull_distances"] = caps.max_combined_clip_and_cull_distances;
+        entry["max_tessellation_factor"] = caps.max_tessellation_factor;
+        entry["max_fragment_output_attachments"] = caps.max_fragment_output_attachments;
 
         j[cache_key_] = entry;
 

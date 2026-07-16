@@ -54,15 +54,12 @@ GuestConfig load(const std::string& path) {
 
         if (j.contains("host")) cfg.host = j["host"].get<std::string>();
         if (j.contains("port")) cfg.port = j["port"].get<uint16_t>();
-        if (j.contains("zink_enabled")) cfg.zink_enabled = j["zink_enabled"].get<bool>();
-        if (j.contains("clvk_enabled")) cfg.clvk_enabled = j["clvk_enabled"].get<bool>();
         if (j.contains("cache_ttl_seconds")) cfg.cache_ttl_seconds = j["cache_ttl_seconds"].get<uint64_t>();
         if (j.contains("adaptive_batching")) cfg.adaptive_batching = j["adaptive_batching"].get<bool>();
         if (j.contains("max_batch_interval_ms")) cfg.max_batch_interval_ms = j["max_batch_interval_ms"].get<uint32_t>();
 
-        SPDLOG_INFO("Loaded config from {}: host={}:{}, zink={}, clvk={}, adaptive={}",
+        SPDLOG_INFO("Loaded config from {}: host={}:{}, adaptive={}",
                     cfg_path, cfg.host, cfg.port,
-                    cfg.zink_enabled, cfg.clvk_enabled,
                     cfg.adaptive_batching);
     } catch (const std::exception& e) {
         SPDLOG_WARN("Failed to parse config {}: {}", cfg_path, e.what());
@@ -95,6 +92,46 @@ GuestConfig load(const std::string& path) {
 #endif
 
     return cfg;
+}
+
+GuestConfig from_json_string(const std::string& json_str) {
+    GuestConfig cfg;
+    if (json_str.empty()) return cfg;
+
+    try {
+        json j = json::parse(json_str);
+
+        if (j.contains("host")) cfg.host = j["host"].get<std::string>();
+        if (j.contains("port")) cfg.port = j["port"].get<uint16_t>();
+        if (j.contains("cache_ttl_seconds")) cfg.cache_ttl_seconds = j["cache_ttl_seconds"].get<uint64_t>();
+        if (j.contains("adaptive_batching")) cfg.adaptive_batching = j["adaptive_batching"].get<bool>();
+        if (j.contains("max_batch_interval_ms")) cfg.max_batch_interval_ms = j["max_batch_interval_ms"].get<uint32_t>();
+        if (j.contains("min_batch_commands")) cfg.min_batch_commands = j["min_batch_commands"].get<uint32_t>();
+        if (j.contains("max_batch_commands")) cfg.max_batch_commands = j["max_batch_commands"].get<uint32_t>();
+        if (j.contains("min_batch_bytes")) cfg.min_batch_bytes = j["min_batch_bytes"].get<uint32_t>();
+        if (j.contains("max_batch_bytes")) cfg.max_batch_bytes = j["max_batch_bytes"].get<uint32_t>();
+
+        SPDLOG_INFO("Parsed config JSON: host={}:{}, adaptive={}",
+                    cfg.host, cfg.port, cfg.adaptive_batching);
+    } catch (const std::exception& e) {
+        SPDLOG_WARN("Failed to parse config JSON: {}", e.what());
+    }
+
+    return cfg;
+}
+
+std::string to_json_string(const GuestConfig& cfg) {
+    json j;
+    j["host"] = cfg.host;
+    j["port"] = cfg.port;
+    j["cache_ttl_seconds"] = cfg.cache_ttl_seconds;
+    j["adaptive_batching"] = cfg.adaptive_batching;
+    j["max_batch_interval_ms"] = cfg.max_batch_interval_ms;
+    j["min_batch_commands"] = cfg.min_batch_commands;
+    j["max_batch_commands"] = cfg.max_batch_commands;
+    j["min_batch_bytes"] = cfg.min_batch_bytes;
+    j["max_batch_bytes"] = cfg.max_batch_bytes;
+    return j.dump();
 }
 
 } // namespace omnigpu::config

@@ -5,10 +5,8 @@ set(GUEST_SOURCES
   dll_main.cpp
   guest_config.cpp
   guest_init.cpp
-  guest_ipc.cpp
   icd_entrypoints.cpp
   icd_registry.cpp
-  loader.cpp
   resource_tracker.cpp
   video_decoder.cpp
   vk_intercept.cpp
@@ -19,6 +17,16 @@ set(GUEST_SOURCES
 
 add_library(omnigpu_guest SHARED ${GUEST_SOURCES})
 
+# Copy full Mesa3D directory to output (when available)
+if(EXISTS "${MESA3D_OUTPUT_DIR}")
+  add_custom_command(TARGET omnigpu_guest POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+      "${MESA3D_OUTPUT_DIR}"
+      "$<TARGET_FILE_DIR:omnigpu_guest>/mesa3d"
+    COMMENT "Copying Mesa3D distribution..."
+  )
+endif()
+
 target_link_libraries(omnigpu_guest PRIVATE
   omnigpu_common
 )
@@ -28,8 +36,14 @@ if(WIN32)
   target_link_libraries(omnigpu_guest PRIVATE mfplat mfuuid mf ole32)
 endif()
 
-# Optional FFmpeg integration for H.264/H.265/AV1 decoding
-if(OMNIGPU_BUILD_FFMPEG AND FFMPEG_FOUND)
+# Optional FFmpeg integration for H.264/H.265/AV1 decoding (disabled for Windows guest)
+if(WIN32)
+  set(OMNIGPU_GUEST_USE_FFMPEG OFF)
+else()
+  set(OMNIGPU_GUEST_USE_FFMPEG ${OMNIGPU_BUILD_FFMPEG})
+endif()
+
+if(OMNIGPU_GUEST_USE_FFMPEG AND FFMPEG_FOUND)
   target_compile_definitions(omnigpu_guest PRIVATE OMNIGPU_USE_FFMPEG=1)
   target_sources(omnigpu_guest PRIVATE ffmpeg_decoder.cpp)
   target_include_directories(omnigpu_guest PRIVATE ${FFMPEG_INC_DIR})
@@ -41,28 +55,12 @@ else()
 endif()
 
 # Standalone test client executable
-# Guest daemon (background pre-connect + IPC server)
-add_executable(omnigpu_guestd
-  guest_daemon.cpp
-  guest_ipc.cpp
-  guest_config.cpp
-)
-target_link_libraries(omnigpu_guestd PRIVATE omnigpu_common)
-if(WIN32)
-  target_link_libraries(omnigpu_guestd PRIVATE ws2_32)
-endif()
-if(MSVC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  target_compile_options(omnigpu_guestd PRIVATE /EHsc)
-endif()
-
 add_executable(omnigpu_guest_test
   main.cpp
   cache_manager.cpp
   guest_config.cpp
   guest_init.cpp
-  guest_ipc.cpp
   icd_registry.cpp
-  loader.cpp
   resource_tracker.cpp
   video_decoder.cpp
   client.cpp
@@ -76,7 +74,7 @@ if(WIN32)
   target_link_libraries(omnigpu_guest_test PRIVATE ws2_32)
   target_link_libraries(omnigpu_guest_test PRIVATE mfplat mfuuid mf ole32)
 endif()
-if(OMNIGPU_BUILD_FFMPEG AND FFMPEG_FOUND)
+if(OMNIGPU_GUEST_USE_FFMPEG AND FFMPEG_FOUND)
   target_compile_definitions(omnigpu_guest_test PRIVATE OMNIGPU_USE_FFMPEG=1)
   target_sources(omnigpu_guest_test PRIVATE ffmpeg_decoder.cpp)
   target_include_directories(omnigpu_guest_test PRIVATE ${FFMPEG_INC_DIR})
@@ -108,38 +106,8 @@ install(
 )
 
 # ---------------------------------------------------------------------------
-# Deploy third-party translation DLLs (Zink, clvk) if available
+# Deploy clvk (OpenCL.dll + clspv.exe) alongside the guest intercept
 # ---------------------------------------------------------------------------
-# Helper: copy a DLL into the guest output directory
-function(deploy_zink_dll VAR_NAME BIN_NAME)
-  if(DEFINED ${VAR_NAME} AND EXISTS "${${VAR_NAME}}")
-    configure_file("${${VAR_NAME}}" "${CMAKE_CURRENT_BINARY_DIR}/${BIN_NAME}" COPYONLY)
-    add_custom_command(TARGET omnigpu_guest POST_BUILD
-      COMMAND "${CMAKE_COMMAND}" -E copy
-        "${CMAKE_CURRENT_BINARY_DIR}/${BIN_NAME}"
-        "$<TARGET_FILE_DIR:omnigpu_guest>/${BIN_NAME}"
-      COMMENT "Deploying ${BIN_NAME}..."
-    )
-  endif()
-endfunction()
-
-# Zink 64-bit core DLLs
-deploy_zink_dll(ZINK_DLL "opengl32.dll")
-deploy_zink_dll(ZINK_GALLIUM_WGL "libgallium_wgl.dll")
-
-# Zink 32-bit DLLs → x86/ subfolder
-if(DEFINED ZINK_DLL_X86 AND EXISTS "${ZINK_DLL_X86}")
-  file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/x86")
-  configure_file("${ZINK_DLL_X86}" "${CMAKE_CURRENT_BINARY_DIR}/x86/opengl32.dll" COPYONLY)
-  add_custom_command(TARGET omnigpu_guest POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E copy
-      "${CMAKE_CURRENT_BINARY_DIR}/x86/opengl32.dll"
-      "$<TARGET_FILE_DIR:omnigpu_guest>/x86/opengl32.dll"
-    COMMENT "Deploying Zink 32-bit opengl32.dll..."
-  )
-  deploy_zink_dll(ZINK_GALLIUM_WGL_X86 "x86/libgallium_wgl.dll")
-endif()
-
 if(DEFINED CLVK_DLL AND EXISTS "${CLVK_DLL}")
   get_filename_component(CLVK_DLL_NAME "${CLVK_DLL}" NAME)
   configure_file("${CLVK_DLL}" "${CMAKE_CURRENT_BINARY_DIR}/${CLVK_DLL_NAME}" COPYONLY)
@@ -149,6 +117,18 @@ if(DEFINED CLVK_DLL AND EXISTS "${CLVK_DLL}")
       "$<TARGET_FILE_DIR:omnigpu_guest>/${CLVK_DLL_NAME}"
     COMMENT "Deploying clvk ${CLVK_DLL_NAME}..."
   )
+
+  # Also deploy clspv.exe (required by clvk at runtime)
+  set(CLVK_BIN_DIR "${CMAKE_SOURCE_DIR}/third_party/clvk-bin")
+  if(EXISTS "${CLVK_BIN_DIR}/clspv.exe")
+    configure_file("${CLVK_BIN_DIR}/clspv.exe" "${CMAKE_CURRENT_BINARY_DIR}/clspv.exe" COPYONLY)
+    add_custom_command(TARGET omnigpu_guest POST_BUILD
+      COMMAND "${CMAKE_COMMAND}" -E copy
+        "${CMAKE_CURRENT_BINARY_DIR}/clspv.exe"
+        "$<TARGET_FILE_DIR:omnigpu_guest>/clspv.exe"
+      COMMENT "Deploying clspv.exe..."
+    )
+  endif()
 endif()
 
 # Copy ICD manifest to output binary dir for runtime loading

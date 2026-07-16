@@ -99,4 +99,7 @@ private:
 
 VideoDecoder* create_decoder();
 
+void set_swapchain_extent(uint32_t w, uint32_t h);
+void get_swapchain_extent(uint32_t& w, uint32_t& h);
+
 } // namespace omnigpu::video

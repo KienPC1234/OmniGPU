@@ -19,14 +19,16 @@
     },
     {
       "name": "release-x86",
-      "displayName": "Clang + Ninja (Release x86)",
+      "displayName": "MSVC + Ninja (Release x86)",
       "inherits": "default",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_CXX_CLANG_TIDY": "",
         "VCPKG_TARGET_TRIPLET": "x86-windows-static-md",
-        "CMAKE_C_FLAGS": "-m32",
-        "CMAKE_CXX_FLAGS": "-m32 /EHsc"
+        "CMAKE_C_COMPILER": "cl.exe",
+        "CMAKE_CXX_COMPILER": "cl.exe",
+        "CMAKE_CXX_FLAGS": "/EHsc",
+        "CMAKE_C_FLAGS": ""
       }
     },
     {

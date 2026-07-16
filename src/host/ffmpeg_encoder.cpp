@@ -70,8 +70,8 @@ struct FFmpegEncoder::Impl {
 
     std::string encoderName = "auto";
     std::string activeEncoderName;
-    std::string optPreset = "ultrafast";
-    std::string optTuning = "zerolatency";
+    std::string optPreset = "fast";
+    std::string optTuning = "low_latency";
     int optGopLength = 0;
 
     bool open_encoder(const char* enc_name, AVCodecID codec_id) {
@@ -90,15 +90,56 @@ struct FFmpegEncoder::Impl {
         ctx->max_b_frames = 0;
         ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
 
-        if (codec->pix_fmts) {
-            ctx->pix_fmt = codec->pix_fmts[0];
-        } else {
+    #if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(61, 0, 0)
+        const enum AVPixelFormat *pix_fmts = nullptr;
+        int ret = avcodec_get_supported_config(nullptr, codec,
+            AV_CODEC_CONFIG_PIX_FORMAT, 0, (const void**)&pix_fmts, nullptr);
+        if (ret >= 0 && pix_fmts)
+            ctx->pix_fmt = pix_fmts[0];
+        else
             ctx->pix_fmt = AV_PIX_FMT_NV12;
-        }
+#else
+        if (codec->pix_fmts)
+            ctx->pix_fmt = codec->pix_fmts[0];
+        else
+            ctx->pix_fmt = AV_PIX_FMT_NV12;
+#endif
 
         ctx->gop_size = optGopLength;
-        av_opt_set(ctx->priv_data, "preset", optPreset.c_str(), AV_OPT_SEARCH_CHILDREN);
-        av_opt_set(ctx->priv_data, "tune", optTuning.c_str(), AV_OPT_SEARCH_CHILDREN);
+
+        std::string enc_name_str = enc_name;
+        for (auto& c : enc_name_str) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+        if (enc_name_str.find("nvenc") != std::string::npos) {
+            std::string nv_preset = "p1"; 
+            if (optPreset == "slow" || optPreset == "hq" || optPreset == "quality") nv_preset = "p6";
+            else if (optPreset == "medium" || optPreset == "balanced") nv_preset = "p4";
+            else if (optPreset == "fast" || optPreset == "hp" || optPreset == "speed") nv_preset = "p2";
+            
+            std::string nv_tune = "ull"; 
+            if (optTuning == "hq" || optTuning == "quality") nv_tune = "hq";
+            else if (optTuning == "ll" || optTuning == "low_latency" || optTuning == "zerolatency") nv_tune = "ll";
+
+            av_opt_set(ctx->priv_data, "preset", nv_preset.c_str(), AV_OPT_SEARCH_CHILDREN);
+            av_opt_set(ctx->priv_data, "tune", nv_tune.c_str(), AV_OPT_SEARCH_CHILDREN);
+        } else if (enc_name_str.find("amf") != std::string::npos) {
+            std::string amf_preset = "speed";
+            if (optPreset == "slow" || optPreset == "quality") amf_preset = "quality";
+            else if (optPreset == "medium" || optPreset == "balanced") amf_preset = "balanced";
+
+            av_opt_set(ctx->priv_data, "preset", amf_preset.c_str(), AV_OPT_SEARCH_CHILDREN);
+            av_opt_set(ctx->priv_data, "usage", "lowlatency", AV_OPT_SEARCH_CHILDREN);
+        } else if (enc_name_str.find("qsv") != std::string::npos) {
+            std::string qsv_preset = "veryfast";
+            if (optPreset == "slow" || optPreset == "quality") qsv_preset = "slow";
+            else if (optPreset == "medium") qsv_preset = "medium";
+            else if (optPreset == "fast" || optPreset == "speed") qsv_preset = "fast";
+
+            av_opt_set(ctx->priv_data, "preset", qsv_preset.c_str(), AV_OPT_SEARCH_CHILDREN);
+        } else {
+            av_opt_set(ctx->priv_data, "preset", optPreset.c_str(), AV_OPT_SEARCH_CHILDREN);
+            av_opt_set(ctx->priv_data, "tune", optTuning.c_str(), AV_OPT_SEARCH_CHILDREN);
+        }
 
         if (avcodec_open2(ctx, codec, nullptr) < 0) {
             avcodec_free_context(&ctx);
@@ -269,19 +310,29 @@ bool FFmpegEncoder::encode(const std::vector<uint8_t>& rgba,
     if (sws_scale(impl_->sws, srcSlice, srcStride, 0,
                   static_cast<int>(impl_->height),
                   impl_->frame->data, impl_->frame->linesize) < 0) {
+        SPDLOG_ERROR("FFmpeg: sws_scale failed");
         return false;
     }
 
     impl_->frame->pts = impl_->frameIdx++;
 
-    if (avcodec_send_frame(impl_->ctx, impl_->frame) < 0) {
+    int ret = avcodec_send_frame(impl_->ctx, impl_->frame);
+    if (ret < 0) {
+        char errbuf[256] = {0};
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        SPDLOG_ERROR("FFmpeg: avcodec_send_frame failed: {} (code: {})", errbuf, ret);
         return false;
     }
 
     while (true) {
-        int ret = avcodec_receive_packet(impl_->ctx, impl_->pkt);
+        ret = avcodec_receive_packet(impl_->ctx, impl_->pkt);
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
-        if (ret < 0) return false;
+        if (ret < 0) {
+            char errbuf[256] = {0};
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            SPDLOG_ERROR("FFmpeg: avcodec_receive_packet failed: {} (code: {})", errbuf, ret);
+            return false;
+        }
 
         EncodedPacket packet;
         packet.data.assign(impl_->pkt->data, impl_->pkt->data + impl_->pkt->size);

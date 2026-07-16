@@ -66,9 +66,9 @@ void write_VkDescriptorUpdateTemplateCreateInfo(
         ser.write_u64(static_cast<uint64_t>(e.stride));
     }
     ser.write_u32(static_cast<uint32_t>(info->templateType));
-    ser.write_handle(reinterpret_cast<uint64_t>(info->descriptorSetLayout));
+    ser.write_handle(handle_to_u64(info->descriptorSetLayout));
     ser.write_u32(static_cast<uint32_t>(info->pipelineBindPoint));
-    ser.write_handle(reinterpret_cast<uint64_t>(info->pipelineLayout));
+    ser.write_handle(handle_to_u64(info->pipelineLayout));
     ser.write_u32(info->set);
 }
 
@@ -90,7 +90,7 @@ void write_VkPipelineShaderStageCreateInfo(VulkanSerializer& ser, const VkPipeli
     write_nullable_ptr(ser, info);
     ser.write_u32(info->flags);
     ser.write_u32(static_cast<uint32_t>(info->stage));
-    ser.write_handle(reinterpret_cast<uint64_t>(info->module));
+    ser.write_handle(handle_to_u64(info->module));
     ser.write_string(info->pName ? info->pName : "main");
     write_VkSpecializationInfo(ser, info->pSpecializationInfo);
 }
@@ -224,36 +224,36 @@ void write_VkGraphicsPipelineCreateInfo(VulkanSerializer& ser, const VkGraphicsP
     write_VkPipelineDepthStencilStateCreateInfo(ser, info->pDepthStencilState);
     write_VkPipelineColorBlendStateCreateInfo(ser, info->pColorBlendState);
     write_VkPipelineDynamicStateCreateInfo(ser, info->pDynamicState);
-    ser.write_handle(reinterpret_cast<uint64_t>(info->layout));
-    ser.write_handle(reinterpret_cast<uint64_t>(info->renderPass));
+    ser.write_handle(handle_to_u64(info->layout));
+    ser.write_handle(handle_to_u64(info->renderPass));
     ser.write_u32(info->subpass);
-    ser.write_handle(reinterpret_cast<uint64_t>(info->basePipelineHandle));
+    ser.write_handle(handle_to_u64(info->basePipelineHandle));
     ser.write_i32(info->basePipelineIndex);
 }
 
 void write_VkComputePipelineCreateInfo(VulkanSerializer& ser, const VkComputePipelineCreateInfo* info) {
     ser.write_u32(info->flags);
     write_VkPipelineShaderStageCreateInfo(ser, &info->stage);
-    ser.write_handle(reinterpret_cast<uint64_t>(info->layout));
-    ser.write_handle(reinterpret_cast<uint64_t>(info->basePipelineHandle));
+    ser.write_handle(handle_to_u64(info->layout));
+    ser.write_handle(handle_to_u64(info->basePipelineHandle));
     ser.write_i32(info->basePipelineIndex);
 }
 
 void write_VkDescriptorImageInfo(VulkanSerializer& ser, const VkDescriptorImageInfo* info) {
-    ser.write_handle(reinterpret_cast<uint64_t>(info->sampler));
-    ser.write_handle(reinterpret_cast<uint64_t>(info->imageView));
+    ser.write_handle(handle_to_u64(info->sampler));
+    ser.write_handle(handle_to_u64(info->imageView));
     ser.write_u32(static_cast<uint32_t>(info->imageLayout));
 }
 
 void write_VkDescriptorBufferInfo(VulkanSerializer& ser, const VkDescriptorBufferInfo* info) {
-    ser.write_handle(reinterpret_cast<uint64_t>(info->buffer));
+    ser.write_handle(handle_to_u64(info->buffer));
     ser.write_u64(static_cast<uint64_t>(info->offset));
     ser.write_u64(static_cast<uint64_t>(info->range));
 }
 
 void write_VkWriteDescriptorSet(VulkanSerializer& ser, const VkWriteDescriptorSet* info) {
     write_nullable_ptr(ser, info);
-    ser.write_handle(reinterpret_cast<uint64_t>(info->dstSet));
+    ser.write_handle(handle_to_u64(info->dstSet));
     ser.write_u32(info->dstBinding);
     ser.write_u32(info->descriptorCount);
     ser.write_u32(static_cast<uint32_t>(info->descriptorType));
@@ -273,16 +273,16 @@ void write_VkWriteDescriptorSet(VulkanSerializer& ser, const VkWriteDescriptorSe
     }
     for (uint32_t i = 0; i < info->descriptorCount; i++)
         ser.write_handle(info->pTexelBufferView
-            ? reinterpret_cast<uint64_t>(info->pTexelBufferView[i])
+            ? handle_to_u64(info->pTexelBufferView[i])
             : 0);
     ser.write_u32(info->dstArrayElement);
 }
 
 void write_VkRenderingAttachmentInfo(VulkanSerializer& ser, const VkRenderingAttachmentInfo* info) {
-    ser.write_handle(reinterpret_cast<uint64_t>(info->imageView));
+    ser.write_handle(handle_to_u64(info->imageView));
     ser.write_u32(static_cast<uint32_t>(info->imageLayout));
     ser.write_u32(static_cast<uint32_t>(info->resolveMode));
-    ser.write_handle(reinterpret_cast<uint64_t>(info->resolveImageView));
+    ser.write_handle(handle_to_u64(info->resolveImageView));
     ser.write_u32(static_cast<uint32_t>(info->resolveImageLayout));
     ser.write_u32(static_cast<uint32_t>(info->loadOp));
     ser.write_u32(static_cast<uint32_t>(info->storeOp));
@@ -310,15 +310,15 @@ void write_VkRenderingInfo(VulkanSerializer& ser, const VkRenderingInfo* info) {
 void write_VkSubmitInfo(VulkanSerializer& ser, const VkSubmitInfo* info) {
     ser.write_u32(info->waitSemaphoreCount);
     for (uint32_t i = 0; i < info->waitSemaphoreCount; i++) {
-        ser.write_handle(reinterpret_cast<uint64_t>(info->pWaitSemaphores[i]));
+        ser.write_handle(handle_to_u64(info->pWaitSemaphores[i]));
         ser.write_u64(static_cast<uint64_t>(info->pWaitDstStageMask[i]));
     }
     ser.write_u32(info->commandBufferCount);
     for (uint32_t i = 0; i < info->commandBufferCount; i++)
-        ser.write_handle(reinterpret_cast<uint64_t>(info->pCommandBuffers[i]));
+        ser.write_handle(handle_to_u64(info->pCommandBuffers[i]));
     ser.write_u32(info->signalSemaphoreCount);
     for (uint32_t i = 0; i < info->signalSemaphoreCount; i++)
-        ser.write_handle(reinterpret_cast<uint64_t>(info->pSignalSemaphores[i]));
+        ser.write_handle(handle_to_u64(info->pSignalSemaphores[i]));
 }
 
 void write_VkSubmitInfo2(VulkanSerializer& ser, const VkSubmitInfo2* info) {
@@ -344,8 +344,8 @@ void write_VkDependencyInfo(VulkanSerializer& ser, const VkDependencyInfo* info)
 }
 
 void write_VkRenderPassBeginInfo(VulkanSerializer& ser, const VkRenderPassBeginInfo* info) {
-    ser.write_handle(reinterpret_cast<uint64_t>(info->renderPass));
-    ser.write_handle(reinterpret_cast<uint64_t>(info->framebuffer));
+    ser.write_handle(handle_to_u64(info->renderPass));
+    ser.write_handle(handle_to_u64(info->framebuffer));
     ser.write_raw(&info->renderArea, sizeof(VkRect2D));
     ser.write_u32(info->clearValueCount);
     for (uint32_t i = 0; i < info->clearValueCount; i++)

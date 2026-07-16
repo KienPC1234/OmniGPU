@@ -1,4 +1,5 @@
 #include "vulkan_struct_deserializer.h"
+#include "../guest/vulkan_serializer.h"
 #include <cstdlib>
 #include <cstring>
 
@@ -32,7 +33,7 @@ bool read_VkPipelineShaderStageCreateInfo(VulkanDeserializer& d, VkPipelineShade
     if (!is_present(d)) return true;
     out->flags = d.read_u32();
     out->stage = static_cast<VkShaderStageFlagBits>(d.read_u32());
-    out->module = reinterpret_cast<VkShaderModule>(static_cast<uint64_t>(d.read_handle()));
+    out->module = handle_from_u64<VkShaderModule>(d.read_handle());
     auto nameStr = d.read_string();
     thread_local static std::string s_name;
     s_name = nameStr;
@@ -232,10 +233,10 @@ bool read_VkGraphicsPipelineCreateInfo(VulkanDeserializer& d, VkGraphicsPipeline
     VkPipelineDynamicStateCreateInfo* dyn = new VkPipelineDynamicStateCreateInfo;
     read_VkPipelineDynamicStateCreateInfo(d, dyn);
     out->pDynamicState = dyn;
-    out->layout = reinterpret_cast<VkPipelineLayout>(static_cast<uint64_t>(d.read_handle()));
-    out->renderPass = reinterpret_cast<VkRenderPass>(static_cast<uint64_t>(d.read_handle()));
+    out->layout = handle_from_u64<VkPipelineLayout>(d.read_handle());
+    out->renderPass = handle_from_u64<VkRenderPass>(d.read_handle());
     out->subpass = d.read_u32();
-    out->basePipelineHandle = reinterpret_cast<VkPipeline>(static_cast<uint64_t>(d.read_handle()));
+    out->basePipelineHandle = handle_from_u64<VkPipeline>(d.read_handle());
     out->basePipelineIndex = d.read_i32();
     return d.ok();
 }
@@ -307,8 +308,8 @@ bool read_VkComputePipelineCreateInfo(VulkanDeserializer& d, VkComputePipelineCr
     out->sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     out->flags = d.read_u32();
     read_VkPipelineShaderStageCreateInfo(d, &out->stage);
-    out->layout = reinterpret_cast<VkPipelineLayout>(static_cast<uint64_t>(d.read_handle()));
-    out->basePipelineHandle = reinterpret_cast<VkPipeline>(static_cast<uint64_t>(d.read_handle()));
+    out->layout = handle_from_u64<VkPipelineLayout>(d.read_handle());
+    out->basePipelineHandle = handle_from_u64<VkPipeline>(d.read_handle());
     out->basePipelineIndex = d.read_i32();
     return d.ok();
 }
@@ -319,7 +320,7 @@ bool read_VkWriteDescriptorSet(VulkanDeserializer& d, VkWriteDescriptorSet* out,
     std::memset(out, 0, sizeof(*out));
     out->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     if (!is_present(d)) return false;
-    out->dstSet = reinterpret_cast<VkDescriptorSet>(static_cast<uint64_t>(d.read_handle()));
+    out->dstSet = handle_from_u64<VkDescriptorSet>(d.read_handle());
     out->dstBinding = d.read_u32();
     out->descriptorCount = d.read_u32();
     out->descriptorType = static_cast<VkDescriptorType>(d.read_u32());
@@ -333,7 +334,7 @@ bool read_VkWriteDescriptorSet(VulkanDeserializer& d, VkWriteDescriptorSet* out,
             d.read_raw(&(*outBuf)[i], sizeof(VkDescriptorBufferInfo));
         *outView = new VkBufferView[count];
         for (uint32_t i = 0; i < count; i++)
-            (*outView)[i] = reinterpret_cast<VkBufferView>(static_cast<uint64_t>(d.read_handle()));
+            (*outView)[i] = handle_from_u64<VkBufferView>(d.read_handle());
     }
     out->pImageInfo = *outImg;
     out->pBufferInfo = *outBuf;
@@ -345,10 +346,10 @@ bool read_VkWriteDescriptorSet(VulkanDeserializer& d, VkWriteDescriptorSet* out,
 bool read_VkRenderingAttachmentInfo(VulkanDeserializer& d, VkRenderingAttachmentInfo* out) {
     std::memset(out, 0, sizeof(*out));
     out->sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    out->imageView = reinterpret_cast<VkImageView>(static_cast<uint64_t>(d.read_handle()));
+    out->imageView = handle_from_u64<VkImageView>(d.read_handle());
     out->imageLayout = static_cast<VkImageLayout>(d.read_u32());
     out->resolveMode = static_cast<VkResolveModeFlagBits>(d.read_u32());
-    out->resolveImageView = reinterpret_cast<VkImageView>(static_cast<uint64_t>(d.read_handle()));
+    out->resolveImageView = handle_from_u64<VkImageView>(d.read_handle());
     out->resolveImageLayout = static_cast<VkImageLayout>(d.read_u32());
     out->loadOp = static_cast<VkAttachmentLoadOp>(d.read_u32());
     out->storeOp = static_cast<VkAttachmentStoreOp>(d.read_u32());

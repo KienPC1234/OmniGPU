@@ -5,10 +5,10 @@
 
 namespace omnigpu {
 
-struct NvencConfig {
-    std::string preset = "p1";        // p1-p7
-    std::string tuning = "low_latency"; // high_quality, low_latency, ultra_low_latency, lossless
-    int gop_length = 0;               // 0 = infinite
+struct EncoderOptions {
+    std::string preset = "fast";       // encoder preset
+    std::string tuning = "low_latency";  // encoder tuning
+    int gop_length = 0;                 // keyframe interval
 };
 
 struct HostConfig {
@@ -16,19 +16,17 @@ struct HostConfig {
     int jpeg_quality = 85;
     bool multi_gpu_enabled = true;
     int max_fps = 60;
-    uint32_t render_width = 800;
-    uint32_t render_height = 600;
+    uint32_t render_width = 1920;
+    uint32_t render_height = 1080;
     std::string config_path = "omnigpu_host.json";
 
-    // Video encoder settings
-    std::string video_codec = "h264";  // h264, hevc
-    int video_bitrate_kbps = 4000;
+    std::string video_codec = "h264";
+    int video_bitrate_kbps = 10000;
     int video_fps = 60;
-    uint32_t video_width = 800;
-    uint32_t video_height = 600;
+    uint32_t video_width = 1920;
+    uint32_t video_height = 1080;
 
-    // NVENC-specific settings
-    NvencConfig nvenc;
+    EncoderOptions encoder;
 };
 
 bool load_config(HostConfig& config);

@@ -15,7 +15,7 @@ HostCli::~HostCli() { stop(); }
 void HostCli::start() {
     running_ = true;
     thread_ = std::thread(&HostCli::run, this);
-    SPDLOG_INFO("CLI started — type 'help' for commands");
+    SPDLOG_INFO("CLI started - type 'help' for commands");
 }
 
 void HostCli::stop() {

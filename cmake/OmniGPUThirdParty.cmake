@@ -71,28 +71,33 @@ endif()
 # ---------------------------------------------------------------------------
 if(OMNIGPU_BUILD_FFMPEG)
     if(WIN32)
-        # Windows: download pre-built shared binaries (no MSYS2 required)
-        set(FFMPEG_BIN_DIR "${CMAKE_SOURCE_DIR}/third_party/ffmpeg-bin")
-        set(FFMPEG_LIB_DIR "${FFMPEG_BIN_DIR}/lib")
-        set(FFMPEG_INC_DIR "${FFMPEG_BIN_DIR}/include")
-
-        if(NOT EXISTS "${FFMPEG_LIB_DIR}/avcodec.lib")
-            if(NOT Python3_EXECUTABLE)
-                message(FATAL_ERROR "FFmpeg download requires Python3.")
-            endif()
-            add_custom_target(omnigpu_fetch_ffmpeg
-                COMMAND "${Python3_EXECUTABLE}"
-                        "${CMAKE_SOURCE_DIR}/third_party/fetch_ffmpeg.py"
-                        --output-dir "${FFMPEG_BIN_DIR}"
-                COMMENT "Downloading FFmpeg shared binaries..."
-            )
-            message(STATUS "FFmpeg: not found — will download automatically during build")
+        if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+            # 32-bit: FFmpeg pre-built not available, skip
+            set(FFMPEG_FOUND FALSE)
         else()
-            message(STATUS "FFmpeg: found in third_party/ffmpeg-bin")
-        endif()
+            # 64-bit: download pre-built shared binaries
+            set(FFMPEG_BIN_DIR "${CMAKE_SOURCE_DIR}/third_party/ffmpeg-bin")
+            set(FFMPEG_LIB_DIR "${FFMPEG_BIN_DIR}/lib")
+            set(FFMPEG_INC_DIR "${FFMPEG_BIN_DIR}/include")
 
-        if(EXISTS "${FFMPEG_LIB_DIR}/avcodec.lib")
-            set(FFMPEG_FOUND TRUE)
+            if(NOT EXISTS "${FFMPEG_LIB_DIR}/avcodec.lib")
+                if(NOT Python3_EXECUTABLE)
+                    message(FATAL_ERROR "FFmpeg download requires Python3.")
+                endif()
+                add_custom_target(omnigpu_fetch_ffmpeg
+                    COMMAND "${Python3_EXECUTABLE}"
+                            "${CMAKE_SOURCE_DIR}/third_party/fetch_ffmpeg.py"
+                            --output-dir "${FFMPEG_BIN_DIR}"
+                    COMMENT "Downloading FFmpeg shared binaries..."
+                )
+                message(STATUS "FFmpeg: not found — will download automatically during build")
+            else()
+                message(STATUS "FFmpeg: found in third_party/ffmpeg-bin")
+            endif()
+
+            if(EXISTS "${FFMPEG_LIB_DIR}/avcodec.lib")
+                set(FFMPEG_FOUND TRUE)
+            endif()
         endif()
     else()
         # Linux: use system FFmpeg (pkg-config)
@@ -109,13 +114,6 @@ if(OMNIGPU_BUILD_FFMPEG)
 
     if(FFMPEG_FOUND)
         set(OMNIGPU_USE_FFMPEG 1)
-        # Copy FFmpeg DLLs to output directory for packaging
-        add_custom_target(omnigpu_copy_ffmpeg_dlls ALL
-            COMMAND "${CMAKE_COMMAND}" -E copy_directory
-                "${FFMPEG_BIN_DIR}/bin/"
-                "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/"
-            COMMENT "Copying FFmpeg shared DLLs to output..."
-        )
         message(STATUS "FFmpeg: enabled (pre-built, HW accel via FFmpeg)")
     else()
         set(OMNIGPU_USE_FFMPEG 0)
@@ -127,18 +125,12 @@ else()
 endif()
 
 if(OMNIGPU_BUILD_GUEST)
-    # Copy full Mesa3D directory to output (when available)
-    if(EXISTS "${MESA3D_OUTPUT_DIR}")
-        add_custom_command(TARGET omnigpu_guest POST_BUILD
-            COMMAND "${CMAKE_COMMAND}" -E copy_directory
-                "${MESA3D_OUTPUT_DIR}"
-                "$<TARGET_FILE_DIR:omnigpu_guest>/mesa3d"
-            COMMENT "Copying Mesa3D distribution..."
-        )
-    endif()
-
-    # clvk DLLs
+    # clvk DLLs + clspv.exe
     if(DEFINED CLVK_DLL AND EXISTS "${CLVK_DLL}")
         install(FILES "${CLVK_DLL}" DESTINATION "${CMAKE_INSTALL_BINDIR}")
+    endif()
+    set(CLVK_BIN_DIR "${CMAKE_SOURCE_DIR}/third_party/clvk-bin")
+    if(EXISTS "${CLVK_BIN_DIR}/clspv.exe")
+        install(PROGRAMS "${CLVK_BIN_DIR}/clspv.exe" DESTINATION "${CMAKE_INSTALL_BINDIR}")
     endif()
 endif()

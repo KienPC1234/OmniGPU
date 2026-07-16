@@ -4,10 +4,8 @@
 #include "command_batch.h"
 #include "guest_config.h"
 #include "icd_registry.h"
-#include "loader.h"
 #include "video_decoder.h"
 #include "vk_intercept.h"
-#include "guest_ipc.h"
 #include "common/flatbuffers_utils.h"
 #include "common/gpu_caps.h"
 #include "common/gpu_caps_store.h"
@@ -46,7 +44,19 @@ bool do_handshake(Client& client) {
 
     // Always send handshake request so host doesn't block waiting for it
     flatbuffers::FlatBufferBuilder builder;
-    auto req = fbs::CreateCapabilitiesRequest(builder, 1);
+
+    uint32_t pref_w = 1920;
+    uint32_t pref_h = 1080;
+#ifdef _WIN32
+    int sw = GetSystemMetrics(SM_CXSCREEN);
+    int sh = GetSystemMetrics(SM_CYSCREEN);
+    if (sw > 0 && sh > 0) {
+        pref_w = static_cast<uint32_t>(sw);
+        pref_h = static_cast<uint32_t>(sh);
+    }
+#endif
+
+    auto req = fbs::CreateCapabilitiesRequest(builder, 1, pref_w, pref_h);
     auto msg = fbs::CreateMessage(
         builder, fbs::MessagePayload_CapabilitiesRequest, req.Union());
     builder.Finish(msg);
@@ -137,6 +147,24 @@ bool do_handshake(Client& client) {
     gpu_caps.sample_counts = caps->sample_counts();
     gpu_caps.framebuffer_color_sample_counts = caps->framebuffer_color_sample_counts();
 
+    gpu_caps.max_bound_descriptor_sets_ext = caps->max_bound_descriptor_sets_ext();
+    gpu_caps.max_per_stage_descriptor_samplers = caps->max_per_stage_descriptor_samplers();
+    gpu_caps.max_per_stage_descriptor_uniform_buffers = caps->max_per_stage_descriptor_uniform_buffers();
+    gpu_caps.max_per_stage_descriptor_storage_buffers = caps->max_per_stage_descriptor_storage_buffers();
+    gpu_caps.max_per_stage_descriptor_sampled_images = caps->max_per_stage_descriptor_sampled_images();
+    gpu_caps.max_per_stage_descriptor_storage_images = caps->max_per_stage_descriptor_storage_images();
+    gpu_caps.max_per_stage_resources_ext = caps->max_per_stage_resources_ext();
+    gpu_caps.max_compute_work_group_count_x = caps->max_compute_work_group_count_x();
+    gpu_caps.max_compute_work_group_count_y = caps->max_compute_work_group_count_y();
+    gpu_caps.max_compute_work_group_count_z = caps->max_compute_work_group_count_z();
+    gpu_caps.max_compute_work_group_invocations = caps->max_compute_work_group_invocations();
+    gpu_caps.max_compute_shared_memory_size = caps->max_compute_shared_memory_size();
+    gpu_caps.max_clip_distances = caps->max_clip_distances();
+    gpu_caps.max_cull_distances = caps->max_cull_distances();
+    gpu_caps.max_combined_clip_and_cull_distances = caps->max_combined_clip_and_cull_distances();
+    gpu_caps.max_tessellation_factor = caps->max_tessellation_factor();
+    gpu_caps.max_fragment_output_attachments = caps->max_fragment_output_attachments();
+
     cache.save(gpu_caps);
     caps::store(gpu_caps);
 
@@ -148,12 +176,6 @@ bool initialize_guest_internal(const char* host_hint, uint16_t port_hint) {
     init_logger();
 
     auto cfg = config::load();
-
-    // Configure translation layers from config
-    auto& layers = loader::get_layers();
-    (void)layers;
-
-    loader::initialize(cfg.zink_enabled, cfg.clvk_enabled);
 
 #ifdef _WIN32
     // Auto-register ICD in HKCU registry so future Vulkan apps
@@ -189,93 +211,88 @@ bool connect_to_host() {
         std::string host = cfg.host;
         uint16_t port = cfg.port;
 
-        SPDLOG_INFO("OmniGPU Guest connecting to host={}:{}...", host, port);
-
-        // Connect to host (optional — continue with defaults if unreachable)
-        int pipe_handle = ipc::connect_to_daemon();
+        SPDLOG_INFO("OmniGPU Guest connecting to {}:{} via TCP...", host, port);
 
         g_client = new Client(host, port);
-        if (pipe_handle >= 0) {
-            g_client->set_ipc_pipe_handle(pipe_handle, 0);
+        if (!g_client->connect()) {
+            SPDLOG_ERROR("Failed to connect to {}:{} — check host address, port, and firewall", host, port);
+            delete g_client;
+            g_client = nullptr;
+            connect_result = false;
+            return;
         }
 
-        if (!g_client->connect()) {
-            SPDLOG_WARN("Host unreachable ({}:{}), running with default capabilities",
-                         host, port);
-            connect_result = false;
-        } else {
-            // Handshake
-            if (!do_handshake(*g_client)) {
-                SPDLOG_WARN("Handshake failed, continuing with defaults");
-            }
+        if (!do_handshake(*g_client)) {
+            SPDLOG_WARN("Handshake failed, continuing with defaults");
+        }
 
-            // Create batch with adaptive settings from config
-            g_batch = new batch::CommandBatch(
-                g_client,
-                cfg.min_batch_commands,
-                cfg.min_batch_bytes,
-                true,                         // flush_on_present
-                cfg.adaptive_batching,
-                cfg.max_batch_interval_ms);
+        g_batch = new batch::CommandBatch(
+            g_client,
+            cfg.min_batch_commands,
+            cfg.min_batch_bytes,
+            true,
+            cfg.adaptive_batching,
+            cfg.max_batch_interval_ms);
 
-            if (cfg.adaptive_batching) {
-                SPDLOG_INFO("Adaptive batching enabled (interval={}ms, min_cmd={}, max_cmd={})",
-                            cfg.max_batch_interval_ms,
-                            cfg.min_batch_commands,
-                            cfg.max_batch_commands);
-            }
+        if (cfg.adaptive_batching) {
+            SPDLOG_INFO("Adaptive batching enabled (interval={}ms, min_cmd={}, max_cmd={})",
+                         cfg.max_batch_interval_ms,
+                         cfg.min_batch_commands,
+                         cfg.max_batch_commands);
+        }
 
-            intercept::set_batch(g_batch);
+        intercept::set_batch(g_batch);
 
-            // Start receive thread for video frames from host
-            g_running = true;
-            g_recv_thread = new std::thread([]() {
-                SPDLOG_INFO("Receive thread started");
-                while (g_running) {
-                    uint32_t msg_size = 0;
-                    if (!g_client->receive_data(reinterpret_cast<uint8_t*>(&msg_size),
-                                                 sizeof(msg_size))) {
-                        if (g_running) {
-                            SPDLOG_ERROR("Receive thread: connection lost");
-                        }
-                        break;
+        g_running = true;
+        g_recv_thread = new std::thread([]() {
+            SPDLOG_INFO("Receive thread started");
+            while (g_running) {
+                uint32_t msg_size = 0;
+                if (!g_client->receive_data(reinterpret_cast<uint8_t*>(&msg_size),
+                                             sizeof(msg_size))) {
+                    if (g_running) SPDLOG_ERROR("Receive thread: connection lost");
+                    g_client->set_sync_response(0);
+                    break;
+                }
+                msg_size = ntohl(msg_size);
+                if (msg_size > 64 * 1024 * 1024) {
+                    SPDLOG_ERROR("Receive thread: message size {} exceeds 64MB limit", msg_size);
+                    g_client->set_sync_response(0);
+                    break;
+                }
+                std::vector<uint8_t> buf(msg_size);
+                if (!g_client->receive_data(buf.data(), msg_size)) {
+                    SPDLOG_ERROR("Receive thread: failed to read message");
+                    g_client->set_sync_response(0);
+                    break;
+                }
+                auto* msg = protocol::verify_root(buf.data(), buf.size());
+                if (!msg) continue;
+                if (msg->payload_type() == fbs::MessagePayload_VideoFrame) {
+                    auto* vf = msg->payload_as_VideoFrame();
+                    if (vf && g_decoder) {
+                        auto* payload = vf->data();
+                        g_decoder->decode(
+                            static_cast<video::Codec>(vf->codec()),
+                            vf->is_keyframe(),
+                            payload ? payload->data() : nullptr,
+                            payload ? payload->size() : 0,
+                            vf->frame_id(), vf->timestamp_ms(),
+                            vf->width(), vf->height());
                     }
-
-                    msg_size = ntohl(msg_size);
-                    if (msg_size > 64 * 1024 * 1024) {
-                        SPDLOG_ERROR("Receive thread: message size {} exceeds 64MB limit",
-                                      msg_size);
-                        break;
-                    }
-                    std::vector<uint8_t> buf(msg_size);
-                    if (!g_client->receive_data(buf.data(), msg_size)) {
-                        SPDLOG_ERROR("Receive thread: failed to read message");
-                        break;
-                    }
-
-                    auto* msg = protocol::verify_root(buf.data(), buf.size());
-                    if (!msg) continue;
-
-                    if (msg->payload_type() == fbs::MessagePayload_VideoFrame) {
-                        auto* vf = msg->payload_as_VideoFrame();
-                        if (vf && g_decoder) {
-                            auto* payload = vf->data();
-                            g_decoder->decode(
-                                static_cast<video::Codec>(vf->codec()),
-                                vf->is_keyframe(),
-                                payload ? payload->data() : nullptr,
-                                payload ? payload->size() : 0,
-                                vf->frame_id(), vf->timestamp_ms(),
-                                vf->width(), vf->height());
-                        }
+                } else if (msg->payload_type() == fbs::MessagePayload_DataMessage) {
+                    auto* dm = msg->payload_as_DataMessage();
+                    if (dm && dm->payload() && dm->payload()->size() >= 8) {
+                        uint64_t result = 0;
+                        std::memcpy(&result, dm->payload()->data(), 8);
+                        g_client->set_sync_response(result);
                     }
                 }
-                SPDLOG_INFO("Receive thread stopped");
-            });
-            connect_result = true;
-        }
+            }
+            SPDLOG_INFO("Receive thread stopped");
+        });
+        connect_result = true;
 
-        // Initialize video decoder
         g_decoder = video::create_decoder();
         if (g_decoder) {
             g_decoder->init();
@@ -326,7 +343,6 @@ void shutdown_guest() {
         delete g_client;
         g_client = nullptr;
     }
-    loader::shutdown();
     SPDLOG_INFO("OmniGPU Guest shut down");
 }
 

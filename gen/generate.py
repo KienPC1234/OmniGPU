@@ -27,11 +27,11 @@ except ImportError:
 
 
 SERIALIZER_DISPATCH = {
-    "handle": 'ser.write_handle(reinterpret_cast<uint64_t>({name}));',
-    "output_handle_ptr": 'ser.write_handle(reinterpret_cast<uint64_t>({name}));',
-    "value": 'ser.write_u32(static_cast<uint32_t>({name}));',
-    "value_ptr": 'if ({name}) {{ ser.write_u32(*{name}); }} else {{ ser.write_u32(0); }}',
-    "struct_ptr": 'ser.write_raw({name}, sizeof(*{name}));',
+            "handle": 'ser.write_handle((uint64_t)({name}));',
+            "output_handle_ptr": 'ser.write_handle((uint64_t)({name}));',
+            "value": 'ser.write_u32(static_cast<uint32_t>({name}));',
+            "value_ptr": 'if ({name}) {{ ser.write_u32(*{name}); }} else {{ ser.write_u32(0); }}',
+            "struct_ptr": 'ser.write_raw({name}, sizeof(*{name}));',
     "raw_ptr": 'ser.write_u32({size_name}); ser.write_raw({name}, {size_name});',
     "string": 'ser.write_string({name});',
     "array": 'ser.write_array({name}, {count_name});',
@@ -122,6 +122,11 @@ uint32_t next_request_id() {
     )>(get_original_fns()["{{ func.name }}"]);
 
     if (!original) {
+        {% for param in func.params %}
+        {% if param.kind == "output_handle_ptr" %}
+        if ({{ param.name }}) *{{ param.name }} = ({{ param.type[:-1] }})({{ param.name }});
+        {% endif %}
+        {% endfor %}
         {% if func.return_type == "void" %}
         return;
         {% else %}
@@ -257,10 +262,10 @@ def get_serialize_code(param: dict, all_params: list[dict]) -> str:
         return get_array_serialize_code(param, all_params)
 
     if kind == "handle":
-        return f'ser.write_handle(reinterpret_cast<uint64_t>({name}));'
+        return f'ser.write_handle((uint64_t)({name}));'
 
     if kind == "output_handle_ptr":
-        return f'ser.write_handle(reinterpret_cast<uint64_t>({name}));'
+        return f'ser.write_handle((uint64_t)({name}));'
 
     if kind == "value":
         # 64-bit integer types
@@ -278,7 +283,7 @@ def get_serialize_code(param: dict, all_params: list[dict]) -> str:
     if kind == "value_ptr":
         # void** needs special handling (output pointer for mapped memory)
         if "void**" in ptype or "void* " in ptype:
-            return f'ser.write_handle(reinterpret_cast<uint64_t>({name} ? *{name} : nullptr));'
+            return f'ser.write_handle((uint64_t)({name} ? *{name} : nullptr));'
         return f'ser.write_u32({name} ? *{name} : 0);'
 
     if kind == "struct_ptr":

@@ -289,6 +289,8 @@ enum DataType : byte {
 // Guest gửi request khi kết nối lần đầu
 table CapabilitiesRequest {
   client_version: uint32 = 1;
+  preferred_width: uint32 = 0;
+  preferred_height: uint32 = 0;
 }
 
 // Host trả về thông số GPU thật — mở rộng cho Vulkan 1.3

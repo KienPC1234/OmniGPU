@@ -93,5 +93,5 @@ Thumbs.db
 .ninja_timestamp
 
 
-scripts/windows/askpass.bat
 .playwright-mcp
+third_party/ffmpeg-bin

@@ -3,6 +3,7 @@
 #include "ffmpeg_decoder.h"
 #include <algorithm>
 #include <cstring>
+#include <atomic>
 #include <spdlog/spdlog.h>
 #include <turbojpeg.h>
 
@@ -15,6 +16,32 @@
 #include <lz4.h>
 
 namespace omnigpu::video {
+
+static std::atomic<uint32_t> g_swapchain_w{0};
+static std::atomic<uint32_t> g_swapchain_h{0};
+
+void set_swapchain_extent(uint32_t w, uint32_t h) {
+    g_swapchain_w.store(w);
+    g_swapchain_h.store(h);
+    SPDLOG_INFO("Guest swapchain extent updated to {}x{}", w, h);
+}
+
+void get_swapchain_extent(uint32_t& w, uint32_t& h) {
+    w = g_swapchain_w.load();
+    h = g_swapchain_h.load();
+}
+
+static void get_target_display_size(uint32_t default_w, uint32_t default_h, uint32_t& out_w, uint32_t& out_h) {
+    uint32_t sw = 0, sh = 0;
+    get_swapchain_extent(sw, sh);
+    if (sw > 0 && sh > 0) {
+        out_w = sw;
+        out_h = sh;
+    } else {
+        out_w = default_w;
+        out_h = default_h;
+    }
+}
 
 // ==========================================================================
 // Win32 display window
@@ -47,8 +74,13 @@ static LRESULT CALLBACK display_wnd_proc(HWND hw, UINT msg, WPARAM wp, LPARAM lp
     return DefWindowProcA(hw, msg, wp, lp);
 }
 
+static void destroy_display();
+
 static void create_display_window(uint32_t w, uint32_t h) {
-    if (g_disp_created) return;
+    if (g_disp_created) {
+        if (g_disp_w == w && g_disp_h == h) return;
+        destroy_display();
+    }
     g_disp_w = w; g_disp_h = h;
     HMODULE hinst = nullptr;
     GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -86,7 +118,13 @@ static void update_display(const uint8_t* rgba, uint32_t w, uint32_t h) {
     BITMAP bm{};
     GetObjectA(g_display_bmp, sizeof(bm), &bm);
     if (bm.bmBits && rgba) {
-        std::memcpy(bm.bmBits, rgba, (size_t)w * h * 4);
+        uint32_t copy_w = std::min(w, g_disp_w);
+        uint32_t copy_h = std::min(h, g_disp_h);
+        for (uint32_t y = 0; y < copy_h; ++y) {
+            const uint8_t* src_row = rgba + (y * w * 4);
+            uint8_t* dst_row = reinterpret_cast<uint8_t*>(bm.bmBits) + (y * g_disp_w * 4);
+            std::memcpy(dst_row, src_row, copy_w * 4);
+        }
         InvalidateRect(g_display_wnd, nullptr, FALSE);
     }
 }
@@ -314,7 +352,7 @@ bool MfH264Decoder::process_output() {
         DWORD out_len = 0;
         out_buf2->Lock(&out_data, nullptr, &out_len);
 
-        if (out_data && out_len > 0) {
+        if (out_data && out_len >= static_cast<DWORD>(frame_w_ * frame_h_ * 3 / 2)) {
             int w = (int)frame_w_, h = (int)frame_h_;
             int y_size = w * h;
             auto y_plane = out_data;
@@ -350,7 +388,9 @@ bool MfH264Decoder::process_output() {
             frame.rgba_pixels = std::move(rgba);
             callback_(std::move(frame));
 
-            create_display_window(frame.width, frame.height);
+            uint32_t dw = frame.width, dh = frame.height;
+            get_target_display_size(frame.width, frame.height, dw, dh);
+            create_display_window(dw, dh);
             if (g_disp_created && !frame.rgba_pixels.empty())
                 update_display(frame.rgba_pixels.data(), frame.width, frame.height);
         } else {
@@ -418,7 +458,9 @@ public:
             frame.timestamp_ms = timestamp_ms;
             frame.rgba_pixels = std::move(rgba);
             callback_(std::move(frame));
-            create_display_window(width, height);
+            uint32_t dw = width, dh = height;
+            get_target_display_size(width, height, dw, dh);
+            create_display_window(dw, dh);
             if (g_disp_created && !frame.rgba_pixels.empty())
                 update_display(frame.rgba_pixels.data(), width, height);
             return true;
@@ -441,7 +483,9 @@ public:
                         frame.timestamp_ms = timestamp_ms;
                         frame.rgba_pixels = std::move(rgba);
                         callback_(std::move(frame));
-                        create_display_window(frame.width, frame.height);
+                        uint32_t dw = frame.width, dh = frame.height;
+                        get_target_display_size(frame.width, frame.height, dw, dh);
+                        create_display_window(dw, dh);
                         if (g_disp_created && !frame.rgba_pixels.empty())
                             update_display(frame.rgba_pixels.data(), frame.width, frame.height);
                     }
@@ -472,7 +516,9 @@ public:
         frame.timestamp_ms = timestamp_ms;
         frame.rgba_pixels.assign(data, data + size);
         callback_(std::move(frame));
-        create_display_window(width, height);
+        uint32_t dw = width, dh = height;
+        get_target_display_size(width, height, dw, dh);
+        create_display_window(dw, dh);
         if (g_disp_created && !frame.rgba_pixels.empty())
             update_display(frame.rgba_pixels.data(), width, height);
         return true;

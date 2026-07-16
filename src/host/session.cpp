@@ -11,14 +11,6 @@
 
 namespace omnigpu {
 
-static VideoCodec codec_from_string(const std::string& s) {
-    std::string lower;
-    for (auto c : s) lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
-    if (lower == "hevc") return VideoCodec::HEVC;
-    if (lower == "av1") return VideoCodec::AV1;
-    return VideoCodec::H264;
-}
-
 Session::Session(SOCKET clientFd, GpuManager& gpuMgr,
                  const std::vector<int>& gpuIndices, int sessionId,
                  const HostConfig& hostConfig)
@@ -31,7 +23,7 @@ Session::Session(SOCKET clientFd, GpuManager& gpuMgr,
 
 #if defined(OMNIGPU_USE_FFMPEG)
     if (auto* ffmpeg = dynamic_cast<FFmpegEncoder*>(videoEncoder_.get())) {
-        ffmpeg->set_encoder_options(config_.nvenc.preset, config_.nvenc.tuning, config_.nvenc.gop_length);
+        ffmpeg->set_encoder_options(config_.encoder.preset, config_.encoder.tuning, config_.encoder.gop_length);
     }
 #endif
 
@@ -152,6 +144,9 @@ void Session::handle_client() {
     SPDLOG_INFO("Session #{} started for client fd={} on GPU(s) [{}]",
                 sessionId_, static_cast<int>(clientFd_), gpuList);
 
+    uint32_t client_pref_w = 0;
+    uint32_t client_pref_h = 0;
+
     // Handle initial handshake (capabilities request from guest)
     {
         std::vector<uint8_t> hb;
@@ -166,6 +161,11 @@ void Session::handle_client() {
         auto* msg = protocol::verify_root(hb.data(), hb.size());
         if (msg && msg->payload_type() == fbs::MessagePayload_CapabilitiesRequest) {
             SPDLOG_INFO("Guest requested capabilities for GPU {}", gpuList);
+            auto* req = msg->payload_as_CapabilitiesRequest();
+            if (req) {
+                client_pref_w = req->preferred_width();
+                client_pref_h = req->preferred_height();
+            }
             handshake::handle_capabilities_request(clientFd_);
         } else {
             SPDLOG_WARN("Expected CapabilitiesRequest as first message");
@@ -174,6 +174,24 @@ void Session::handle_client() {
 
     uint32_t rw = config_.render_width;
     uint32_t rh = config_.render_height;
+    if (client_pref_w > 0 && client_pref_h > 0) {
+        uint32_t max_w = 1920;
+        uint32_t max_h = 1080;
+        if (client_pref_w > max_w || client_pref_h > max_h) {
+            double aspect = static_cast<double>(client_pref_w) / client_pref_h;
+            if (aspect > 1.0) {
+                client_pref_w = max_w;
+                client_pref_h = static_cast<uint32_t>(max_w / aspect);
+            } else {
+                client_pref_h = max_h;
+                client_pref_w = static_cast<uint32_t>(max_h * aspect);
+            }
+        }
+        rw = client_pref_w;
+        rh = client_pref_h;
+        SPDLOG_INFO("Session #{}: Using dynamic resolution from client: {}x{}", sessionId_, rw, rh);
+    }
+
     if (!multiRenderer_.init(gpuMgr_, gpuIndices_, rw, rh)) {
         SPDLOG_ERROR("Session #{}: Failed to initialize multi-GPU renderer", sessionId_);
         for (int idx : gpuIndices_) gpuMgr_.release_gpu(idx);
@@ -209,7 +227,14 @@ void Session::handle_client() {
             auto respond = [&](uint64_t val) {
                 uint8_t resp[8];
                 std::memcpy(resp, &val, 8);
-                tcp::send_all(clientFd_, resp, sizeof(resp));
+                auto builder = protocol::build_data(
+                    fbs::DataType_Unknown, 0, resp, sizeof(resp));
+                auto span = builder.GetBufferSpan();
+                uint32_t totalSize = htonl(static_cast<uint32_t>(span.size()));
+
+                if (tcp::send_all(clientFd_, reinterpret_cast<const uint8_t*>(&totalSize), sizeof(totalSize))) {
+                    tcp::send_all(clientFd_, span.data(), span.size());
+                }
             };
 
             switch (query_type) {
@@ -266,9 +291,9 @@ void Session::handle_client() {
             auto* args = cmd->args();
             size_t args_size = args ? args->size() : 0;
 
-            SPDLOG_DEBUG("Session #{}: Received command: func_id={}, request_id={}",
+            SPDLOG_DEBUG("Session #{}: {} (request_id={})",
                          sessionId_,
-                         static_cast<int>(func_id), cmd->request_id());
+                         fbs::EnumNameFunctionId(func_id), cmd->request_id());
 
             // Dispatch to command replay engine for ALL commands
             if (args && args_size > 0) {

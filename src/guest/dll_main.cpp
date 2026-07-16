@@ -13,12 +13,6 @@ BOOL WINAPI DllMain(HINSTANCE hInst, DWORD fdwReason, LPVOID lpvReserved) {
     switch (fdwReason) {
     case DLL_PROCESS_ATTACH:
         DisableThreadLibraryCalls(hInst);
-        // Lightweight self-registration in HKCU so the ICD is discoverable
-        // by future Vulkan apps without VK_ICD_FILENAMES. Registry API
-        // calls are safe inside DllMain.
-        if (!omnigpu::icd_registry::is_icd_registered()) {
-            omnigpu::icd_registry::register_icd();
-        }
         break;
     case DLL_PROCESS_DETACH:
         // Only shut down dynamically (on FreeLibrary).

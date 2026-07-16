@@ -22,27 +22,44 @@ echo.
 set INSTDIR=%ProgramFiles%\OmniGPU
 
 :: ========== Remove Vulkan ICD registration ==========
-echo [1/4] Removing Vulkan ICD registry...
-if exist "%INSTDIR%\vk_icd.json" (
-    reg delete "HKLM\SOFTWARE\Khronos\Vulkan\Drivers" /v "%INSTDIR%\vk_icd.json" /f >nul 2>&1
-    reg delete "HKCU\SOFTWARE\Khronos\Vulkan\Drivers" /v "%INSTDIR%\vk_icd.json" /f >nul 2>&1
-)
+echo [1/6] Removing Vulkan ICD registry...
+reg delete "HKLM\SOFTWARE\Khronos\Vulkan\Drivers" /v "%INSTDIR%\x64\vk_icd.json" /f >nul 2>&1
+reg delete "HKLM\SOFTWARE\WOW6432Node\Khronos\Vulkan\Drivers" /v "%INSTDIR%\x86\vk_icd.json" /f >nul 2>&1
 echo   [OK] Vulkan ICD registry removed
 
 :: ========== Remove OpenCL ICD registration ==========
-echo [2/4] Removing OpenCL ICD registry...
-if exist "%windir%\System32\clvk.icd" del "%windir%\System32\clvk.icd" /f >nul 2>&1
-reg delete "HKLM\SOFTWARE\Khronos\OpenCL\Vendors" /v "%windir%\System32\clvk.icd" /f >nul 2>&1
+echo [2/6] Removing OpenCL ICD registry...
+reg delete "HKLM\SOFTWARE\Khronos\OpenCL\Vendors" /v "%INSTDIR%\OpenCL.dll" /f >nul 2>&1
+reg delete "HKLM\SOFTWARE\WOW6432Node\Khronos\OpenCL\Vendors" /v "%INSTDIR%\OpenCL.dll" /f >nul 2>&1
 echo   [OK] OpenCL ICD registry removed
 
+:: ========== Remove vulkan-1.dll from System32 ==========
+echo [3/6] Removing vulkan-1.dll from System32...
+if exist "%WINDIR%\System32\vulkan-1.dll" (
+    del /f "%WINDIR%\System32\vulkan-1.dll" >nul 2>&1
+    echo   [OK] System32\vulkan-1.dll removed
+)
+if exist "%WINDIR%\SysWOW64\vulkan-1.dll" (
+    del /f "%WINDIR%\SysWOW64\vulkan-1.dll" >nul 2>&1
+    echo   [OK] SysWOW64\vulkan-1.dll removed
+)
+
+:: ========== Remove FFmpeg DLLs from System32 ==========
+echo [4/6] Removing FFmpeg DLLs from System32...
+for %%f in (avcodec-*.dll avutil-*.dll swscale-*.dll swresample-*.dll) do (
+    if exist "%WINDIR%\System32\%%f" del /f "%WINDIR%\System32\%%f" >nul 2>&1
+    if exist "%WINDIR%\SysWOW64\%%f" del /f "%WINDIR%\SysWOW64\%%f" >nul 2>&1
+)
+echo   [OK] FFmpeg DLLs removed from System32
+
 :: ========== Remove shortcuts ==========
-echo [3/4] Removing shortcuts...
+echo [5/6] Removing shortcuts...
 set STARTMENU=%APPDATA%\Microsoft\Windows\Start Menu\Programs\OmniGPU
 if exist "%STARTMENU%" rmdir /s /q "%STARTMENU%" >nul 2>&1
 echo   [OK] Shortcuts removed
 
 :: ========== Remove install directory ==========
-echo [4/4] Removing OmniGPU files...
+echo [6/6] Removing OmniGPU files...
 if exist "%INSTDIR%" (
     rmdir /s /q "%INSTDIR%" >nul 2>&1
     echo   [OK] Deleted %INSTDIR%

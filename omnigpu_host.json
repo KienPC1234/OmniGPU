@@ -3,16 +3,16 @@
     "jpeg_quality": 85,
     "multi_gpu_enabled": true,
     "max_fps": 60,
-    "render_width": 800,
-    "render_height": 600,
+    "render_width": 1920,
+    "render_height": 1080,
     "video_codec": "h264",
-    "video_bitrate_kbps": 8000,
+    "video_bitrate_kbps": 10000,
     "video_fps": 60,
-    "video_width": 800,
-    "video_height": 600,
-    "nvenc": {
-        "preset": "p4",
-        "tuning": "high_quality",
+    "video_width": 1920,
+    "video_height": 1080,
+    "encoder": {
+        "preset": "fast",
+        "tuning": "low_latency",
         "gop_length": 0
     }
 }

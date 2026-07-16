@@ -8,7 +8,14 @@ static void chk(VkResult r, const char* msg) {
     if (r != VK_SUCCESS) { printf("FAIL: %s (err=%d)\n", msg, r); exit(1); }
 }
 
+static void wait_on_exit() {
+    printf("\nPress Enter to exit...");
+    fflush(stdout);
+    getchar();
+}
+
 int main() {
+    std::atexit(wait_on_exit);
     printf("=== OmniGPU Vulkan Device Test ===\n\n");
 
     // 1. Create instance with required extensions

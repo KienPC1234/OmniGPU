@@ -1,18 +1,8 @@
 #===============================================================================
 # OmniGPU Build + Package for Windows
-#
-# Clean build and assemble everything into a single deployable folder:
-#   build/dist/OmniGPU-v{version}/
-#
-# Usage:
-#   .\scripts\windows\build-and-package.ps1              # 64-bit only
-#   .\scripts\windows\build-and-package.ps1 -Build32      # 64 + 32 bit
-#   .\scripts\windows\build-and-package.ps1 -SkipBuild    # re-package only
-#   .\scripts\windows\build-and-package.ps1 -Install      # build + install
 #===============================================================================
 
 param(
-    [switch]$Build32 = $false,
     [switch]$SkipBuild = $false,
     [switch]$Install = $false,
     [string]$HostAddr = "",
@@ -28,32 +18,31 @@ $BuildDir32 = "$ProjectRoot\build\release-x86"
 $ThirdParty = "$ProjectRoot\third_party"
 
 # ============================================================================
-# Step 0: Build 64-bit
+# Step 1: Build 64-bit
 # ============================================================================
 if (-not $SkipBuild) {
-    # Source VS env and build
     $vcvars = "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvarsall.bat"
+    Write-Host "=== [1/6] Building 64-bit ===" -ForegroundColor Cyan
     $cmds = @(
         "`"$vcvars`" x64",
         "cmake --preset release -DCMAKE_CXX_FLAGS=`"/EHsc /Zi`"",
         "cmake --build --preset release --clean-first --parallel"
     )
-    Write-Host "=== [0/5] Building 64-bit ===" -ForegroundColor Cyan
     cmd /c ($cmds -join " && ") 2>&1
     if ($LASTEXITCODE -ne 0) { Write-Error "64-bit build failed"; exit 1 }
     Write-Host "  [OK] 64-bit build complete" -ForegroundColor Green
 }
 
 # ============================================================================
-# Step 2: Clean + Build 32-bit (optional)
+# Step 2: Build 32-bit (only guest DLL for Vulkan ICD)
 # ============================================================================
-if ($Build32 -and -not $SkipBuild) {
+if (-not $SkipBuild) {
+    Write-Host "=== [2/6] Building 32-bit guest DLL ===" -ForegroundColor Cyan
     $cmds32 = @(
         "`"$vcvars`" x86",
-        "cmake --preset release-x86 -DCMAKE_CXX_FLAGS=`"/EHsc /Zi /m32`"",
+        "cmake --preset release-x86 -DCMAKE_CXX_FLAGS=`"/EHsc /Zi`"",
         "cmake --build --preset release-x86 --clean-first --parallel"
     )
-    Write-Host "=== [2/5] Clean building 32-bit ===" -ForegroundColor Cyan
     cmd /c ($cmds32 -join " && ") 2>&1
     if ($LASTEXITCODE -ne 0) { Write-Error "32-bit build failed"; exit 1 }
     Write-Host "  [OK] 32-bit build complete" -ForegroundColor Green
@@ -62,79 +51,114 @@ if ($Build32 -and -not $SkipBuild) {
 # ============================================================================
 # Step 3: Create distribution folder
 # ============================================================================
-Write-Host "=== [3/5] Assembling distribution package ===" -ForegroundColor Cyan
+Write-Host "=== [3/6] Assembling distribution package ===" -ForegroundColor Cyan
 
-# Clean and create dist dirs
 if (Test-Path $DistDir) { Remove-Item -Recurse -Force $DistDir }
 New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
+New-Item -ItemType Directory -Path "$DistDir\x64" -Force | Out-Null
 New-Item -ItemType Directory -Path "$DistDir\x86" -Force | Out-Null
-New-Item -ItemType Directory -Path "$DistDir\scripts" -Force | Out-Null
+New-Item -ItemType Directory -Path "$DistDir\mesa3d" -Force | Out-Null
+New-Item -ItemType Directory -Path "$DistDir\clvk" -Force | Out-Null
 New-Item -ItemType Directory -Path "$DistDir\docs" -Force | Out-Null
 
-# 64-bit core files
 $Bin64 = "$BuildDir64\bin"
-Copy-Item -Path "$Bin64\omnigpu_guest.dll" -Destination $DistDir -Force
+$Bin32 = "$BuildDir32\bin"
+$FfmpegBin = "$ThirdParty\ffmpeg-bin\bin"
+
+# ----- Root: 64-bit exes + runtime DLLs -----
 Copy-Item -Path "$Bin64\omnigpu_host.exe" -Destination $DistDir -Force
-Copy-Item -Path "$Bin64\omnigpu_guestd.exe" -Destination $DistDir -Force
 Copy-Item -Path "$Bin64\omnigpu_vk_test.exe" -Destination $DistDir -Force
-Copy-Item -Path "$Bin64\vk_icd.json" -Destination $DistDir -Force
 
-# 64-bit clvk OpenCL.dll (ICD registration)
-if (Test-Path "$Bin64\OpenCL.dll") {
-    Copy-Item -Path "$Bin64\OpenCL.dll" -Destination $DistDir -Force
-}
-
-# 64-bit runtime DLLs (MSVC, Vulkan Loader, FFmpeg)
+# x64: Vulkan ICD driver (FFmpeg DLLs go to System32 by install.bat)
+Copy-Item -Path "$Bin64\omnigpu_guest.dll" -Destination "$DistDir\x64" -Force
+Copy-Item -Path "$Bin64\vk_icd.json" -Destination "$DistDir\x64" -Force
 Get-ChildItem "$Bin64\*.dll" | ForEach-Object {
-    if ($_.Name -notmatch "^(omnigpu_guest)\.dll$") {
-        Copy-Item -Path $_.FullName -Destination $DistDir -Force
+    if ($_.Name -notmatch "^(omnigpu_guest|vulkan-1|OpenCL|avcodec|avutil|avformat|avfilter|avdevice|swscale|swresample|postproc)") {
+        Copy-Item -Path $_.FullName -Destination "$DistDir\x64" -Force
     }
 }
 
-# 32-bit files
-if ($Build32 -and (Test-Path "$BuildDir32\bin")) {
-    $Bin32 = "$BuildDir32\bin"
+# x86: Vulkan ICD driver (FFmpeg DLLs go to System32 by install.bat)
+if (Test-Path "$Bin32\omnigpu_guest.dll") {
     Copy-Item -Path "$Bin32\omnigpu_guest.dll" -Destination "$DistDir\x86" -Force
     Copy-Item -Path "$Bin32\vk_icd.json" -Destination "$DistDir\x86" -Force
-
-    if (Test-Path "$Bin32\OpenCL.dll") {
-        Copy-Item -Path "$Bin32\OpenCL.dll" -Destination "$DistDir\x86" -Force
-    }
-
     Get-ChildItem "$Bin32\*.dll" | ForEach-Object {
-        if ($_.Name -notmatch "^(omnigpu_guest|OpenCL)\.dll$") {
+        if ($_.Name -notmatch "^(omnigpu_guest|vulkan-1|OpenCL|avcodec|avutil|avformat|avfilter|avdevice|swscale|swresample|postproc)") {
             Copy-Item -Path $_.FullName -Destination "$DistDir\x86" -Force
         }
     }
 }
 
+# Runtime DLLs also to root (for exes, exclude FFmpeg — they come from third_party)
+Get-ChildItem "$Bin64\*.dll" | ForEach-Object {
+    if ($_.Name -notmatch "^(omnigpu_guest|avcodec|avutil|avformat|avfilter|avdevice|swscale|swresample|postproc)") {
+        Copy-Item -Path $_.FullName -Destination $DistDir -Force
+    }
+}
+# FFmpeg DLLs to root (for host + daemon exes)
+if (Test-Path $FfmpegBin) {
+    Get-ChildItem "$FfmpegBin\*.dll" | ForEach-Object {
+        Copy-Item -Path $_.FullName -Destination $DistDir -Force
+    }
+}
+
+# ----- clvk folder (remove from root, belongs in clvk/) -----
+if (Test-Path "$DistDir\OpenCL.dll") { Remove-Item "$DistDir\OpenCL.dll" -Force }
+if (Test-Path "$DistDir\clspv.exe") { Remove-Item "$DistDir\clspv.exe" -Force }
+if (Test-Path "$Bin64\OpenCL.dll") {
+    Copy-Item -Path "$Bin64\OpenCL.dll" -Destination "$DistDir\clvk" -Force
+}
+if (Test-Path "$Bin64\clspv.exe") {
+    Copy-Item -Path "$Bin64\clspv.exe" -Destination "$DistDir\clvk" -Force
+}
+# Create install_clvk.bat inside clvk folder
+@"
+@echo off
+title clvk OpenCL ICD Installer
+cd /d "%~dp0"
+setlocal enabledelayedexpansion
+
+net session >nul 2>&1
+if %%errorlevel%% neq 0 (
+    echo Requesting Administrator privileges...
+    powershell -Command "Start-Process '%~f0' -Verb RunAs -Wait"
+    exit /b
+)
+
+if not exist "OpenCL.dll" (
+    echo OpenCL.dll not found in current directory.
+    pause
+    exit /b 1
+)
+
+set INSTDIR=%ProgramFiles%\OmniGPU
+if not exist "%INSTDIR%" mkdir "%INSTDIR%"
+copy /y "OpenCL.dll" "%INSTDIR%\" >nul
+if exist "clspv.exe" copy /y "clspv.exe" "%INSTDIR%\" >nul
+
+reg add "HKLM\SOFTWARE\Khronos\OpenCL\Vendors" /v "%INSTDIR%\OpenCL.dll" /t REG_DWORD /d 0 /f >nul
+reg add "HKLM\SOFTWARE\WOW6432Node\Khronos\OpenCL\Vendors" /v "%INSTDIR%\OpenCL.dll" /t REG_DWORD /d 0 /f >nul
+echo clvk OpenCL ICD registered.
+pause
+"@ | Out-File -FilePath "$DistDir\clvk\install_clvk.bat" -Encoding ASCII
+
+# ----- Mesa3D full distribution -----
+if (Test-Path "$ThirdParty\mesa3d") {
+    Write-Host "  [OK] Copying Mesa3D distribution..."
+    Copy-Item -Path "$ThirdParty\mesa3d\*" -Destination "$DistDir\mesa3d" -Recurse -Force
+}
+
 # ============================================================================
 # Step 4: Scripts + Docs
 # ============================================================================
-Write-Host "=== [4/5] Adding scripts and docs ===" -ForegroundColor Cyan
+Write-Host "=== [4/6] Adding scripts and docs ===" -ForegroundColor Cyan
 
-# Install scripts
 Copy-Item -Path "$ProjectRoot\scripts\windows\install.bat" -Destination $DistDir -Force
 Copy-Item -Path "$ProjectRoot\scripts\windows\uninstall.bat" -Destination $DistDir -Force
-Copy-Item -Path "$ProjectRoot\scripts\windows\install_clvk.bat" -Destination $DistDir -Force
-Copy-Item -Path "$ProjectRoot\scripts\windows\start-daemon.bat" -Destination $DistDir -Force
-
-# Guest config template
 Copy-Item -Path "$ProjectRoot\omnigpu_guest.json" -Destination $DistDir -Force
-
-# Documentation
+Copy-Item -Path "$ProjectRoot\omnigpu_host.json" -Destination $DistDir -Force
 Copy-Item -Path "$ProjectRoot\docs\installation-windows.md" -Destination "$DistDir\docs" -Force
 Copy-Item -Path "$ProjectRoot\README.md" -Destination "$DistDir\docs" -Force
-Copy-Item -Path "$ProjectRoot\AGENTS.md" -Destination "$DistDir\docs" -Force
-Copy-Item -Path "$ProjectRoot\README.md" -Destination "$DistDir\docs\README-original.md" -Force
-
-# Mesa3D full distribution (OpenGL, OpenGL ES, Vulkan, OpenCL, D3D, VA-API)
-if (Test-Path "$ProjectRoot\third_party\mesa3d") {
-    Write-Host "  [OK] Copying Mesa3D distribution..."
-    Copy-Item -Path "$ProjectRoot\third_party\mesa3d" -Destination "$DistDir\mesa3d" -Recurse -Force
-}
-
-# Create README.txt for the package
 Copy-Item -Path "$ProjectRoot\docs\readme-package.txt" -Destination "$DistDir\README.txt" -Force
 
 # ============================================================================
@@ -142,12 +166,7 @@ Copy-Item -Path "$ProjectRoot\docs\readme-package.txt" -Destination "$DistDir\RE
 # ============================================================================
 if ($Install) {
     Write-Host "=== [5/5] Installing system-wide ===" -ForegroundColor Cyan
-    $installArgs = @("-BuildDir64", $BuildDir64)
-    if ($Build32) { $installArgs += @("-BuildDir32", $BuildDir32) }
-    if ($HostAddr) { $installArgs += @("-HostAddr", $HostAddr, "-HostPort", $HostPort) }
-
-    & "$ProjectRoot\scripts\windows\quick-install.ps1" @installArgs
-    if ($LASTEXITCODE -ne 0) { Write-Error "Install failed"; exit 1 }
+    & "$DistDir\install.bat"
 }
 
 # ============================================================================
@@ -161,10 +180,6 @@ Write-Host "  Package: $DistDir" -ForegroundColor Green
 Write-Host "  Size:    $sizeMB MB" -ForegroundColor Green
 Write-Host "============================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "  To install on this machine:"
-Write-Host "    .\scripts\windows\quick-install.ps1 -BuildDir `"$BuildDir64`" -HostAddr `"$HostAddr`""
-Write-Host ""
-Write-Host "  Or copy the dist folder to a VM and run:"
-Write-Host "    cd OmniGPU-v$Version"
-Write-Host "    .\scripts\quick-install.ps1 -PackageDir `"$PWD`" -HostAddr `"192.168.1.x`""
+Write-Host "  To install, run as admin:"
+Write-Host "    install.bat"
 Write-Host ""

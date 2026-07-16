@@ -34,5 +34,6 @@ public:
 };
 
 std::unique_ptr<VideoEncoder> create_best_encoder();
+VideoCodec codec_from_string(const std::string& s);
 
 } // namespace omnigpu

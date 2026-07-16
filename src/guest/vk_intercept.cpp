@@ -4,6 +4,7 @@
 
 #include "vk_intercept.h"
 #include "client.h"
+#include "vulkan_serializer.h"
 #include "common/gpu_caps_store.h"
 #include "guest_init.h"
 #include <algorithm>
@@ -865,10 +866,10 @@ uint64_t VKAPI_PTR vkGetBufferDeviceAddress_hook(
     if (!pInfo) return 0;
     auto* cl = init::get_client();
     if (cl && cl->socket() != INVALID_SOCKET) {
-        uint64_t buffer_handle = reinterpret_cast<uint64_t>(pInfo->buffer);
+        uint64_t buffer_handle = handle_to_u64(pInfo->buffer);
         return cl->sync_query(0x80, buffer_handle);
     }
-    return reinterpret_cast<uint64_t>(pInfo->buffer);
+    return handle_to_u64(pInfo->buffer);
 }
 
 uint64_t VKAPI_PTR vkGetBufferOpaqueCaptureAddress_hook(
@@ -879,7 +880,7 @@ uint64_t VKAPI_PTR vkGetBufferOpaqueCaptureAddress_hook(
     if (!pInfo) return 0;
     auto* cl = init::get_client();
     if (cl && cl->socket() != INVALID_SOCKET)
-        return cl->sync_query(0x81, reinterpret_cast<uint64_t>(pInfo->buffer));
+        return cl->sync_query(0x81, handle_to_u64(pInfo->buffer));
     return 0;
 }
 
@@ -891,7 +892,7 @@ uint64_t VKAPI_PTR vkGetDeviceMemoryOpaqueCaptureAddress_hook(
     if (!pInfo) return 0;
     auto* cl = init::get_client();
     if (cl && cl->socket() != INVALID_SOCKET)
-        return cl->sync_query(0x82, reinterpret_cast<uint64_t>(pInfo->memory));
+        return cl->sync_query(0x82, handle_to_u64(pInfo->memory));
     return 0;
 }
 

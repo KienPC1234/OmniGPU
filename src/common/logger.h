@@ -4,6 +4,6 @@
 
 namespace omnigpu {
 
-void init_logger(const char* log_name = "omnigpu_guest.log");
+void init_logger(const char* log_name = "omnigpu_guest.log", bool debug = false);
 
 } // namespace omnigpu

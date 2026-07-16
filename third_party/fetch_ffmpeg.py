@@ -13,18 +13,21 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-FFMPEG_URL = (
-    "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
-    "ffmpeg-master-latest-win64-gpl-shared.zip"
-)
+FFMPEG_URLS = {
+    "win64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl-shared.zip",
+    "win32": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win32-gpl-shared.zip",
+}
 
 
-def fetch_windows(output_dir: Path) -> bool:
-    archive_path = output_dir.parent / "ffmpeg.zip"
+def fetch_windows(output_dir: Path, arch: str = "win64") -> bool:
+    if arch not in FFMPEG_URLS:
+        print(f"ERROR: Unknown architecture '{arch}'. Use win64 or win32.")
+        return False
+    archive_path = output_dir.parent / f"ffmpeg-{arch}.zip"
 
-    print(f"Downloading FFmpeg shared binaries...")
+    print(f"Downloading FFmpeg {arch} shared binaries...")
     try:
-        urllib.request.urlretrieve(FFMPEG_URL, archive_path)
+        urllib.request.urlretrieve(FFMPEG_URLS[arch], archive_path)
     except Exception as e:
         print(f"ERROR: Failed to download FFmpeg: {e}")
         return False
@@ -74,12 +77,13 @@ def main():
         description="Fetch FFmpeg shared binaries for OmniGPU"
     )
     parser.add_argument("--output-dir", default="third_party/ffmpeg-bin")
+    parser.add_argument("--arch", choices=["win64", "win32"], default="win64")
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir).resolve()
 
     if platform.system() == "Windows":
-        success = fetch_windows(output_dir)
+        success = fetch_windows(output_dir, args.arch)
     else:
         print("FFmpeg fetch is only supported on Windows. On Linux, use system packages.")
         success = True
