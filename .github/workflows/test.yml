@@ -22,11 +22,11 @@ jobs:
 
       - name: Setup vcpkg
         run: |
-          cd vcpkg
-          .\bootstrap-vcpkg.bat
-          cd ..
-          echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" | Out-File -Append $env:GITHUB_ENV
-          echo "vcpkg installed at ${{ github.workspace }}/vcpkg"
+          if (-not (Test-Path "vcpkg")) {
+            git clone --depth=1 https://github.com/Microsoft/vcpkg.git
+          }
+          .\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+          echo "VCPKG_ROOT=${{ github.workspace }}\vcpkg" | Out-File -Append $env:GITHUB_ENV
 
       - name: Install LLVM/Clang
         run: choco install llvm -y --no-progress --allow-downgrade --force
@@ -79,9 +79,10 @@ jobs:
 
       - name: Setup vcpkg
         run: |
-          cd vcpkg
-          ./bootstrap-vcpkg.sh
-          cd ..
+          if [ ! -d "vcpkg" ]; then
+            git clone --depth=1 https://github.com/Microsoft/vcpkg.git
+          fi
+          ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
           echo "VCPKG_ROOT=$(pwd)/vcpkg" >> $GITHUB_ENV
 
       - name: Setup Python
@@ -155,9 +156,10 @@ jobs:
 
       - name: Setup vcpkg
         run: |
-          cd vcpkg
-          ./bootstrap-vcpkg.sh
-          cd ..
+          if [ ! -d "vcpkg" ]; then
+            git clone --depth=1 https://github.com/Microsoft/vcpkg.git
+          fi
+          ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
           echo "VCPKG_ROOT=$(pwd)/vcpkg" >> $GITHUB_ENV
 
       - name: Configure

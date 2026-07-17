@@ -33,18 +33,19 @@ jobs:
       - name: Install codegen dependencies
         run: pip install -r gen/requirements.txt
 
-      - name: Cache vcpkg
+      - name: Restore vcpkg cache
         uses: actions/cache@v4
         with:
-          path: vcpkg/.cache
+          path: vcpkg
           key: vcpkg-windows-${{ hashFiles('vcpkg.json') }}
 
       - name: Setup vcpkg
         run: |
-          cd vcpkg
-          .\bootstrap-vcpkg.bat
-          cd ..
-          echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" | Out-File -Append $env:GITHUB_ENV
+          if (-not (Test-Path "vcpkg")) {
+            git clone --depth=1 https://github.com/Microsoft/vcpkg.git
+          }
+          .\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+          echo "VCPKG_ROOT=${{ github.workspace }}\vcpkg" | Out-File -Append $env:GITHUB_ENV
 
       - name: Install LLVM/Clang
         run: |
@@ -161,17 +162,18 @@ jobs:
       - name: Install codegen dependencies
         run: pip install -r gen/requirements.txt
 
-      - name: Cache vcpkg
+      - name: Restore vcpkg cache
         uses: actions/cache@v4
         with:
-          path: vcpkg/.cache
+          path: vcpkg
           key: vcpkg-linux-${{ hashFiles('vcpkg.json') }}
 
       - name: Setup vcpkg
         run: |
-          cd vcpkg
-          ./bootstrap-vcpkg.sh
-          cd ..
+          if [ ! -d "vcpkg" ]; then
+            git clone --depth=1 https://github.com/Microsoft/vcpkg.git
+          fi
+          ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
           echo "VCPKG_ROOT=$(pwd)/vcpkg" >> $GITHUB_ENV
 
       - name: Generate intercept stubs
