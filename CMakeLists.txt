@@ -35,7 +35,9 @@ if(NOT DEFINED CMAKE_CXX_CLANG_TIDY)
 endif()
 
 # Warning flags — ensure all warnings are visible
-if(MSVC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+if(MSVC)
+  add_compile_options(/W3)
+elseif(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(/W3)
 else()
   add_compile_options(-Wall -Wextra)
