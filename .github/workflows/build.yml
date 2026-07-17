@@ -10,10 +10,6 @@ on:
     branches: [main]
   workflow_dispatch:
 
-env:
-  VCPKG_ROOT: ${{ github.workspace }}/vcpkg
-  VCPKG_BINARY_SOURCES: 'clear;nuget,https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json,readwrite|cache,readwrite'
-
 jobs:
   build-windows:
     name: Windows (Clang + Ninja)
@@ -26,24 +22,37 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup vcpkg
-        uses: friendlyanon/setup-vcpkg@v1
         with:
-          cache: true
-
-      - name: Install LLVM/Clang
-        run: |
-          choco install llvm -y --no-progress
-          echo "C:\Program Files\LLVM\bin" | Out-File -Append $env:GITHUB_PATH
-
-      - name: Install Ninja
-        run: choco install ninja -y --no-progress
+          submodules: 'recursive'
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Install codegen dependencies
+        run: pip install -r gen/requirements.txt
+
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: vcpkg/.cache
+          key: vcpkg-windows-${{ hashFiles('vcpkg.json') }}
+
+      - name: Setup vcpkg
+        run: |
+          cd vcpkg
+          .\bootstrap-vcpkg.bat
+          cd ..
+          echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" | Out-File -Append $env:GITHUB_ENV
+
+      - name: Install LLVM/Clang
+        run: |
+          choco install llvm -y --no-progress --allow-downgrade --force
+          echo "C:\Program Files\LLVM\bin" | Out-File -Append $env:GITHUB_PATH
+
+      - name: Install Ninja
+        run: choco install ninja -y --no-progress
 
       - name: Fetch translation layers (Mesa3D)
         run: |
@@ -134,6 +143,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
 
       - name: Install Clang 19
         run: |
@@ -142,15 +153,26 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang-19 clang++-19 lldb-19 ninja-build mesa-utils
 
-      - name: Setup vcpkg
-        uses: friendlyanon/setup-vcpkg@v1
-        with:
-          cache: true
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Install codegen dependencies
+        run: pip install -r gen/requirements.txt
+
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: vcpkg/.cache
+          key: vcpkg-linux-${{ hashFiles('vcpkg.json') }}
+
+      - name: Setup vcpkg
+        run: |
+          cd vcpkg
+          ./bootstrap-vcpkg.sh
+          cd ..
+          echo "VCPKG_ROOT=$(pwd)/vcpkg" >> $GITHUB_ENV
 
       - name: Generate intercept stubs
         run: python gen/generate.py --manifest gen/vulkan_api.json --output src/guest/vk_intercept_gen.cpp
