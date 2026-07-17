@@ -34,6 +34,13 @@ bool load_config(HostConfig& config) {
         config.encoder.tuning = enc.value("tuning", config.encoder.tuning);
         config.encoder.gop_length = enc.value("gop_length", config.encoder.gop_length);
 
+        // Security settings
+        config.auth_token = j.value("auth_token", config.auth_token);
+        config.max_sessions = j.value("max_sessions", config.max_sessions);
+        config.max_msg_size_mb = j.value("max_msg_size_mb", config.max_msg_size_mb);
+        config.session_timeout_s = j.value("session_timeout_s", config.session_timeout_s);
+        config.per_session_memory_budget = j.value("per_session_memory_budget", config.per_session_memory_budget);
+
         SPDLOG_INFO("Loaded config from '{}'", config.config_path);
         return true;
     } catch (const std::exception& e) {
@@ -57,6 +64,11 @@ void print_config(const HostConfig& config) {
     SPDLOG_INFO("  encoder.preset    : {}", config.encoder.preset);
     SPDLOG_INFO("  encoder.tuning    : {}", config.encoder.tuning);
     SPDLOG_INFO("  encoder.gop_length: {}", config.encoder.gop_length);
+    SPDLOG_INFO("  security.auth_token: {}", config.auth_token.empty() ? "(none)" : "***set***");
+    SPDLOG_INFO("  security.max_sessions: {}", config.max_sessions);
+    SPDLOG_INFO("  security.max_msg_size_mb: {}", config.max_msg_size_mb);
+    SPDLOG_INFO("  security.session_timeout_s: {}", config.session_timeout_s);
+    SPDLOG_INFO("  security.memory_budget: {} MB", config.per_session_memory_budget / (1024*1024));
 }
 
 } // namespace omnigpu

@@ -283,7 +283,19 @@ bool connect_to_host() {
                     }
                 } else if (msg->payload_type() == fbs::MessagePayload_DataMessage) {
                     auto* dm = msg->payload_as_DataMessage();
-                    if (dm && dm->payload() && dm->payload()->size() >= 8) {
+                    if (!dm || !dm->payload()) continue;
+
+                    if (dm->data_type() == fbs::DataType_StorageBuffer) {
+                        // Buffer readback: host sent GPU memory contents back
+                        uint64_t mem_key = dm->data_id();
+                        auto* payload = dm->payload();
+                        intercept::update_shadow_buffer(
+                            mem_key,
+                            payload ? payload->data() : nullptr,
+                            payload ? payload->size() : 0,
+                            0);
+                    } else if (dm->payload()->size() >= 8) {
+                        // Legacy sync response
                         uint64_t result = 0;
                         std::memcpy(&result, dm->payload()->data(), 8);
                         g_client->set_sync_response(result);

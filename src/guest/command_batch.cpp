@@ -40,11 +40,13 @@ void CommandBatch::append_raw(const uint8_t* data, size_t size) {
 void CommandBatch::flush() {
     // Lock: extract all pending commands atomically
     std::vector<std::vector<uint8_t>> batch;
+    size_t saved_count = 0;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (pending_cmds_.empty()) {
             return;
         }
+        saved_count = command_count_;
         batch.swap(pending_cmds_);
         command_count_ = 0;
         total_pending_bytes_ = 0;
@@ -54,19 +56,23 @@ void CommandBatch::flush() {
         }
     }
 
-    SPDLOG_TRACE("Flushing batch: {} commands, {} bytes total, adaptive={}",
-                 command_count_, batch.size() > 0 ? 
-                 (batch[0].size() * batch.size()) : 0, adaptive_);
+    SPDLOG_TRACE("Flushing batch: {} commands, {} bytes, adaptive={}",
+                 saved_count, saved_bytes, adaptive_.load());
 
     {
         std::lock_guard<std::mutex> lock(send_mutex_);
         for (const auto& cmd : batch) {
             uint32_t net_size = htonl(static_cast<uint32_t>(cmd.size()));
-            bool ok = client_->send_data(
-                          reinterpret_cast<const uint8_t*>(&net_size),
-                          sizeof(net_size));
-            if (!ok) break;
-            client_->send_data(cmd.data(), cmd.size());
+            if (!client_->send_data(
+                    reinterpret_cast<const uint8_t*>(&net_size),
+                    sizeof(net_size))) {
+                SPDLOG_ERROR("Batch: send failed after {} cmds — DATA LOST!", saved_count);
+                break;
+            }
+            if (!client_->send_data(cmd.data(), cmd.size())) {
+                SPDLOG_ERROR("Batch: payload send failed — DATA LOST!");
+                break;
+            }
         }
     }
 
@@ -80,21 +86,9 @@ void CommandBatch::force_flush() {
 }
 
 void CommandBatch::on_present() {
-    if (flush_on_present_.load()) {
-        auto now = Clock::now();
-        Clock::time_point last;
-        {
-            std::lock_guard<std::mutex> lk(flush_time_mutex_);
-            last = last_flush_time_;
-        }
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                           now - last)
-                           .count();
-        if (elapsed >= 1 || command_count() > 0) {
-            SPDLOG_TRACE("Present triggered: flushing batch ({}ms since last)", elapsed);
-            flush();
-        }
-    }
+    if (!flush_on_present_.load()) return;
+    if (empty()) return;
+    flush();
 }
 
 void CommandBatch::record_latency_sample(uint32_t rtt_ms) {

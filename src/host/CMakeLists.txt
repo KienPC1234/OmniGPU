@@ -1,5 +1,6 @@
 set(HOST_SOURCES
   adaptive_compressor.cpp
+  buffer_manager.cpp
   cli.cpp
   command_dispatcher.cpp
   config.cpp
@@ -8,6 +9,7 @@ set(HOST_SOURCES
   gpu_manager.cpp
   jpeg_encoder.cpp
   handshake.cpp
+  multi_gpu_compute.cpp
   multi_gpu_renderer.cpp
   resource_cache.cpp
   server.cpp

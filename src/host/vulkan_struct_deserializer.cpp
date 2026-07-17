@@ -741,6 +741,37 @@ bool read_VkRenderPassBeginInfo(VulkanDeserializer& d, VkRenderPassBeginInfo* ou
     return d.ok();
 }
 
+bool read_VkSemaphoreWaitInfo(VulkanDeserializer& d, VkSemaphoreWaitInfo* out) {
+    std::memset(out, 0, sizeof(*out));
+    out->sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+    out->flags = static_cast<VkSemaphoreWaitFlags>(d.read_u32());
+    out->semaphoreCount = d.read_u32();
+    if (out->semaphoreCount > 0) {
+        out->pSemaphores = new VkSemaphore[out->semaphoreCount];
+        out->pValues = new uint64_t[out->semaphoreCount];
+        for (uint32_t i = 0; i < out->semaphoreCount; i++)
+            const_cast<VkSemaphore*>(out->pSemaphores)[i] = handle_from_u64<VkSemaphore>(d.read_handle());
+        for (uint32_t i = 0; i < out->semaphoreCount; i++)
+            const_cast<uint64_t*>(out->pValues)[i] = d.read_u64();
+    }
+    return d.ok();
+}
+
+void free_VkSemaphoreWaitInfo(VkSemaphoreWaitInfo* info) {
+    if (!info) return;
+    delete[] info->pSemaphores;
+    delete[] info->pValues;
+    std::memset(info, 0, sizeof(*info));
+}
+
+bool read_VkSemaphoreSignalInfo(VulkanDeserializer& d, VkSemaphoreSignalInfo* out) {
+    std::memset(out, 0, sizeof(*out));
+    out->sType = VK_STRUCTURE_TYPE_SEMAPHORE_SIGNAL_INFO;
+    out->semaphore = handle_from_u64<VkSemaphore>(d.read_handle());
+    out->value = d.read_u64();
+    return d.ok();
+}
+
 bool read_VkMemoryAllocateInfo(VulkanDeserializer& d, VkMemoryAllocateInfo* out) {
     std::memset(out, 0, sizeof(*out));
     out->sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;

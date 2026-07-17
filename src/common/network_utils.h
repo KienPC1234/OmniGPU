@@ -30,6 +30,9 @@ bool set_tcp_nodelay(SOCKET fd);
 bool send_all(SOCKET fd, const uint8_t* data, size_t size);
 bool recv_all(SOCKET fd, uint8_t* buffer, size_t size);
 
+// Set socket timeout (seconds). 0 = no timeout.
+bool set_tcp_timeout(SOCKET fd, uint32_t timeout_s);
+
 std::string last_error();
 
 } // namespace omnigpu::tcp

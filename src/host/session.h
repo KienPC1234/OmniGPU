@@ -2,8 +2,10 @@
 
 #include "common/network_utils.h"
 #include "adaptive_compressor.h"
+#include "buffer_manager.h"
 #include "command_dispatcher.h"
 #include "config.h"
+#include "multi_gpu_compute.h"
 #include "multi_gpu_renderer.h"
 #include "renderer.h"
 #include "resource_cache.h"
@@ -50,6 +52,8 @@ private:
     std::vector<int> gpuIndices_;
     int sessionId_ = 0;
     MultiGpuRenderer multiRenderer_;
+    MultiGpuCompute computeEngine_;
+    host::BufferManager bufferMgr_;
     host::CommandDispatcher commandDispatcher_;
     AdaptiveCompressor adaptiveCompressor_;
     cache::ResourceCache resourceCache_;

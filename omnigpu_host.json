@@ -1,18 +1,29 @@
 {
+    "_comment": "OmniGPU Host Configuration — Compute-First",
+
     "port": 9443,
-    "jpeg_quality": 85,
+
     "multi_gpu_enabled": true,
-    "max_fps": 60,
     "render_width": 1920,
     "render_height": 1080,
+    "max_fps": 60,
+
     "video_codec": "h264",
     "video_bitrate_kbps": 10000,
     "video_fps": 60,
     "video_width": 1920,
     "video_height": 1080,
+
     "encoder": {
         "preset": "fast",
         "tuning": "low_latency",
         "gop_length": 0
-    }
+    },
+
+    "_security": "See security section below. Empty auth_token = no auth.",
+    "auth_token": "",
+    "max_sessions": 16,
+    "max_msg_size_mb": 16,
+    "session_timeout_s": 300,
+    "per_session_memory_budget": 4294967296
 }

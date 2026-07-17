@@ -369,7 +369,8 @@ def get_serialize_code(param: dict, all_params: list[dict]) -> str:
                          "VkFramebufferCreateInfo", "VkPipelineLayoutCreateInfo",
                          "VkDescriptorSetLayoutCreateInfo", "VkDescriptorPoolCreateInfo",
                          "VkDescriptorSetAllocateInfo", "VkSwapchainCreateInfoKHR",
-                         "VkMemoryAllocateInfo"):
+                         "VkMemoryAllocateInfo",
+                         "VkSemaphoreWaitInfo", "VkSemaphoreSignalInfo"):
             return f'serializer::write_{core_type}(ser, {name});'
         return f'ser.write_raw({name}, sizeof(*{name}));'
 

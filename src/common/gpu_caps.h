@@ -62,6 +62,10 @@ struct GpuCapabilities {
     uint32_t max_tessellation_factor = 64;
     uint32_t framebuffer_color_sample_counts = 15;
 
+    // Compute-specific capabilities
+    uint32_t compute_queue_count = 1;
+    uint32_t supported_subgroup_operations = 0;
+
     bool valid() const { return !gpu_name.empty(); }
 };
 

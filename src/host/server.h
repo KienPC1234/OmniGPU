@@ -5,7 +5,9 @@
 #include "gpu_manager.h"
 #include "session.h"
 #include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -45,6 +47,10 @@ private:
 
     mutable std::mutex sessionsMutex_;
     std::vector<std::unique_ptr<Session>> sessions_;
+
+    // Rate limiting
+    mutable std::mutex rateMutex_;
+    std::deque<std::chrono::steady_clock::time_point> connTimestamps_;
 
     void cleanup_stopped_sessions();
 };

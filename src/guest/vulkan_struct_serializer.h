@@ -61,6 +61,12 @@ void write_VkSubmitInfo2(
 void write_VkDependencyInfo(
     VulkanSerializer& ser, const VkDependencyInfo* info);
 
+// Timeline semaphore
+void write_VkSemaphoreWaitInfo(
+    VulkanSerializer& ser, const VkSemaphoreWaitInfo* info);
+void write_VkSemaphoreSignalInfo(
+    VulkanSerializer& ser, const VkSemaphoreSignalInfo* info);
+
 void write_VkRenderPassBeginInfo(
     VulkanSerializer& ser, const VkRenderPassBeginInfo* info);
 

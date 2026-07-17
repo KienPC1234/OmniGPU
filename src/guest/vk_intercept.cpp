@@ -637,30 +637,25 @@ void VKAPI_PTR vkGetPhysicalDeviceFeatures_hook(
     SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceFeatures");
     std::memset(pFeatures, 0, sizeof(*pFeatures));
 
+    // Compute-critical features — enable only what compute workloads actually need
     pFeatures->robustBufferAccess = VK_TRUE;
-    pFeatures->geometryShader = VK_TRUE;
-    pFeatures->tessellationShader = VK_TRUE;
-    pFeatures->multiDrawIndirect = VK_TRUE;
-    pFeatures->drawIndirectFirstInstance = VK_TRUE;
-    pFeatures->fillModeNonSolid = VK_TRUE;
-    pFeatures->samplerAnisotropy = VK_TRUE;
-    pFeatures->shaderClipDistance = VK_TRUE;
-    pFeatures->shaderCullDistance = VK_TRUE;
-    pFeatures->imageCubeArray = VK_TRUE;
-    pFeatures->independentBlend = VK_TRUE;
-    pFeatures->depthClamp = VK_TRUE;
-    pFeatures->largePoints = VK_TRUE;
-    pFeatures->occlusionQueryPrecise = VK_TRUE;
-    pFeatures->pipelineStatisticsQuery = VK_TRUE;
+    pFeatures->shaderFloat64 = VK_TRUE;
+    pFeatures->shaderInt64 = VK_TRUE;
+    pFeatures->shaderInt16 = VK_TRUE;
     pFeatures->vertexPipelineStoresAndAtomics = VK_TRUE;
     pFeatures->fragmentStoresAndAtomics = VK_TRUE;
     pFeatures->shaderStorageImageExtendedFormats = VK_TRUE;
     pFeatures->shaderStorageImageReadWithoutFormat = VK_TRUE;
     pFeatures->shaderStorageImageWriteWithoutFormat = VK_TRUE;
-    pFeatures->shaderFloat64 = VK_TRUE;
-    pFeatures->shaderInt64 = VK_TRUE;
-    pFeatures->shaderInt16 = VK_TRUE;
-    pFeatures->textureCompressionBC = VK_TRUE;
+    pFeatures->multiDrawIndirect = VK_TRUE;
+    pFeatures->drawIndirectFirstInstance = VK_TRUE;
+    pFeatures->pipelineStatisticsQuery = VK_TRUE;
+    pFeatures->occlusionQueryPrecise = VK_TRUE;
+
+    // Rendering features — OFF by default (apps must check before enabling)
+    // geometryShader, tessellationShader, fillModeNonSolid, samplerAnisotropy,
+    // shaderClipDistance, shaderCullDistance, imageCubeArray, independentBlend,
+    // depthClamp, largePoints, textureCompressionBC = VK_FALSE
 }
 
 void VKAPI_PTR vkGetPhysicalDeviceFeatures2_hook(
@@ -676,53 +671,58 @@ void VKAPI_PTR vkGetPhysicalDeviceFeatures2_hook(
         switch (ext->sType) {
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES: {
             auto* f11 = reinterpret_cast<VkPhysicalDeviceVulkan11Features*>(ext);
-            f11->multiview = VK_TRUE;
+            // Compute-relevant 1.1 features
+            f11->multiview = VK_FALSE;
             f11->samplerYcbcrConversion = VK_TRUE;
             break;
         }
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES: {
             auto* f12 = reinterpret_cast<VkPhysicalDeviceVulkan12Features*>(ext);
-            f12->samplerMirrorClampToEdge = VK_TRUE;
-            f12->drawIndirectCount = VK_TRUE;
+            // Compute-critical 1.2 features
+            f12->bufferDeviceAddress = VK_TRUE;
             f12->descriptorIndexing = VK_TRUE;
-            f12->shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
             f12->shaderStorageBufferArrayNonUniformIndexing = VK_TRUE;
-            f12->descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
-            f12->descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
             f12->descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
             f12->descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
-            f12->descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
             f12->descriptorBindingPartiallyBound = VK_TRUE;
             f12->descriptorBindingVariableDescriptorCount = VK_TRUE;
             f12->runtimeDescriptorArray = VK_TRUE;
-            f12->timelineSemaphore = VK_TRUE;
             f12->scalarBlockLayout = VK_TRUE;
-            f12->imagelessFramebuffer = VK_TRUE;
+            f12->timelineSemaphore = VK_TRUE;
+            f12->uniformBufferStandardLayout = VK_TRUE;
+            f12->hostQueryReset = VK_TRUE;
             f12->vulkanMemoryModel = VK_TRUE;
             f12->vulkanMemoryModelDeviceScope = VK_TRUE;
-            f12->shaderOutputViewportIndex = VK_TRUE;
-            f12->shaderOutputLayer = VK_TRUE;
-            f12->uniformBufferStandardLayout = VK_TRUE;
-            f12->subgroupBroadcastDynamicId = VK_TRUE;
-            f12->bufferDeviceAddress = VK_TRUE;
-            f12->hostQueryReset = VK_TRUE;
+            f12->drawIndirectCount = VK_TRUE;
+            // Non-essential for compute
+            f12->samplerMirrorClampToEdge = VK_FALSE;
+            f12->shaderSampledImageArrayNonUniformIndexing = VK_FALSE;
+            f12->descriptorBindingUniformBufferUpdateAfterBind = VK_FALSE;
+            f12->descriptorBindingSampledImageUpdateAfterBind = VK_FALSE;
+            f12->descriptorBindingUpdateUnusedWhilePending = VK_FALSE;
+            f12->imagelessFramebuffer = VK_FALSE;
+            f12->shaderOutputViewportIndex = VK_FALSE;
+            f12->shaderOutputLayer = VK_FALSE;
+            f12->subgroupBroadcastDynamicId = VK_FALSE;
             break;
         }
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES: {
             auto* f13 = reinterpret_cast<VkPhysicalDeviceVulkan13Features*>(ext);
+            // Compute-critical 1.3 features
             f13->synchronization2 = VK_TRUE;
-            f13->dynamicRendering = VK_TRUE;
             f13->maintenance4 = VK_TRUE;
-            f13->inlineUniformBlock = VK_TRUE;
             f13->pipelineCreationCacheControl = VK_TRUE;
-            f13->privateData = VK_TRUE;
             f13->subgroupSizeControl = VK_TRUE;
             f13->computeFullSubgroups = VK_TRUE;
-            f13->shaderDemoteToHelperInvocation = VK_TRUE;
-            f13->shaderIntegerDotProduct = VK_TRUE;
-            f13->shaderTerminateInvocation = VK_TRUE;
             f13->shaderZeroInitializeWorkgroupMemory = VK_TRUE;
-            f13->textureCompressionASTC_HDR = VK_TRUE;
+            f13->shaderIntegerDotProduct = VK_TRUE;
+            // Non-essential for compute
+            f13->dynamicRendering = VK_FALSE;
+            f13->inlineUniformBlock = VK_FALSE;
+            f13->privateData = VK_FALSE;
+            f13->shaderDemoteToHelperInvocation = VK_FALSE;
+            f13->shaderTerminateInvocation = VK_FALSE;
+            f13->textureCompressionASTC_HDR = VK_FALSE;
             break;
         }
         default:
@@ -740,41 +740,55 @@ void VKAPI_PTR vkGetPhysicalDeviceMemoryProperties_hook(
     auto& caps = caps::get();
     std::memset(pMemoryProperties, 0, sizeof(*pMemoryProperties));
 
-    if (caps.valid() && caps.max_memory_heaps > 0) {
-        pMemoryProperties->memoryHeapCount = caps.max_memory_heaps;
-        pMemoryProperties->memoryHeaps[0].size = caps.memory_heap_size_0;
-        pMemoryProperties->memoryHeaps[0].flags = static_cast<VkMemoryHeapFlags>(caps.heap_0_flags);
-        if (caps.max_memory_heaps > 1) {
-            pMemoryProperties->memoryHeaps[1].size = caps.memory_heap_size_1;
-            pMemoryProperties->memoryHeaps[1].flags = static_cast<VkMemoryHeapFlags>(caps.heap_1_flags);
-        }
-        pMemoryProperties->memoryTypeCount = std::min(caps.memory_type_count, 32u);
-        for (uint32_t i = 0; i < pMemoryProperties->memoryTypeCount; i++) {
-            pMemoryProperties->memoryTypes[i].heapIndex = (i < 2) ? 0 : 1;
-            pMemoryProperties->memoryTypes[i].propertyFlags = (i == 0)
-                ? VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-                : (i == 1)
-                  ? VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-                  : VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-        }
-    } else {
-        pMemoryProperties->memoryHeapCount = 2;
-        pMemoryProperties->memoryHeaps[0].size = 24ULL * 1024 * 1024 * 1024;
-        pMemoryProperties->memoryHeaps[0].flags = VK_MEMORY_HEAP_DEVICE_LOCAL_BIT;
-        pMemoryProperties->memoryHeaps[1].size = 16ULL * 1024 * 1024 * 1024;
-        pMemoryProperties->memoryHeaps[1].flags = 0;
+    uint64_t heap0size = 24ULL * 1024 * 1024 * 1024;
+    uint32_t heap0flags = VK_MEMORY_HEAP_DEVICE_LOCAL_BIT;
+    uint64_t heap1size = 16ULL * 1024 * 1024 * 1024;
+    uint32_t heap1flags = 0;
 
-        pMemoryProperties->memoryTypeCount = 4;
-        pMemoryProperties->memoryTypes[0].heapIndex = 0;
-        pMemoryProperties->memoryTypes[0].propertyFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-        pMemoryProperties->memoryTypes[1].heapIndex = 0;
-        pMemoryProperties->memoryTypes[1].propertyFlags =
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-        pMemoryProperties->memoryTypes[2].heapIndex = 0;
-        pMemoryProperties->memoryTypes[2].propertyFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
-        pMemoryProperties->memoryTypes[3].heapIndex = 1;
-        pMemoryProperties->memoryTypes[3].propertyFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    if (caps.valid()) {
+        heap0size = caps.memory_heap_size_0 > 0 ? caps.memory_heap_size_0 : heap0size;
+        heap0flags = caps.heap_0_flags;
+        heap1size = caps.memory_heap_size_1 > 0 ? caps.memory_heap_size_1 : heap1size;
+        heap1flags = caps.heap_1_flags;
     }
+
+    pMemoryProperties->memoryHeapCount = 2;
+    pMemoryProperties->memoryHeaps[0].size = heap0size;
+    pMemoryProperties->memoryHeaps[0].flags = static_cast<VkMemoryHeapFlags>(heap0flags);
+    pMemoryProperties->memoryHeaps[1].size = heap1size;
+    pMemoryProperties->memoryHeaps[1].flags = static_cast<VkMemoryHeapFlags>(heap1flags);
+
+    // 5 memory types, optimized for compute workloads:
+    // Type 0: DEVICE_LOCAL only — fastest GPU access, for storage buffers/images
+    // Type 1: DEVICE_LOCAL | HOST_VISIBLE | HOST_COHERENT — unified memory (if available)
+    // Type 2: HOST_VISIBLE | HOST_COHERENT — staging/readback from system RAM
+    // Type 3: HOST_VISIBLE | HOST_CACHED — cached staging (for read-after-write patterns)
+    // Type 4: DEVICE_LOCAL | HOST_VISIBLE | HOST_CACHED — cached unified
+    pMemoryProperties->memoryTypeCount = 5;
+    pMemoryProperties->memoryTypes[0].heapIndex = 0;
+    pMemoryProperties->memoryTypes[0].propertyFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
+    pMemoryProperties->memoryTypes[1].heapIndex = 0;
+    pMemoryProperties->memoryTypes[1].propertyFlags =
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+
+    pMemoryProperties->memoryTypes[2].heapIndex = 1;
+    pMemoryProperties->memoryTypes[2].propertyFlags =
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+
+    pMemoryProperties->memoryTypes[3].heapIndex = 1;
+    pMemoryProperties->memoryTypes[3].propertyFlags =
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+        VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+
+    pMemoryProperties->memoryTypes[4].heapIndex = 0;
+    pMemoryProperties->memoryTypes[4].propertyFlags =
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+        VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
 }
 
 void VKAPI_PTR vkGetPhysicalDeviceMemoryProperties2_hook(
@@ -792,21 +806,27 @@ void VKAPI_PTR vkGetPhysicalDeviceQueueFamilyProperties_hook(
     VkQueueFamilyProperties* pQueueFamilyProperties)
 {
     SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceQueueFamilyProperties");
+    static constexpr uint32_t kQueueFamilyCount = 2;
     if (!pQueueFamilyProperties) {
-        if (pQueueFamilyPropertyCount) *pQueueFamilyPropertyCount = 1;
+        if (pQueueFamilyPropertyCount) *pQueueFamilyPropertyCount = kQueueFamilyCount;
         return;
     }
-    if (*pQueueFamilyPropertyCount < 1) {
-        *pQueueFamilyPropertyCount = 1;
-        return;
-    }
-    std::memset(pQueueFamilyProperties, 0, sizeof(VkQueueFamilyProperties));
-    pQueueFamilyProperties->queueCount = 1;
-    pQueueFamilyProperties->queueFlags =
-        VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT;
-    pQueueFamilyProperties->timestampValidBits = 64;
-    pQueueFamilyProperties->minImageTransferGranularity = {1, 1, 1};
-    *pQueueFamilyPropertyCount = 1;
+    uint32_t toCopy = std::min(*pQueueFamilyPropertyCount, kQueueFamilyCount);
+
+    VkQueueFamilyProperties props[kQueueFamilyCount] = {};
+    // QF 0: graphics + compute + transfer (general purpose)
+    props[0].queueCount = 1;
+    props[0].queueFlags = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT;
+    props[0].timestampValidBits = 64;
+    props[0].minImageTransferGranularity = {1, 1, 1};
+    // QF 1: compute + transfer dedicated (for async compute workloads)
+    props[1].queueCount = 1;
+    props[1].queueFlags = VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT;
+    props[1].timestampValidBits = 64;
+    props[1].minImageTransferGranularity = {1, 1, 1};
+
+    std::memcpy(pQueueFamilyProperties, props, toCopy * sizeof(VkQueueFamilyProperties));
+    *pQueueFamilyPropertyCount = toCopy;
 }
 
 void VKAPI_PTR vkGetPhysicalDeviceQueueFamilyProperties2_hook(
@@ -815,22 +835,32 @@ void VKAPI_PTR vkGetPhysicalDeviceQueueFamilyProperties2_hook(
     VkQueueFamilyProperties2* pQueueFamilyProperties)
 {
     SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceQueueFamilyProperties2");
+    static constexpr uint32_t kQueueFamilyCount = 2;
     if (!pQueueFamilyProperties) {
-        if (pQueueFamilyPropertyCount) *pQueueFamilyPropertyCount = 1;
+        if (pQueueFamilyPropertyCount) *pQueueFamilyPropertyCount = kQueueFamilyCount;
         return;
     }
-    if (*pQueueFamilyPropertyCount < 1) {
-        *pQueueFamilyPropertyCount = 1;
-        return;
+    uint32_t toCopy = std::min(*pQueueFamilyPropertyCount, kQueueFamilyCount);
+
+    std::vector<VkQueueFamilyProperties2> props(kQueueFamilyCount);
+    for (uint32_t i = 0; i < kQueueFamilyCount; i++) {
+        props[i].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2;
     }
-    std::memset(&pQueueFamilyProperties[0], 0, sizeof(VkQueueFamilyProperties2));
-    pQueueFamilyProperties[0].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2;
-    pQueueFamilyProperties[0].queueFamilyProperties.queueCount = 1;
-    pQueueFamilyProperties[0].queueFamilyProperties.queueFlags =
+    // QF 0: graphics + compute + transfer
+    props[0].queueFamilyProperties.queueCount = 1;
+    props[0].queueFamilyProperties.queueFlags =
         VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT;
-    pQueueFamilyProperties[0].queueFamilyProperties.timestampValidBits = 64;
-    pQueueFamilyProperties[0].queueFamilyProperties.minImageTransferGranularity = {1, 1, 1};
-    *pQueueFamilyPropertyCount = 1;
+    props[0].queueFamilyProperties.timestampValidBits = 64;
+    props[0].queueFamilyProperties.minImageTransferGranularity = {1, 1, 1};
+    // QF 1: compute + transfer dedicated
+    props[1].queueFamilyProperties.queueCount = 1;
+    props[1].queueFamilyProperties.queueFlags =
+        VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT;
+    props[1].queueFamilyProperties.timestampValidBits = 64;
+    props[1].queueFamilyProperties.minImageTransferGranularity = {1, 1, 1};
+
+    std::memcpy(pQueueFamilyProperties, props.data(), toCopy * sizeof(VkQueueFamilyProperties2));
+    *pQueueFamilyPropertyCount = toCopy;
 }
 
 // ---------------------------------------------------------------------------
@@ -1144,7 +1174,6 @@ static std::mutex g_swapchain_mutex;
 static std::unordered_map<uint64_t, std::vector<VkImage>> g_swapchain_images;
 static std::atomic<uint32_t> s_current_image{0};
 
-static uint64_t s_fake_handle{0x10000};
 static uint64_t next_fake_handle_id() {
     static std::atomic<uint64_t> counter{0x10000};
     return counter.fetch_add(1, std::memory_order_relaxed);
@@ -1244,6 +1273,11 @@ VkResult VKAPI_PTR vkQueuePresentKHR_hook(
     VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
 {
     SPDLOG_TRACE("Intercepted: vkQueuePresentKHR");
+    auto* batch = intercept::get_batch();
+    if (batch) {
+        batch->on_present();
+        batch->force_flush();
+    }
     return VK_SUCCESS;
 }
 
@@ -1266,9 +1300,21 @@ void VKAPI_PTR vkGetBufferMemoryRequirements_hook(
 {
     SPDLOG_TRACE("Intercepted: vkGetBufferMemoryRequirements");
     if (pMemoryRequirements) {
+        // Sync from host for accurate size
+        auto* cl = init::get_client();
+        if (cl && cl->socket() != INVALID_SOCKET) {
+            uint64_t result = cl->sync_query(0x83, handle_to_u64(buffer));
+            if (result != 0) {
+                pMemoryRequirements->size = result;
+                pMemoryRequirements->alignment = 256;
+                pMemoryRequirements->memoryTypeBits = 0x1F; // bits 0-4 = our 5 memory types
+                return;
+            }
+        }
+        // Fallback: assume buffer needs at least 64KB
         pMemoryRequirements->size = 65536;
-        pMemoryRequirements->alignment = 64;
-        pMemoryRequirements->memoryTypeBits = 0xFFFFFFFF;
+        pMemoryRequirements->alignment = 256;
+        pMemoryRequirements->memoryTypeBits = 0x1F; // bits 0-4
     }
 }
 
@@ -1287,9 +1333,19 @@ void VKAPI_PTR vkGetImageMemoryRequirements_hook(
 {
     SPDLOG_TRACE("Intercepted: vkGetImageMemoryRequirements");
     if (pMemoryRequirements) {
+        auto* cl = init::get_client();
+        if (cl && cl->socket() != INVALID_SOCKET) {
+            uint64_t result = cl->sync_query(0x84, handle_to_u64(image));
+            if (result != 0) {
+                pMemoryRequirements->size = result;
+                pMemoryRequirements->alignment = 65536;
+                pMemoryRequirements->memoryTypeBits = 0x1F;
+                return;
+            }
+        }
         pMemoryRequirements->size = 262144;
         pMemoryRequirements->alignment = 65536;
-        pMemoryRequirements->memoryTypeBits = 0xFFFFFFFF;
+        pMemoryRequirements->memoryTypeBits = 0x1F;
     }
 }
 
@@ -1518,6 +1574,16 @@ static std::mutex s_map_mutex;
 static std::unordered_map<uint64_t, void*> s_mapped_ptrs;
 static std::unordered_map<uint64_t, VkDeviceSize> s_memory_sizes;
 static std::unordered_map<uint64_t, VkDevice> s_memory_devices;
+// Dirty tracking: per-allocation, track if there are pending unsynced writes
+// A memory range is "dirty" after vkFlushMappedMemoryRanges is called
+// (we assume the app wrote to it before flushing)
+static std::unordered_map<uint64_t, bool> s_memory_dirty;
+// Track offset + size of last flush for partial sync optimization
+struct PendingFlush {
+    VkDeviceSize offset;
+    VkDeviceSize size;
+};
+static std::unordered_map<uint64_t, std::vector<PendingFlush>> s_pending_flushes;
 
 // Called by vkAllocateMemory hook to track allocation sizes
 static void track_memory_allocation(VkDevice device, VkDeviceMemory memory, VkDeviceSize allocSize) {
@@ -1525,12 +1591,15 @@ static void track_memory_allocation(VkDevice device, VkDeviceMemory memory, VkDe
     std::lock_guard<std::mutex> lock(s_map_mutex);
     s_memory_sizes[mem_key] = allocSize;
     s_memory_devices[mem_key] = device;
+    s_memory_dirty[mem_key] = false;
 }
 static void untrack_memory_allocation(VkDeviceMemory memory) {
     uint64_t mem_key = handle_to_u64(memory);
     std::lock_guard<std::mutex> lock(s_map_mutex);
     s_memory_sizes.erase(mem_key);
     s_memory_devices.erase(mem_key);
+    s_memory_dirty.erase(mem_key);
+    s_pending_flushes.erase(mem_key);
 }
 static VkDeviceSize get_memory_size(VkDeviceMemory memory) {
     uint64_t mem_key = handle_to_u64(memory);
@@ -1562,7 +1631,11 @@ VkResult VKAPI_PTR vkAllocateMemory_hook(
     serializer::VulkanSerializer ser;
     ser.write_handle((uint64_t)(device));
     serializer::write_VkMemoryAllocateInfo(ser, pAllocateInfo);
-    ser.write_raw(pAllocator, sizeof(*pAllocator));
+    // Write pAllocator as: bool (has_allocator) + struct_data (if has_allocator)
+    ser.write_bool(pAllocator != nullptr ? VK_TRUE : VK_FALSE);
+    if (pAllocator) {
+        ser.write_raw(pAllocator, sizeof(VkAllocationCallbacks));
+    }
     ser.write_handle((uint64_t)(fake_mem));
 
     auto* batch = intercept::get_batch();
@@ -1598,7 +1671,10 @@ void VKAPI_PTR vkFreeMemory_hook(
     serializer::VulkanSerializer ser;
     ser.write_handle((uint64_t)(device));
     ser.write_handle((uint64_t)(memory));
-    ser.write_raw(pAllocator, sizeof(*pAllocator));
+    ser.write_bool(pAllocator != nullptr ? VK_TRUE : VK_FALSE);
+    if (pAllocator) {
+        ser.write_raw(pAllocator, sizeof(VkAllocationCallbacks));
+    }
 
     auto* batch = intercept::get_batch();
     if (batch) {
@@ -1721,29 +1797,57 @@ void sync_all_mapped_memory_to_host() {
     if (!batch) return;
 
     for (const auto& [mem_key, guest_ptr] : s_mapped_ptrs) {
-        VkDeviceSize size = s_memory_sizes[mem_key];
-        if (size == 0 || !guest_ptr) continue;
+        // Only sync if there are pending flushes since last sync
+        auto dirty_it = s_memory_dirty.find(mem_key);
+        if (dirty_it == s_memory_dirty.end() || !dirty_it->second) continue;
 
         VkDevice device = s_memory_devices[mem_key];
+        VkDeviceSize total_size = s_memory_sizes[mem_key];
+        if (total_size == 0 || !guest_ptr) continue;
 
-        serializer::VulkanSerializer ser;
-        ser.write_handle((uint64_t)(device));
-        ser.write_u32(1); // memoryRangeCount = 1
+        // Check if we have tracked flush ranges — if so, only send those
+        auto flush_it = s_pending_flushes.find(mem_key);
+        if (flush_it != s_pending_flushes.end() && !flush_it->second.empty()) {
+            for (const auto& pf : flush_it->second) {
+                serializer::VulkanSerializer ser;
+                ser.write_handle((uint64_t)(device));
+                ser.write_u32(1);
+                ser.write_handle(mem_key);
+                ser.write_u64(pf.offset);
+                ser.write_u64(pf.size);
+                ser.write_raw(reinterpret_cast<const uint8_t*>(guest_ptr) + pf.offset,
+                              static_cast<size_t>(pf.size));
 
-        ser.write_handle(mem_key);
-        ser.write_u64(0); // offset = 0
-        ser.write_u64(size); // size
+                static std::atomic<uint32_t> req_id{0x90000000};
+                auto builder = protocol::build_command(
+                    fbs::FunctionId_vkFlushMappedMemoryRanges,
+                    req_id.fetch_add(1, std::memory_order_relaxed),
+                    ser.data(), ser.size()
+                );
+                batch->append(builder);
+            }
+            flush_it->second.clear();
+        } else {
+            // Fallback: send entire range
+            serializer::VulkanSerializer ser;
+            ser.write_handle((uint64_t)(device));
+            ser.write_u32(1);
+            ser.write_handle(mem_key);
+            ser.write_u64(0);
+            ser.write_u64(total_size);
+            ser.write_raw(reinterpret_cast<const uint8_t*>(guest_ptr),
+                          static_cast<size_t>(total_size));
 
-        ser.write_raw(reinterpret_cast<const uint8_t*>(guest_ptr), size);
+            static std::atomic<uint32_t> req_id{0x90000000};
+            auto builder = protocol::build_command(
+                fbs::FunctionId_vkFlushMappedMemoryRanges,
+                req_id.fetch_add(1, std::memory_order_relaxed),
+                ser.data(), ser.size()
+            );
+            batch->append(builder);
+        }
 
-        static std::atomic<uint32_t> req_id{0x90000000};
-        auto builder = protocol::build_command(
-            fbs::FunctionId_vkFlushMappedMemoryRanges,
-            req_id.fetch_add(1, std::memory_order_relaxed),
-            ser.data(),
-            ser.size()
-        );
-        batch->append(builder);
+        dirty_it->second = false;
     }
 }
 
@@ -1758,29 +1862,34 @@ VkResult VKAPI_PTR vkFlushMappedMemoryRanges_hook(
         ser.write_handle((uint64_t)(device));
         ser.write_u32(memoryRangeCount);
 
-        std::lock_guard<std::mutex> lock(s_map_mutex);
-        for (uint32_t i = 0; i < memoryRangeCount; i++) {
-            const auto& range = pMemoryRanges[i];
-            uint64_t mem_key = handle_to_u64(range.memory);
-            VkDeviceSize offset = range.offset;
-            VkDeviceSize size = resolve_map_size(range.memory, range.size, range.offset);
+        {
+            std::lock_guard<std::mutex> lock(s_map_mutex);
+            for (uint32_t i = 0; i < memoryRangeCount; i++) {
+                const auto& range = pMemoryRanges[i];
+                uint64_t mem_key = handle_to_u64(range.memory);
+                VkDeviceSize offset = range.offset;
+                VkDeviceSize size = resolve_map_size(range.memory, range.size, range.offset);
 
-            ser.write_handle(mem_key);
-            ser.write_u64(offset);
-            ser.write_u64(size);
+                ser.write_handle(mem_key);
+                ser.write_u64(offset);
+                ser.write_u64(size);
 
-            void* guest_ptr = nullptr;
-            auto it = s_mapped_ptrs.find(mem_key);
-            if (it != s_mapped_ptrs.end()) {
-                guest_ptr = it->second;
-            }
+                void* guest_ptr = nullptr;
+                auto it = s_mapped_ptrs.find(mem_key);
+                if (it != s_mapped_ptrs.end()) {
+                    guest_ptr = it->second;
+                }
 
-            if (guest_ptr && size > 0) {
-                ser.write_raw(reinterpret_cast<const uint8_t*>(guest_ptr) + offset, size);
-            } else {
-                if (size > 0) {
-                    std::vector<uint8_t> dummy(size, 0);
-                    ser.write_raw(dummy.data(), size);
+                if (guest_ptr && size > 0) {
+                    ser.write_raw(reinterpret_cast<const uint8_t*>(guest_ptr) + offset, size);
+                    // Mark this range as pending sync
+                    s_pending_flushes[mem_key].push_back({offset, size});
+                    s_memory_dirty[mem_key] = true;
+                } else {
+                    if (size > 0) {
+                        std::vector<uint8_t> dummy(size, 0);
+                        ser.write_raw(dummy.data(), size);
+                    }
                 }
             }
         }
@@ -1827,6 +1936,10 @@ VkResult VKAPI_PTR vkQueueSubmit_hook(
             ser.size()
         );
         batch->append(builder);
+        // CRITICAL: force flush so host receives submit immediately.
+        // Without this, compute workloads deadlock because vkWaitForFences
+        // blocks the guest while the submit is still in the batch queue.
+        batch->force_flush();
     }
 
     return VK_SUCCESS;
@@ -1861,9 +1974,21 @@ VkResult VKAPI_PTR vkQueueSubmit2_hook(
             ser.size()
         );
         batch->append(builder);
+        batch->force_flush();
     }
 
     return VK_SUCCESS;
+}
+
+// Called by receive thread when host sends back buffer data via DataMessage
+// Copies the received data into the guest's shadow buffer for the given memory handle.
+void update_shadow_buffer(uint64_t mem_key, const uint8_t* data, size_t size, VkDeviceSize offset) {
+    std::lock_guard<std::mutex> lock(s_map_mutex);
+    auto it = s_mapped_ptrs.find(mem_key);
+    if (it != s_mapped_ptrs.end() && it->second && data && size > 0) {
+        std::memcpy(static_cast<uint8_t*>(it->second) + offset, data, size);
+        SPDLOG_DEBUG("update_shadow_buffer: mem={:#x} offset={} size={}", mem_key, offset, size);
+    }
 }
 
 } // namespace omnigpu::intercept

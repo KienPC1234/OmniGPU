@@ -331,6 +331,20 @@ void write_VkSubmitInfo(VulkanSerializer& ser, const VkSubmitInfo* info) {
         ser.write_handle(handle_to_u64(info->pSignalSemaphores[i]));
 }
 
+void write_VkSemaphoreWaitInfo(VulkanSerializer& ser, const VkSemaphoreWaitInfo* info) {
+    ser.write_u32(static_cast<uint32_t>(info->flags));
+    ser.write_u32(info->semaphoreCount);
+    for (uint32_t i = 0; i < info->semaphoreCount; i++)
+        ser.write_handle(handle_to_u64(info->pSemaphores[i]));
+    for (uint32_t i = 0; i < info->semaphoreCount; i++)
+        ser.write_u64(info->pValues[i]);
+}
+
+void write_VkSemaphoreSignalInfo(VulkanSerializer& ser, const VkSemaphoreSignalInfo* info) {
+    ser.write_handle(handle_to_u64(info->semaphore));
+    ser.write_u64(info->value);
+}
+
 void write_VkSubmitInfo2(VulkanSerializer& ser, const VkSubmitInfo2* info) {
     ser.write_u32(info->flags);
     ser.write_u32(info->waitSemaphoreInfoCount);

@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -52,6 +53,7 @@ public:
     void store_query_pool(uint64_t g, VkQueryPool v) { queryPools_[g] = v; }
     void store_private_data_slot(uint64_t g, VkPrivateDataSlot v) { privateDataSlots_[g] = v; }
     void store_device_memory(uint64_t g, VkDeviceMemory v) { memories_[g] = v; }
+    void remove_device_memory(uint64_t g) { memories_.erase(g); }
     void store_descriptor_update_template(uint64_t g, VkDescriptorUpdateTemplate v) { duts_[g] = v; }
 
     VkCommandPool    get_command_pool(uint64_t g) const { return lookup(cmdPools_, g); }
@@ -141,6 +143,14 @@ public:
 
     ResourceMapper& mapper() { return mapper_; }
 
+    // VRAM budget (0 = unlimited)
+    void set_vram_budget(uint64_t budget) { vramBudget_ = budget; }
+    uint64_t vram_used() const { return vramUsed_; }
+
+    // Callback for sending data back to guest (needed for readback)
+    using SendDataFn = std::function<bool(uint64_t buffer_id, const uint8_t* data, size_t size)>;
+    void set_send_data_callback(SendDataFn fn) { sendDataFn_ = fn; }
+
 private:
     using HandlerFn = std::function<void(CommandDispatcher&, VulkanDeserializer&)>;
     std::unordered_map<int, HandlerFn> handlers_;
@@ -160,6 +170,12 @@ private:
 
     VkFence pendingSubmitFence_ = VK_NULL_HANDLE;
     bool hasPendingSubmit_ = false;
+
+    // VRAM budget tracking
+    uint64_t vramBudget_ = 0;
+    uint64_t vramUsed_ = 0;
+
+    SendDataFn sendDataFn_;
 
     void teardown_framebuffer();
     bool copy_image_to_readback();

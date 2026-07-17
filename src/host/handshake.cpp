@@ -10,6 +10,47 @@
 
 namespace omnigpu::handshake {
 
+// Constant-time string comparison to prevent timing attacks
+static bool constant_time_compare(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    volatile uint8_t result = 0;
+    for (size_t i = 0; i < a.size(); i++)
+        result |= static_cast<uint8_t>(a[i]) ^ static_cast<uint8_t>(b[i]);
+    return result == 0;
+}
+
+static bool validate_auth(const std::string& token, const std::string& expected) {
+    if (expected.empty()) return true; // no auth required
+    if (token.empty()) {
+        SPDLOG_WARN("AUTH: client sent no token, expected one");
+        return false;
+    }
+    bool ok = constant_time_compare(token, expected);
+    if (!ok) SPDLOG_WARN("AUTH: invalid token from client (len={})", token.size());
+    return ok;
+}
+
+static uint32_t query_compute_queue_count(VkPhysicalDevice physDev) {
+    uint32_t qfCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(physDev, &qfCount, nullptr);
+    std::vector<VkQueueFamilyProperties> qfProps(qfCount);
+    vkGetPhysicalDeviceQueueFamilyProperties(physDev, &qfCount, qfProps.data());
+    uint32_t count = 0;
+    for (uint32_t i = 0; i < qfCount; i++)
+        if (qfProps[i].queueFlags & VK_QUEUE_COMPUTE_BIT) count++;
+    return count;
+}
+
+static uint32_t query_subgroup_ops(VkPhysicalDevice physDev) {
+    VkPhysicalDeviceSubgroupProperties subProps{};
+    subProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
+    VkPhysicalDeviceProperties2 props2{};
+    props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    props2.pNext = &subProps;
+    vkGetPhysicalDeviceProperties2(physDev, &props2);
+    return static_cast<uint32_t>(subProps.supportedOperations);
+}
+
 caps::GpuCapabilities query_host_gpu_caps() {
     caps::GpuCapabilities caps;
 
@@ -28,10 +69,8 @@ caps::GpuCapabilities query_host_gpu_caps() {
     if (vkCreateInstance(&instInfo, nullptr, &instance) == VK_SUCCESS) {
         uint32_t devCount = 1;
         VkResult enumRes = vkEnumeratePhysicalDevices(instance, &devCount, &physDevice);
-        if (enumRes != VK_SUCCESS && enumRes != VK_INCOMPLETE) {
-            devCount = 0;
+        if (enumRes != VK_SUCCESS && enumRes != VK_INCOMPLETE)
             physDevice = VK_NULL_HANDLE;
-        }
 
         if (physDevice != VK_NULL_HANDLE) {
             VkPhysicalDeviceProperties props;
@@ -76,7 +115,9 @@ caps::GpuCapabilities query_host_gpu_caps() {
             caps.sample_counts = static_cast<uint32_t>(props.limits.framebufferColorSampleCounts);
             caps.framebuffer_color_sample_counts = static_cast<uint32_t>(props.limits.framebufferColorSampleCounts);
 
-            // Memory properties (query independently)
+            caps.compute_queue_count = query_compute_queue_count(physDevice);
+            caps.supported_subgroup_operations = query_subgroup_ops(physDevice);
+
             VkPhysicalDeviceMemoryProperties memProps;
             vkGetPhysicalDeviceMemoryProperties(physDevice, &memProps);
             caps.max_memory_heaps = memProps.memoryHeapCount;
@@ -90,51 +131,85 @@ caps::GpuCapabilities query_host_gpu_caps() {
             }
             caps.memory_type_count = memProps.memoryTypeCount;
         }
-
         vkDestroyInstance(instance, nullptr);
     }
 
     caps.timestamp = static_cast<uint64_t>(
         std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::system_clock::now().time_since_epoch())
-            .count());
+            std::chrono::system_clock::now().time_since_epoch()).count());
 
-    SPDLOG_INFO("Host GPU capabilities: {} (vendor=0x{:04X}, device=0x{:04X})",
-                caps.gpu_name, caps.vendor_id, caps.device_id);
+    SPDLOG_INFO("Host GPU capabilities: {} (compute_queues={})",
+                caps.gpu_name, caps.compute_queue_count);
     return caps;
 }
 
-bool handle_capabilities_request(SOCKET client_fd) {
+HandshakeResult handle_capabilities_request(SOCKET client_fd,
+    const std::string& expected_token) {
+    HandshakeResult result;
+
+    // Read the CapabilitiesRequest from guest
+    uint32_t req_size = 0;
+    if (!tcp::recv_all(client_fd, reinterpret_cast<uint8_t*>(&req_size), sizeof(req_size))) {
+        result.error_msg = "Failed to read request size";
+        return result;
+    }
+    req_size = ntohl(req_size);
+    if (req_size > 1024 * 1024) { // 1MB max for handshake
+        result.error_msg = "Handshake message too large";
+        return result;
+    }
+
+    std::vector<uint8_t> req_buf(req_size);
+    if (!tcp::recv_all(client_fd, req_buf.data(), req_size)) {
+        result.error_msg = "Failed to read request";
+        return result;
+    }
+
+    auto* msg = protocol::verify_root(req_buf.data(), req_buf.size());
+    if (!msg || msg->payload_type() != fbs::MessagePayload_CapabilitiesRequest) {
+        result.error_msg = "Expected CapabilitiesRequest";
+        return result;
+    }
+
+    auto* req = msg->payload_as_CapabilitiesRequest();
+    if (!req) {
+        result.error_msg = "Invalid CapabilitiesRequest";
+        return result;
+    }
+
+    // Validate auth token
+    std::string client_token;
+    if (req->auth_token()) client_token = req->auth_token()->str();
+    if (!validate_auth(client_token, expected_token)) {
+        result.error_msg = "Authentication failed";
+        SPDLOG_WARN("AUTH: connection rejected — invalid token");
+        return result;
+    }
+
+    result.client_version = req->client_version();
+    result.compute_mode = req->compute_mode();
+    result.large_buffers = req->large_buffers();
+    result.ok = true;
+
+    // Send back capabilities
     auto caps = query_host_gpu_caps();
-
     flatbuffers::FlatBufferBuilder builder;
-
     auto gpu_name = builder.CreateString(caps.gpu_name);
+
+    bool auth_required = !expected_token.empty();
 
     auto resp = fbs::CreateCapabilitiesResponse(
         builder, gpu_name,
-        caps.driver_version,
-        caps.api_version,
-        caps.max_memory_allocation,
-        caps.max_push_constants_size,
-        caps.max_bound_descriptor_sets,
-        caps.max_per_stage_resources,
-        caps.max_image_dimension_2d,
-        caps.timestamp,
-        caps.vendor_id,
-        caps.device_id,
-        caps.device_type,
-        caps.max_framebuffer_width,
-        caps.max_framebuffer_height,
+        caps.driver_version, caps.api_version,
+        caps.max_memory_allocation, caps.max_push_constants_size,
+        caps.max_bound_descriptor_sets, caps.max_per_stage_resources,
+        caps.max_image_dimension_2d, caps.timestamp,
+        caps.vendor_id, caps.device_id, caps.device_type,
+        caps.max_framebuffer_width, caps.max_framebuffer_height,
         caps.max_framebuffer_layers,
-        caps.max_memory_heaps,
-        caps.memory_heap_size_0,
-        caps.memory_heap_size_1,
-        caps.heap_0_flags,
-        caps.heap_1_flags,
-        caps.memory_type_count,
-        caps.max_sampler_anisotropy,
-        caps.max_color_attachments,
+        caps.max_memory_heaps, caps.memory_heap_size_0, caps.memory_heap_size_1,
+        caps.heap_0_flags, caps.heap_1_flags, caps.memory_type_count,
+        caps.max_sampler_anisotropy, caps.max_color_attachments,
         caps.max_bound_descriptor_sets_ext,
         caps.max_per_stage_descriptor_samplers,
         caps.max_per_stage_descriptor_uniform_buffers,
@@ -142,46 +217,49 @@ bool handle_capabilities_request(SOCKET client_fd) {
         caps.max_per_stage_descriptor_sampled_images,
         caps.max_per_stage_descriptor_storage_images,
         caps.max_per_stage_resources_ext,
-        caps.subgroup_size,
-        caps.timestamp_period,
-        caps.max_viewports,
-        caps.max_viewport_dimensions_w,
+        caps.subgroup_size, caps.timestamp_period,
+        caps.max_viewports, caps.max_viewport_dimensions_w,
         caps.max_viewport_dimensions_h,
         caps.max_fragment_output_attachments,
         caps.min_uniform_buffer_offset_alignment,
         caps.min_storage_buffer_offset_alignment,
-        caps.max_uniform_buffer_range,
-        caps.max_storage_buffer_range,
-        caps.non_coherent_atom_size,
-        caps.buffer_image_granularity,
+        caps.max_uniform_buffer_range, caps.max_storage_buffer_range,
+        caps.non_coherent_atom_size, caps.buffer_image_granularity,
         caps.max_compute_work_group_count_x,
         caps.max_compute_work_group_count_y,
         caps.max_compute_work_group_count_z,
         caps.max_compute_work_group_invocations,
         caps.max_compute_shared_memory_size,
-        caps.max_clip_distances,
-        caps.max_cull_distances,
+        caps.max_clip_distances, caps.max_cull_distances,
         caps.max_combined_clip_and_cull_distances,
-        caps.sample_counts,
-        caps.max_tessellation_factor,
-        caps.framebuffer_color_sample_counts);
+        caps.sample_counts, caps.max_tessellation_factor,
+        caps.framebuffer_color_sample_counts,
+        caps.compute_queue_count,
+        true, // supports_buffer_device_address
+        caps.supported_subgroup_operations,
+        caps.compute_queue_count > 1,
+        auth_required,
+        true  // buffer_manager_capable
+    );
 
-    auto msg = fbs::CreateMessage(
+    auto response_msg = fbs::CreateMessage(
         builder, fbs::MessagePayload_CapabilitiesResponse, resp.Union());
-
-    builder.Finish(msg);
+    builder.Finish(response_msg);
 
     auto span = builder.GetBufferSpan();
-    uint32_t net_size = static_cast<uint32_t>(span.size());
-    net_size = htonl(net_size);
-
-    if (!tcp::send_all(client_fd,
-                       reinterpret_cast<const uint8_t*>(&net_size),
-                       sizeof(net_size))) {
-        return false;
+    uint32_t net_size = htonl(static_cast<uint32_t>(span.size()));
+    if (!tcp::send_all(client_fd, reinterpret_cast<const uint8_t*>(&net_size), sizeof(net_size))) {
+        result.error_msg = "Failed to send capabilities";
+        result.ok = false;
+        return result;
+    }
+    if (!tcp::send_all(client_fd, span.data(), span.size())) {
+        result.error_msg = "Failed to send capabilities payload";
+        result.ok = false;
+        return result;
     }
 
-    return tcp::send_all(client_fd, span.data(), span.size());
+    return result;
 }
 
 } // namespace omnigpu::handshake

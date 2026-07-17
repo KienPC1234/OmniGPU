@@ -1,4 +1,7 @@
 #include "network_utils.h"
+#ifdef _WIN32
+#include <winsock2.h>
+#endif
 #include <cstring>
 #include <spdlog/spdlog.h>
 
@@ -82,6 +85,27 @@ bool recv_all(SOCKET fd, uint8_t* buffer, size_t size) {
         buffer += static_cast<size_t>(received);
         size -= static_cast<size_t>(received);
     }
+    return true;
+}
+
+bool set_tcp_timeout(SOCKET fd, uint32_t timeout_s) {
+    if (timeout_s == 0) return true;
+#ifdef _WIN32
+    DWORD tv = timeout_s * 1000;
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO,
+                   reinterpret_cast<const char*>(&tv), sizeof(tv)) != 0) {
+        SPDLOG_ERROR("SO_RCVTIMEO failed: {}", last_error());
+        return false;
+    }
+#else
+    struct timeval tv;
+    tv.tv_sec = timeout_s;
+    tv.tv_usec = 0;
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0) {
+        SPDLOG_ERROR("SO_RCVTIMEO failed: {}", last_error());
+        return false;
+    }
+#endif
     return true;
 }
 

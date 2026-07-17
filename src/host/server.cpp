@@ -1,6 +1,7 @@
 #include "server.h"
 #include "session.h"
 #include <algorithm>
+#include <chrono>
 #include <spdlog/spdlog.h>
 
 namespace omnigpu {
@@ -101,14 +102,47 @@ void Server::run() {
 
             char clientIp[INET_ADDRSTRLEN] = {};
             inet_ntop(AF_INET, &clientAddr.sin_addr, clientIp, sizeof(clientIp));
-            SPDLOG_INFO("Accepted connection from {}:{}", clientIp,
-                        ntohs(clientAddr.sin_port));
+            uint16_t clientPort = ntohs(clientAddr.sin_port);
+
+            // --- Security: rate limiting ---
+            auto now = std::chrono::steady_clock::now();
+            {
+                std::lock_guard<std::mutex> lock(rateMutex_);
+                // Clean old entries
+                while (!connTimestamps_.empty() &&
+                       std::chrono::duration_cast<std::chrono::seconds>(
+                           now - connTimestamps_.front()).count() > 1) {
+                    connTimestamps_.pop_front();
+                }
+                // Max 10 connections per second
+                if (connTimestamps_.size() >= 10) {
+                    SPDLOG_WARN("SECURITY: Rate limit exceeded from {}:{}, rejecting",
+                                clientIp, clientPort);
+                    tcp::close_socket(clientFd);
+                    continue;
+                }
+                connTimestamps_.push_back(now);
+            }
+
+            // --- Security: max sessions ---
+            {
+                std::lock_guard<std::mutex> lock(sessionsMutex_);
+                if (sessions_.size() >= config_.max_sessions) {
+                    SPDLOG_WARN("SECURITY: Max sessions ({}) reached, rejecting {}:{}",
+                                config_.max_sessions, clientIp, clientPort);
+                    tcp::close_socket(clientFd);
+                    continue;
+                }
+            }
+
+            SPDLOG_INFO("Accepted connection from {}:{} (session #{})",
+                        clientIp, clientPort, nextSessionId_);
 
             tcp::set_tcp_nodelay(clientFd);
+            tcp::set_tcp_timeout(clientFd, config_.session_timeout_s);
 
             int sessionId = nextSessionId_++;
 
-            // Use 2 GPUs if available, else 1
             int teamSize = (gpuMgr_.gpu_count() >= 2) ? 2 : 1;
             auto gpuIndices = gpuMgr_.acquire_gpu_team(teamSize);
 

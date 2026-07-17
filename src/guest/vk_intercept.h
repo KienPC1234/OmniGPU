@@ -276,6 +276,9 @@ VkResult VKAPI_PTR vkGetPhysicalDeviceToolPropertiesEXT_hook(VkPhysicalDevice, u
 
 void sync_all_mapped_memory_to_host();
 
+// Receive buffer data back from host (for vkInvalidateMappedMemoryRanges)
+void update_shadow_buffer(uint64_t mem_key, const uint8_t* data, size_t size, VkDeviceSize offset = 0);
+
 // Register a manual hook (implemented in generated vk_intercept_gen.cpp)
 void register_manual_hook(const char* name, void* func);
 

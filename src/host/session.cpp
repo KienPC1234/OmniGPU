@@ -2,6 +2,7 @@
 #include "gpu_manager.h"
 #include "handshake.h"
 #include "common/flatbuffers_utils.h"
+#include "common/logger.h"
 #if defined(OMNIGPU_USE_FFMPEG)
 #include "ffmpeg_encoder.h"
 #endif
@@ -92,9 +93,10 @@ bool Session::recv_message(std::vector<uint8_t>& buffer) {
     }
 
     msgSize = ntohl(msgSize);
-    SPDLOG_INFO("Session::recv_message: msgSize={}", msgSize);
-    if (msgSize > 64 * 1024 * 1024) {
-        SPDLOG_ERROR("Session #{}: message size {} exceeds 64MB limit", sessionId_, msgSize);
+    uint32_t maxMsgSize = config_.max_msg_size_mb * 1024 * 1024;
+    if (msgSize > maxMsgSize) {
+        SPDLOG_ERROR("Session #{}: message size {} exceeds {} MB limit",
+                     sessionId_, msgSize, config_.max_msg_size_mb);
         return false;
     }
     
@@ -109,7 +111,7 @@ bool Session::recv_message(std::vector<uint8_t>& buffer) {
 
 bool Session::send_data_message(uint64_t data_id, const uint8_t* payload, size_t payload_size) {
     auto builder = protocol::build_data(
-        fbs::DataType_ImageData, data_id, payload, payload_size);
+        fbs::DataType_StorageBuffer, data_id, payload, payload_size);
 
     auto span = builder.GetBufferSpan();
     uint32_t totalSize = htonl(static_cast<uint32_t>(span.size()));
@@ -156,29 +158,21 @@ void Session::handle_client() {
     uint32_t client_pref_w = 0;
     uint32_t client_pref_h = 0;
 
-    // Handle initial handshake (capabilities request from guest)
+    // Handle initial handshake + authentication
     {
-        std::vector<uint8_t> hb;
-        if (!recv_message(hb)) {
-            SPDLOG_ERROR("Session #{}: Failed to receive handshake", sessionId_);
+        auto hs = handshake::handle_capabilities_request(clientFd_,
+            config_.auth_token);
+        if (!hs.ok) {
+            SPDLOG_ERROR("Session #{}: Handshake failed: {}", sessionId_, hs.error_msg);
             for (int idx : gpuIndices_) gpuMgr_.release_gpu(idx);
             tcp::close_socket(clientFd_);
             clientFd_ = INVALID_SOCKET;
             return;
         }
-
-        auto* msg = protocol::verify_root(hb.data(), hb.size());
-        if (msg && msg->payload_type() == fbs::MessagePayload_CapabilitiesRequest) {
-            SPDLOG_INFO("Guest requested capabilities for GPU {}", gpuList);
-            auto* req = msg->payload_as_CapabilitiesRequest();
-            if (req) {
-                client_pref_w = req->preferred_width();
-                client_pref_h = req->preferred_height();
-            }
-            handshake::handle_capabilities_request(clientFd_);
-        } else {
-            SPDLOG_WARN("Expected CapabilitiesRequest as first message");
-        }
+        client_pref_w = config_.render_width;
+        client_pref_h = config_.render_height;
+        SPDLOG_INFO("Session #{}: Guest authenticated (v{}, compute={}, large_bufs={})",
+                    sessionId_, hs.client_version, hs.compute_mode, hs.large_buffers);
     }
 
     uint32_t rw = config_.render_width;
@@ -201,23 +195,47 @@ void Session::handle_client() {
         SPDLOG_INFO("Session #{}: Using dynamic resolution from client: {}x{}", sessionId_, rw, rh);
     }
 
-    if (!multiRenderer_.init(gpuMgr_, gpuIndices_, rw, rh)) {
-        SPDLOG_ERROR("Session #{}: Failed to initialize multi-GPU renderer", sessionId_);
+    // Initialize compute engine for compute workloads
+    if (!computeEngine_.init(gpuMgr_, gpuIndices_)) {
+        SPDLOG_ERROR("Session #{}: Failed to initialize multi-GPU compute engine", sessionId_);
         for (int idx : gpuIndices_) gpuMgr_.release_gpu(idx);
         tcp::close_socket(clientFd_);
         clientFd_ = INVALID_SOCKET;
         return;
     }
 
-    // Initialize command dispatcher with the host Vulkan device
-    commandDispatcher_.set_device(
-        multiRenderer_.first_physical_device(),
-        multiRenderer_.first_device(),
-        multiRenderer_.first_queue(),
-        multiRenderer_.first_queue_family(),
-        multiRenderer_.first_command_pool());
-    commandDispatcher_.set_framebuffer_size(rw, rh);
-    commandDispatcher_.setup_framebuffer();
+    // Initialize buffer manager for persistent GPU-side buffers
+    {
+        const auto& primary = computeEngine_.primary();
+        bufferMgr_.set_device(primary.device, primary.queue,
+                              primary.queueFamily, primary.cmdPool);
+        bufferMgr_.set_physical_device(primary.physDevice);
+        SPDLOG_INFO("Session #{}: Buffer manager initialized (VRAM budget: {} MB)",
+                    sessionId_, primary.dedicatedMemory / (1024 * 1024));
+    }
+
+    if (!multiRenderer_.init(gpuMgr_, gpuIndices_, rw, rh)) {
+        SPDLOG_WARN("Session #{}: Failed to initialize multi-GPU renderer (compute-only mode)", sessionId_);
+        // Continue without renderer — compute-only is fine
+    } else {
+        // Initialize command dispatcher with the host Vulkan device
+        const auto& primary = computeEngine_.primary();
+        commandDispatcher_.set_device(
+            primary.physDevice,
+            primary.device,
+            primary.queue,
+            primary.queueFamily,
+            primary.cmdPool);
+        commandDispatcher_.set_framebuffer_size(rw, rh);
+        commandDispatcher_.setup_framebuffer();
+        commandDispatcher_.set_vram_budget(config_.per_session_memory_budget);
+    }
+
+    // Wire up readback callback: when guest invalidates memory, send data back
+    commandDispatcher_.set_send_data_callback(
+        [this](uint64_t buffer_id, const uint8_t* data, size_t size) -> bool {
+            return send_data_message(buffer_id, data, size);
+        });
 
     SPDLOG_INFO("Session #{} entering main loop", sessionId_);
     while (running_) {
@@ -280,6 +298,26 @@ void Session::handle_client() {
                     mai.memory = hostMem;
                     respond(vkGetDeviceMemoryOpaqueCaptureAddress(
                         commandDispatcher_.mapper().device(), &mai));
+                } else { respond(0); }
+                continue;
+            }
+            case 0x83: { // BUFFER_MEMORY_REQUIREMENTS_QUERY
+                VkBuffer hostBuf = commandDispatcher_.mapper().get_buffer(query_arg);
+                if (hostBuf) {
+                    VkMemoryRequirements mr{};
+                    vkGetBufferMemoryRequirements(
+                        commandDispatcher_.mapper().device(), hostBuf, &mr);
+                    respond(mr.size);
+                } else { respond(0); }
+                continue;
+            }
+            case 0x84: { // IMAGE_MEMORY_REQUIREMENTS_QUERY
+                VkImage hostImg = commandDispatcher_.mapper().get_image(query_arg);
+                if (hostImg) {
+                    VkMemoryRequirements mr{};
+                    vkGetImageMemoryRequirements(
+                        commandDispatcher_.mapper().device(), hostImg, &mr);
+                    respond(mr.size);
                 } else { respond(0); }
                 continue;
             }
@@ -424,6 +462,8 @@ void Session::handle_client() {
 
     commandDispatcher_.cleanup();
     multiRenderer_.shutdown();
+    bufferMgr_.cleanup();
+    computeEngine_.shutdown();
     tcp::close_socket(clientFd_);
     clientFd_ = INVALID_SOCKET;
     running_ = false;

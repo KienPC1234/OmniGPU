@@ -60,4 +60,9 @@ void free_VkSubmitInfo(VkSubmitInfo* info);
 bool read_VkSubmitInfo2(VulkanDeserializer& d, VkSubmitInfo2* out);
 void free_VkSubmitInfo2(VkSubmitInfo2* info);
 
+// Timeline semaphore
+bool read_VkSemaphoreWaitInfo(VulkanDeserializer& d, VkSemaphoreWaitInfo* out);
+void free_VkSemaphoreWaitInfo(VkSemaphoreWaitInfo* info);
+bool read_VkSemaphoreSignalInfo(VulkanDeserializer& d, VkSemaphoreSignalInfo* out);
+
 } // namespace omnigpu::host
