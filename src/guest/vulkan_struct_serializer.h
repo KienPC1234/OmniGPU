@@ -64,4 +64,31 @@ void write_VkDependencyInfo(
 void write_VkRenderPassBeginInfo(
     VulkanSerializer& ser, const VkRenderPassBeginInfo* info);
 
+void write_VkCommandPoolCreateInfo(
+    VulkanSerializer& ser, const VkCommandPoolCreateInfo* info);
+void write_VkBufferCreateInfo(
+    VulkanSerializer& ser, const VkBufferCreateInfo* info);
+void write_VkImageCreateInfo(
+    VulkanSerializer& ser, const VkImageCreateInfo* info);
+void write_VkImageViewCreateInfo(
+    VulkanSerializer& ser, const VkImageViewCreateInfo* info);
+void write_VkSamplerCreateInfo(
+    VulkanSerializer& ser, const VkSamplerCreateInfo* info);
+void write_VkRenderPassCreateInfo(
+    VulkanSerializer& ser, const VkRenderPassCreateInfo* info);
+void write_VkFramebufferCreateInfo(
+    VulkanSerializer& ser, const VkFramebufferCreateInfo* info);
+void write_VkPipelineLayoutCreateInfo(
+    VulkanSerializer& ser, const VkPipelineLayoutCreateInfo* info);
+void write_VkDescriptorSetLayoutCreateInfo(
+    VulkanSerializer& ser, const VkDescriptorSetLayoutCreateInfo* info);
+void write_VkDescriptorPoolCreateInfo(
+    VulkanSerializer& ser, const VkDescriptorPoolCreateInfo* info);
+void write_VkDescriptorSetAllocateInfo(
+    VulkanSerializer& ser, const VkDescriptorSetAllocateInfo* info);
+void write_VkSwapchainCreateInfoKHR(
+    VulkanSerializer& ser, const VkSwapchainCreateInfoKHR* info);
+void write_VkMemoryAllocateInfo(
+    VulkanSerializer& ser, const VkMemoryAllocateInfo* info);
+
 } // namespace omnigpu::serializer

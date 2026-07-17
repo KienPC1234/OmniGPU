@@ -85,12 +85,49 @@ if(OMNIGPU_BUILD_GUEST)
   endif()
 endif()
 
+# Compile compute shaders to SPIR-V
+find_program(GLSLANG_VALIDATOR glslangValidator
+    PATHS "C:/VulkanSDK/1.4.350.0/Bin"
+    "$ENV{VULKAN_SDK}/Bin"
+    "$ENV{VULKAN_SDK}/bin"
+)
+
+if(GLSLANG_VALIDATOR)
+    set(COMPUTE_SHADERS
+        compute_add.comp
+        compute_mul.comp
+    )
+    foreach(SHADER ${COMPUTE_SHADERS})
+        set(SPV_OUT "${CMAKE_CURRENT_BINARY_DIR}/${SHADER}.spv")
+        list(APPEND COMPUTE_SPVS ${SPV_OUT})
+        add_custom_command(
+            OUTPUT ${SPV_OUT}
+            COMMAND ${GLSLANG_VALIDATOR} -V
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/tools/${SHADER}"
+                -o ${SPV_OUT}
+            DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/tools/${SHADER}"
+            COMMENT "Compiling ${SHADER} to SPIR-V"
+        )
+    endforeach()
+endif()
+
 # Vulkan compute test tool (standalone, uses system Vulkan loader)
-add_executable(omnigpu_vk_test src/tools/vk_compute_test.cpp)
-target_include_directories(omnigpu_vk_test PRIVATE ${VulkanHeaders_INCLUDE_DIRS})
+add_executable(omnigpu_vk_test src/tools/vk_compute_test.cpp ${COMPUTE_SPVS})
+target_include_directories(omnigpu_vk_test PRIVATE
+    ${VulkanHeaders_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/tools
+)
 target_link_libraries(omnigpu_vk_test PRIVATE Vulkan::Headers Vulkan::Loader)
 if(WIN32)
   target_link_libraries(omnigpu_vk_test PRIVATE ws2_32)
+endif()
+
+# Compile SPIR-V headers after shaders are built
+if(GLSLANG_VALIDATOR)
+    add_custom_command(TARGET omnigpu_vk_test POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E echo "SPIR-V shaders compiled for omnigpu_vk_test"
+        COMMENT "Compute test includes ${COMPUTE_SPVS}"
+    )
 endif()
 
 if(OMNIGPU_BUILD_TESTS)

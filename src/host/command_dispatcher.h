@@ -34,6 +34,8 @@ public:
     void store_buffer(uint64_t g, VkBuffer v) { buffers_[g] = v; }
     void store_image(uint64_t g, VkImage v) { images_[g] = v; }
     void store_image_view(uint64_t g, VkImageView v) { imageViews_[g] = v; }
+    void store_view_image(uint64_t gView, VkImage hostImg) { viewImages_[gView] = hostImg; }
+    VkImage get_view_image(uint64_t gView) const { return lookup(viewImages_, gView); }
     void store_sampler(uint64_t g, VkSampler v) { samplers_[g] = v; }
     void store_shader_module(uint64_t g, VkShaderModule v) { shaderModules_[g] = v; }
     void store_pipeline_layout(uint64_t g, VkPipelineLayout v) { pipelineLayouts_[g] = v; }
@@ -97,6 +99,7 @@ private:
     std::unordered_map<uint64_t, VkBuffer> buffers_;
     std::unordered_map<uint64_t, VkImage> images_;
     std::unordered_map<uint64_t, VkImageView> imageViews_;
+    std::unordered_map<uint64_t, VkImage> viewImages_;
     std::unordered_map<uint64_t, VkSampler> samplers_;
     std::unordered_map<uint64_t, VkShaderModule> shaderModules_;
     std::unordered_map<uint64_t, VkPipelineLayout> pipelineLayouts_;
@@ -134,6 +137,8 @@ public:
 
     bool setup_framebuffer();
 
+    void cleanup();
+
     ResourceMapper& mapper() { return mapper_; }
 
 private:
@@ -147,12 +152,17 @@ private:
     VkImage colorImage_ = VK_NULL_HANDLE;
     VkDeviceMemory colorMemory_ = VK_NULL_HANDLE;
     VkImageView colorView_ = VK_NULL_HANDLE;
+    VkImage renderTargetImage_ = VK_NULL_HANDLE;
     VkBuffer readbackBuffer_ = VK_NULL_HANDLE;
     VkDeviceMemory readbackMemory_ = VK_NULL_HANDLE;
     uint32_t fbWidth_ = 800, fbHeight_ = 600;
     bool inRenderPass_ = false;
 
+    VkFence pendingSubmitFence_ = VK_NULL_HANDLE;
+    bool hasPendingSubmit_ = false;
+
     void teardown_framebuffer();
+    bool copy_image_to_readback();
 };
 
 } // namespace omnigpu::host

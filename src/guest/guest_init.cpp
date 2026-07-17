@@ -241,6 +241,7 @@ bool connect_to_host() {
                          cfg.max_batch_commands);
         }
 
+        // Enable command batching to forward Vulkan commands to the host
         intercept::set_batch(g_batch);
 
         g_running = true;

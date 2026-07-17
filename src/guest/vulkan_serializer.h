@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -70,6 +71,12 @@ inline T handle_from_u64(uint64_t val) {
     T ptr = T{};
     memcpy(&ptr, &val, sizeof(ptr));
     return ptr;
+}
+
+// Generate a unique fake resource handle (persistent across calls)
+inline uint64_t next_fake_handle() {
+    static std::atomic<uint64_t> counter{0x10000};
+    return counter.fetch_add(1, std::memory_order_relaxed);
 }
 
 } // namespace omnigpu

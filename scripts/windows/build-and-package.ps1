@@ -72,9 +72,25 @@ Copy-Item -Path "$Bin64\omnigpu_vk_test.exe" -Destination $DistDir -Force
 # x64: Vulkan ICD driver (FFmpeg DLLs go to System32 by install.bat)
 Copy-Item -Path "$Bin64\omnigpu_guest.dll" -Destination "$DistDir\x64" -Force
 Copy-Item -Path "$Bin64\vk_icd.json" -Destination "$DistDir\x64" -Force
+# Inject correct library_arch for 64-bit
+$x64json = Get-Content "$DistDir\x64\vk_icd.json" -Raw | ConvertFrom-Json
+$x64json.ICD | Add-Member -NotePropertyName "library_arch" -NotePropertyValue "64" -Force
+$x64json | ConvertTo-Json -Depth 5 | Set-Content "$DistDir\x64\vk_icd.json" -Encoding UTF8
 Get-ChildItem "$Bin64\*.dll" | ForEach-Object {
     if ($_.Name -notmatch "^(omnigpu_guest|vulkan-1|OpenCL|avcodec|avutil|avformat|avfilter|avdevice|swscale|swresample|postproc)") {
         Copy-Item -Path $_.FullName -Destination "$DistDir\x64" -Force
+    }
+}
+
+# MSVC runtime DLLs (required by omnigpu_guest.dll, must be alongside it)
+$msvcRedist = "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Redist\MSVC\14.51.36231\x64\Microsoft.VC145.CRT"
+if (Test-Path $msvcRedist) {
+    Get-ChildItem "$msvcRedist\*.dll" | ForEach-Object {
+        Copy-Item -Path $_.FullName -Destination "$DistDir\x64" -Force
+        # Also to root (for exes running outside install dir)
+        if ($_.Name -notmatch "^vccorlib|^concrt") {
+            Copy-Item -Path $_.FullName -Destination $DistDir -Force
+        }
     }
 }
 
@@ -82,8 +98,19 @@ Get-ChildItem "$Bin64\*.dll" | ForEach-Object {
 if (Test-Path "$Bin32\omnigpu_guest.dll") {
     Copy-Item -Path "$Bin32\omnigpu_guest.dll" -Destination "$DistDir\x86" -Force
     Copy-Item -Path "$Bin32\vk_icd.json" -Destination "$DistDir\x86" -Force
+    # Inject correct library_arch for 32-bit
+    $x86json = Get-Content "$DistDir\x86\vk_icd.json" -Raw | ConvertFrom-Json
+    $x86json.ICD | Add-Member -NotePropertyName "library_arch" -NotePropertyValue "32" -Force
+    $x86json | ConvertTo-Json -Depth 5 | Set-Content "$DistDir\x86\vk_icd.json" -Encoding UTF8
     Get-ChildItem "$Bin32\*.dll" | ForEach-Object {
         if ($_.Name -notmatch "^(omnigpu_guest|vulkan-1|OpenCL|avcodec|avutil|avformat|avfilter|avdevice|swscale|swresample|postproc)") {
+            Copy-Item -Path $_.FullName -Destination "$DistDir\x86" -Force
+        }
+    }
+    # MSVC runtime x86 DLLs
+    $msvcRedist32 = "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Redist\MSVC\14.51.36231\x86\Microsoft.VC145.CRT"
+    if (Test-Path $msvcRedist32) {
+        Get-ChildItem "$msvcRedist32\*.dll" | ForEach-Object {
             Copy-Item -Path $_.FullName -Destination "$DistDir\x86" -Force
         }
     }

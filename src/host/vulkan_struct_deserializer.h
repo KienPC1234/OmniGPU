@@ -38,4 +38,26 @@ void free_VkRenderingInfo(VkRenderingInfo* info);
 
 bool read_VkRenderPassBeginInfo(VulkanDeserializer& d, VkRenderPassBeginInfo* out);
 
+bool read_VkCommandPoolCreateInfo(VulkanDeserializer& d, VkCommandPoolCreateInfo* out);
+bool read_VkBufferCreateInfo(VulkanDeserializer& d, VkBufferCreateInfo* out);
+bool read_VkImageCreateInfo(VulkanDeserializer& d, VkImageCreateInfo* out);
+bool read_VkImageViewCreateInfo(VulkanDeserializer& d, VkImageViewCreateInfo* out);
+bool read_VkSamplerCreateInfo(VulkanDeserializer& d, VkSamplerCreateInfo* out);
+bool read_VkRenderPassCreateInfo(VulkanDeserializer& d, VkRenderPassCreateInfo* out);
+void free_VkRenderPassCreateInfo(VkRenderPassCreateInfo* info);
+bool read_VkFramebufferCreateInfo(VulkanDeserializer& d, VkFramebufferCreateInfo* out);
+void free_VkFramebufferCreateInfo(VkFramebufferCreateInfo* info);
+bool read_VkPipelineLayoutCreateInfo(VulkanDeserializer& d, VkPipelineLayoutCreateInfo* out);
+void free_VkPipelineLayoutCreateInfo(VkPipelineLayoutCreateInfo* info);
+bool read_VkDescriptorSetLayoutCreateInfo(VulkanDeserializer& d, VkDescriptorSetLayoutCreateInfo* out);
+void free_VkDescriptorSetLayoutCreateInfo(VkDescriptorSetLayoutCreateInfo* info);
+bool read_VkDescriptorPoolCreateInfo(VulkanDeserializer& d, VkDescriptorPoolCreateInfo* out);
+bool read_VkDescriptorSetAllocateInfo(VulkanDeserializer& d, VkDescriptorSetAllocateInfo* out);
+bool read_VkSwapchainCreateInfoKHR(VulkanDeserializer& d, VkSwapchainCreateInfoKHR* out);
+bool read_VkMemoryAllocateInfo(VulkanDeserializer& d, VkMemoryAllocateInfo* out);
+bool read_VkSubmitInfo(VulkanDeserializer& d, VkSubmitInfo* out);
+void free_VkSubmitInfo(VkSubmitInfo* info);
+bool read_VkSubmitInfo2(VulkanDeserializer& d, VkSubmitInfo2* out);
+void free_VkSubmitInfo2(VkSubmitInfo2* info);
+
 } // namespace omnigpu::host

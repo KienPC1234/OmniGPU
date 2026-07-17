@@ -1,0 +1,15 @@
+#version 450
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+layout(binding = 0, std430) readonly buffer MatA { float data[]; } a;
+layout(binding = 1, std430) readonly buffer MatB { float data[]; } b;
+layout(binding = 2, std430) buffer MatC { float data[]; } c;
+layout(push_constant) uniform Dim { int n; } dim;
+void main() {
+    uint row = gl_GlobalInvocationID.y;
+    uint col = gl_GlobalInvocationID.x;
+    if (row >= dim.n || col >= dim.n) return;
+    float sum = 0.0;
+    for (int k = 0; k < dim.n; k++)
+        sum += a.data[row * dim.n + k] * b.data[k * dim.n + col];
+    c.data[row * dim.n + col] = sum;
+}

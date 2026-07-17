@@ -127,11 +127,19 @@ void write_VkPipelineViewportStateCreateInfo(VulkanSerializer& ser, const VkPipe
     write_nullable_ptr(ser, info);
     ser.write_u32(info->flags);
     ser.write_u32(info->viewportCount);
-    for (uint32_t i = 0; i < info->viewportCount; i++)
-        ser.write_raw(&info->pViewports[i], sizeof(VkViewport));
+    // pViewports may be null when using dynamic viewport state
+    ser.write_bool(info->pViewports != nullptr);
+    if (info->pViewports) {
+        for (uint32_t i = 0; i < info->viewportCount; i++)
+            ser.write_raw(&info->pViewports[i], sizeof(VkViewport));
+    }
     ser.write_u32(info->scissorCount);
-    for (uint32_t i = 0; i < info->scissorCount; i++)
-        ser.write_raw(&info->pScissors[i], sizeof(VkRect2D));
+    // pScissors may be null when using dynamic scissor state
+    ser.write_bool(info->pScissors != nullptr);
+    if (info->pScissors) {
+        for (uint32_t i = 0; i < info->scissorCount; i++)
+            ser.write_raw(&info->pScissors[i], sizeof(VkRect2D));
+    }
 }
 
 void write_VkPipelineRasterizationStateCreateInfo(VulkanSerializer& ser, const VkPipelineRasterizationStateCreateInfo* info) {
@@ -157,6 +165,8 @@ void write_VkPipelineMultisampleStateCreateInfo(VulkanSerializer& ser, const VkP
     ser.write_u32(static_cast<uint32_t>(info->rasterizationSamples));
     ser.write_bool(info->sampleShadingEnable);
     ser.write_f32(info->minSampleShading);
+    // Always write presence flag so host can read consistently
+    ser.write_bool(info->pSampleMask != nullptr);
     if (info->pSampleMask)
         ser.write_raw(info->pSampleMask, sizeof(uint32_t));
     ser.write_bool(info->alphaToCoverageEnable);
@@ -350,6 +360,217 @@ void write_VkRenderPassBeginInfo(VulkanSerializer& ser, const VkRenderPassBeginI
     ser.write_u32(info->clearValueCount);
     for (uint32_t i = 0; i < info->clearValueCount; i++)
         ser.write_raw(&info->pClearValues[i], sizeof(VkClearValue));
+}
+
+// ── CommandPool ──────────────────────────────────────────────────
+void write_VkCommandPoolCreateInfo(VulkanSerializer& ser, const VkCommandPoolCreateInfo* info) {
+    ser.write_u32(info->flags);
+    ser.write_u32(info->queueFamilyIndex);
+}
+
+// ── Buffer ────────────────────────────────────────────────────────
+void write_VkBufferCreateInfo(VulkanSerializer& ser, const VkBufferCreateInfo* info) {
+    ser.write_u32(info->flags);
+    ser.write_u64(static_cast<uint64_t>(info->size));
+    ser.write_u32(static_cast<uint32_t>(info->usage));
+    ser.write_u32(static_cast<uint32_t>(info->sharingMode));
+    write_array_t(ser, info->pQueueFamilyIndices, info->queueFamilyIndexCount);
+}
+
+// ── Image ─────────────────────────────────────────────────────────
+void write_VkImageCreateInfo(VulkanSerializer& ser, const VkImageCreateInfo* info) {
+    ser.write_u32(info->flags);
+    ser.write_u32(static_cast<uint32_t>(info->imageType));
+    ser.write_u32(static_cast<uint32_t>(info->format));
+    ser.write_raw(&info->extent, sizeof(VkExtent3D));
+    ser.write_u32(info->mipLevels);
+    ser.write_u32(info->arrayLayers);
+    ser.write_u32(static_cast<uint32_t>(info->samples));
+    ser.write_u32(static_cast<uint32_t>(info->tiling));
+    ser.write_u32(static_cast<uint32_t>(info->usage));
+    ser.write_u32(static_cast<uint32_t>(info->sharingMode));
+    write_array_t(ser, info->pQueueFamilyIndices, info->queueFamilyIndexCount);
+    ser.write_u32(static_cast<uint32_t>(info->initialLayout));
+}
+
+// ── ImageView ─────────────────────────────────────────────────────
+void write_VkImageViewCreateInfo(VulkanSerializer& ser, const VkImageViewCreateInfo* info) {
+    ser.write_u32(info->flags);
+    ser.write_handle(handle_to_u64(info->image));
+    ser.write_u32(static_cast<uint32_t>(info->viewType));
+    ser.write_u32(static_cast<uint32_t>(info->format));
+    ser.write_raw(&info->components, sizeof(VkComponentMapping));
+    ser.write_raw(&info->subresourceRange, sizeof(VkImageSubresourceRange));
+}
+
+// ── Sampler ───────────────────────────────────────────────────────
+void write_VkSamplerCreateInfo(VulkanSerializer& ser, const VkSamplerCreateInfo* info) {
+    ser.write_u32(info->flags);
+    ser.write_u32(static_cast<uint32_t>(info->magFilter));
+    ser.write_u32(static_cast<uint32_t>(info->minFilter));
+    ser.write_u32(static_cast<uint32_t>(info->mipmapMode));
+    ser.write_u32(static_cast<uint32_t>(info->addressModeU));
+    ser.write_u32(static_cast<uint32_t>(info->addressModeV));
+    ser.write_u32(static_cast<uint32_t>(info->addressModeW));
+    ser.write_f32(info->mipLodBias);
+    ser.write_bool(info->anisotropyEnable);
+    ser.write_f32(info->maxAnisotropy);
+    ser.write_bool(info->compareEnable);
+    ser.write_u32(static_cast<uint32_t>(info->compareOp));
+    ser.write_f32(info->minLod);
+    ser.write_f32(info->maxLod);
+    ser.write_u32(static_cast<uint32_t>(info->borderColor));
+    ser.write_bool(info->unnormalizedCoordinates);
+}
+
+// ── AttachmentDescription (sub-struct for RenderPass) ──────────────
+static void write_VkAttachmentDescription(VulkanSerializer& ser, const VkAttachmentDescription* att) {
+    ser.write_u32(att->flags);
+    ser.write_u32(static_cast<uint32_t>(att->format));
+    ser.write_u32(static_cast<uint32_t>(att->samples));
+    ser.write_u32(static_cast<uint32_t>(att->loadOp));
+    ser.write_u32(static_cast<uint32_t>(att->storeOp));
+    ser.write_u32(static_cast<uint32_t>(att->stencilLoadOp));
+    ser.write_u32(static_cast<uint32_t>(att->stencilStoreOp));
+    ser.write_u32(static_cast<uint32_t>(att->initialLayout));
+    ser.write_u32(static_cast<uint32_t>(att->finalLayout));
+}
+
+// ── AttachmentReference (sub-struct for SubpassDescription) ────────
+static void write_VkAttachmentReference(VulkanSerializer& ser, const VkAttachmentReference* ref) {
+    ser.write_u32(ref->attachment);
+    ser.write_u32(static_cast<uint32_t>(ref->layout));
+}
+
+// ── SubpassDescription (has nested pointer arrays) ─────────────────
+static void write_VkSubpassDescription(VulkanSerializer& ser, const VkSubpassDescription* sd) {
+    ser.write_u32(static_cast<uint32_t>(sd->flags));
+    ser.write_u32(static_cast<uint32_t>(sd->pipelineBindPoint));
+    ser.write_u32(sd->inputAttachmentCount);
+    for (uint32_t i = 0; i < sd->inputAttachmentCount; i++)
+        write_VkAttachmentReference(ser, &sd->pInputAttachments[i]);
+    ser.write_u32(sd->colorAttachmentCount);
+    for (uint32_t i = 0; i < sd->colorAttachmentCount; i++)
+        write_VkAttachmentReference(ser, &sd->pColorAttachments[i]);
+    ser.write_bool(sd->pResolveAttachments != nullptr);
+    if (sd->pResolveAttachments) {
+        for (uint32_t i = 0; i < sd->colorAttachmentCount; i++)
+            write_VkAttachmentReference(ser, &sd->pResolveAttachments[i]);
+    }
+    ser.write_bool(sd->pDepthStencilAttachment != nullptr);
+    if (sd->pDepthStencilAttachment)
+        write_VkAttachmentReference(ser, sd->pDepthStencilAttachment);
+    ser.write_u32(sd->preserveAttachmentCount);
+    for (uint32_t i = 0; i < sd->preserveAttachmentCount; i++)
+        ser.write_u32(sd->pPreserveAttachments[i]);
+}
+
+// ── SubpassDependency (sub-struct for RenderPass) ──────────────────
+static void write_VkSubpassDependency(VulkanSerializer& ser, const VkSubpassDependency* dep) {
+    ser.write_u32(dep->srcSubpass);
+    ser.write_u32(dep->dstSubpass);
+    ser.write_u64(static_cast<uint64_t>(dep->srcStageMask));
+    ser.write_u64(static_cast<uint64_t>(dep->dstStageMask));
+    ser.write_u64(static_cast<uint64_t>(dep->srcAccessMask));
+    ser.write_u64(static_cast<uint64_t>(dep->dstAccessMask));
+    ser.write_u32(static_cast<uint32_t>(dep->dependencyFlags));
+}
+
+// ── RenderPass ─────────────────────────────────────────────────────
+void write_VkRenderPassCreateInfo(VulkanSerializer& ser, const VkRenderPassCreateInfo* info) {
+    ser.write_u32(info->flags);
+    ser.write_u32(info->attachmentCount);
+    for (uint32_t i = 0; i < info->attachmentCount; i++)
+        write_VkAttachmentDescription(ser, &info->pAttachments[i]);
+    ser.write_u32(info->subpassCount);
+    for (uint32_t i = 0; i < info->subpassCount; i++)
+        write_VkSubpassDescription(ser, &info->pSubpasses[i]);
+    ser.write_u32(info->dependencyCount);
+    for (uint32_t i = 0; i < info->dependencyCount; i++)
+        write_VkSubpassDependency(ser, &info->pDependencies[i]);
+}
+
+// ── Framebuffer ────────────────────────────────────────────────────
+void write_VkFramebufferCreateInfo(VulkanSerializer& ser, const VkFramebufferCreateInfo* info) {
+    ser.write_u32(info->flags);
+    ser.write_handle(handle_to_u64(info->renderPass));
+    ser.write_u32(info->attachmentCount);
+    for (uint32_t i = 0; i < info->attachmentCount; i++)
+        ser.write_handle(handle_to_u64(info->pAttachments[i]));
+    ser.write_u32(info->width);
+    ser.write_u32(info->height);
+    ser.write_u32(info->layers);
+}
+
+// ── PipelineLayout ─────────────────────────────────────────────────
+void write_VkPipelineLayoutCreateInfo(VulkanSerializer& ser, const VkPipelineLayoutCreateInfo* info) {
+    ser.write_u32(info->flags);
+    ser.write_u32(info->setLayoutCount);
+    for (uint32_t i = 0; i < info->setLayoutCount; i++)
+        ser.write_handle(handle_to_u64(info->pSetLayouts[i]));
+    ser.write_u32(info->pushConstantRangeCount);
+    for (uint32_t i = 0; i < info->pushConstantRangeCount; i++)
+        ser.write_raw(&info->pPushConstantRanges[i], sizeof(VkPushConstantRange));
+}
+
+// ── DescriptorSetLayout ────────────────────────────────────────────
+void write_VkDescriptorSetLayoutCreateInfo(VulkanSerializer& ser, const VkDescriptorSetLayoutCreateInfo* info) {
+    ser.write_u32(info->flags);
+    ser.write_u32(info->bindingCount);
+    for (uint32_t i = 0; i < info->bindingCount; i++) {
+        auto& b = info->pBindings[i];
+        ser.write_u32(b.binding);
+        ser.write_u32(static_cast<uint32_t>(b.descriptorType));
+        ser.write_u32(b.descriptorCount);
+        ser.write_u32(static_cast<uint32_t>(b.stageFlags));
+        ser.write_bool(b.pImmutableSamplers != nullptr);
+        if (b.pImmutableSamplers)
+            ser.write_array(b.pImmutableSamplers, b.descriptorCount);
+    }
+}
+
+// ── DescriptorPool ─────────────────────────────────────────────────
+void write_VkDescriptorPoolCreateInfo(VulkanSerializer& ser, const VkDescriptorPoolCreateInfo* info) {
+    ser.write_u32(info->flags);
+    ser.write_u32(info->maxSets);
+    ser.write_u32(info->poolSizeCount);
+    for (uint32_t i = 0; i < info->poolSizeCount; i++) {
+        ser.write_u32(static_cast<uint32_t>(info->pPoolSizes[i].type));
+        ser.write_u32(info->pPoolSizes[i].descriptorCount);
+    }
+}
+
+// ── DescriptorSetAllocate ──────────────────────────────────────────
+void write_VkDescriptorSetAllocateInfo(VulkanSerializer& ser, const VkDescriptorSetAllocateInfo* info) {
+    ser.write_handle(handle_to_u64(info->descriptorPool));
+    ser.write_u32(info->descriptorSetCount);
+    for (uint32_t i = 0; i < info->descriptorSetCount; i++)
+        ser.write_handle(handle_to_u64(info->pSetLayouts[i]));
+}
+
+// ── Swapchain ──────────────────────────────────────────────────────
+void write_VkSwapchainCreateInfoKHR(VulkanSerializer& ser, const VkSwapchainCreateInfoKHR* info) {
+    ser.write_u32(info->flags);
+    ser.write_handle(handle_to_u64(info->surface));
+    ser.write_u32(info->minImageCount);
+    ser.write_u32(static_cast<uint32_t>(info->imageFormat));
+    ser.write_u32(static_cast<uint32_t>(info->imageColorSpace));
+    ser.write_raw(&info->imageExtent, sizeof(VkExtent2D));
+    ser.write_u32(info->imageArrayLayers);
+    ser.write_u32(static_cast<uint32_t>(info->imageUsage));
+    ser.write_u32(static_cast<uint32_t>(info->imageSharingMode));
+    write_array_t(ser, info->pQueueFamilyIndices, info->queueFamilyIndexCount);
+    ser.write_u32(static_cast<uint32_t>(info->preTransform));
+    ser.write_u32(static_cast<uint32_t>(info->compositeAlpha));
+    ser.write_u32(static_cast<uint32_t>(info->presentMode));
+    ser.write_bool(info->clipped);
+    ser.write_handle(handle_to_u64(info->oldSwapchain));
+}
+
+// ── MemoryAllocate ─────────────────────────────────────────────────
+void write_VkMemoryAllocateInfo(VulkanSerializer& ser, const VkMemoryAllocateInfo* info) {
+    ser.write_u64(static_cast<uint64_t>(info->allocationSize));
+    ser.write_u32(info->memoryTypeIndex);
 }
 
 } // namespace omnigpu::serializer

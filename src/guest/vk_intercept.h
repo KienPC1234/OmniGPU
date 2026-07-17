@@ -11,6 +11,7 @@ namespace omnigpu::intercept {
 void initialize_hooks();
 void shutdown_hooks();
 void set_batch(batch::CommandBatch* batch);
+omnigpu::batch::CommandBatch* get_batch();
 PFN_vkVoidFunction get_intercept_proc(const char* name);
 
 // Auto-generated hooks (declared for icd_entrypoints.cpp)
@@ -36,6 +37,9 @@ DECL_HOOK(VkResult, vkAllocateMemory, VkDevice, const VkMemoryAllocateInfo*, con
 DECL_HOOK(void, vkFreeMemory, VkDevice, VkDeviceMemory, const VkAllocationCallbacks*);
 DECL_HOOK(VkResult, vkMapMemory, VkDevice, VkDeviceMemory, VkDeviceSize, VkDeviceSize, VkMemoryMapFlags, void**);
 DECL_HOOK(void, vkUnmapMemory, VkDevice, VkDeviceMemory);
+// Vulkan 1.4 variants
+DECL_HOOK(VkResult, vkMapMemory2, VkDevice, const VkMemoryMapInfo*, void**);
+DECL_HOOK(void, vkUnmapMemory2, VkDevice, const VkMemoryUnmapInfo*);
 DECL_HOOK(VkResult, vkFlushMappedMemoryRanges, VkDevice, uint32_t, const VkMappedMemoryRange*);
 DECL_HOOK(VkResult, vkInvalidateMappedMemoryRanges, VkDevice, uint32_t, const VkMappedMemoryRange*);
 DECL_HOOK(VkResult, vkBindBufferMemory, VkDevice, VkBuffer, VkDeviceMemory, VkDeviceSize);
@@ -269,6 +273,8 @@ VkResult VKAPI_PTR vkGetPhysicalDeviceSurfaceSupportKHR_hook(VkPhysicalDevice, u
 
 // Tool properties (1.3)
 VkResult VKAPI_PTR vkGetPhysicalDeviceToolPropertiesEXT_hook(VkPhysicalDevice, uint32_t*, VkPhysicalDeviceToolProperties*);
+
+void sync_all_mapped_memory_to_host();
 
 // Register a manual hook (implemented in generated vk_intercept_gen.cpp)
 void register_manual_hook(const char* name, void* func);

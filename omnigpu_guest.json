@@ -1,6 +1,6 @@
 {
     "_comment": "OmniGPU Guest Configuration — guest chỉ forward Vulkan. OpenGL/OpenCL xử lý local nhờ Mesa3D + clvk.",
-    "host": "192.168.1.100",
+    "host": "192.168.1.239",
     "port": 9443,
     "cache_ttl_seconds": 86400,
     "adaptive_batching": true,

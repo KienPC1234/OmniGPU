@@ -62,12 +62,28 @@ void init_logger(const char* log_name, bool debug) {
     }
 #endif
 
+    // Primary: try to create log file alongside the executable or in temp
+    bool file_sink_ok = false;
     try {
         auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
             log_path, false);
         file_sink->set_level(spdlog::level::trace);
         sinks.push_back(file_sink);
+        file_sink_ok = true;
     } catch (...) {}
+    // Fallback: always try %TEMP% as well (works even in locked-down dirs)
+    if (!file_sink_ok) {
+        try {
+            char temp_path[MAX_PATH] = {};
+            if (GetTempPathA(sizeof(temp_path), temp_path)) {
+                std::string fallback = std::string(temp_path) + log_name;
+                auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
+                    fallback, false);
+                file_sink->set_level(spdlog::level::trace);
+                sinks.push_back(file_sink);
+            }
+        } catch (...) {}
+    }
 
     spdlog::level::level_enum console_level = debug ? spdlog::level::trace : spdlog::level::info;
 

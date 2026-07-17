@@ -4,13 +4,26 @@
 
 #include "vk_intercept.h"
 #include "client.h"
+#include "command_batch.h"
 #include "vulkan_serializer.h"
+#include "vulkan_struct_serializer.h"
 #include "common/gpu_caps_store.h"
+#include "common/flatbuffers_utils.h"
 #include "guest_init.h"
+#include "omnigpu_protocol_generated.h"
 #include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #include <cstring>
+#include <mutex>
+#include <unordered_map>
+#include <vector>
 #include <spdlog/spdlog.h>
+
+#ifdef _WIN32
+#define VK_USE_PLATFORM_WIN32_KHR
+#include <vulkan/vulkan_win32.h>
+#endif
 #include <vulkan/vulkan.h>
 
 namespace omnigpu::intercept {
@@ -18,33 +31,35 @@ namespace omnigpu::intercept {
 // ---------------------------------------------------------------------------
 // Dispatchable handle structures (needed so the Vulkan Loader can write its magic/dispatch table pointer without crashing)
 // ---------------------------------------------------------------------------
-struct FakeInstance {
-    uintptr_t loader_magic;
+// The Vulkan Loader writes ICD_LOADER_MAGIC + dispatch table pointers at offset 0.
+// Minimum storage needed: 2 * sizeof(void*) = 16 bytes on x64.
+struct alignas(void*) FakeInstance {
+    void* loader_storage[8];  // 64 bytes — enough for loader dispatch + our data
 };
-struct FakePhysicalDevice {
-    uintptr_t loader_magic;
+struct alignas(void*) FakePhysicalDevice {
+    void* loader_storage[8];
 };
-struct FakeDevice {
-    uintptr_t loader_magic;
+struct alignas(void*) FakeDevice {
+    void* loader_storage[8];
 };
-struct FakeQueue {
-    uintptr_t loader_magic;
+struct alignas(void*) FakeQueue {
+    void* loader_storage[8];
 };
 
 static VkInstance make_fake_instance() {
-    FakeInstance* inst = new FakeInstance{0x01CDC0DE};
+    auto* inst = new FakeInstance{};
     return reinterpret_cast<VkInstance>(inst);
 }
 static VkPhysicalDevice make_fake_phys_device() {
-    FakePhysicalDevice* pd = new FakePhysicalDevice{0x01CDC0DE};
+    auto* pd = new FakePhysicalDevice{};
     return reinterpret_cast<VkPhysicalDevice>(pd);
 }
 static VkDevice make_fake_device() {
-    FakeDevice* dev = new FakeDevice{0x01CDC0DE};
+    auto* dev = new FakeDevice{};
     return reinterpret_cast<VkDevice>(dev);
 }
 static VkQueue make_fake_queue() {
-    FakeQueue* q = new FakeQueue{0x01CDC0DE};
+    auto* q = new FakeQueue{};
     return reinterpret_cast<VkQueue>(q);
 }
 
@@ -116,6 +131,7 @@ void VKAPI_PTR vkDestroyInstance_hook(
     SPDLOG_TRACE("Intercepted: vkDestroyInstance({})",
                  reinterpret_cast<void*>(instance));
     delete reinterpret_cast<FakeInstance*>(instance);
+    SPDLOG_DEBUG("vkDestroyInstance: freed instance");
 }
 
 // ---------------------------------------------------------------------------
@@ -221,40 +237,44 @@ VkResult VKAPI_PTR vkEnumerateInstanceExtensionProperties_hook(
     SPDLOG_TRACE("Intercepted: vkEnumerateInstanceExtensionProperties");
     if (!pPropertyCount) return VK_ERROR_INITIALIZATION_FAILED;
 
-    static const VkExtensionProperties instance_extensions[] = {
-        {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_SURFACE_SPEC_VERSION},
-        {"VK_KHR_win32_surface", 6},
-        {"VK_KHR_get_physical_device_properties2", 2},
-        {"VK_KHR_get_surface_capabilities2", 1},
-        {"VK_KHR_surface_protected_capabilities", 1},
-        {"VK_KHR_surface_maintenance1", 1},
-        {"VK_KHR_device_group_creation", 1},
-        {"VK_KHR_external_fence_capabilities", 1},
-        {"VK_KHR_external_memory_capabilities", 1},
-        {"VK_KHR_external_semaphore_capabilities", 1},
-        {"VK_KHR_display", 23},
-        {"VK_KHR_get_display_properties2", 1},
-        {"VK_KHR_portability_enumeration", 1},
-        {"VK_EXT_surface_maintenance1", 1},
-        {"VK_EXT_swapchain_colorspace", 5},
-        {"VK_EXT_debug_report", 10},
-        {"VK_EXT_debug_utils", 2},
-        {"VK_EXT_direct_mode_display", 1},
-        {"VK_LUNARG_direct_driver_loading", 1},
-        {"VK_NV_external_memory_capabilities", 1},
-    };
-    uint32_t count = static_cast<uint32_t>(
-        sizeof(instance_extensions) / sizeof(instance_extensions[0]));
+    static std::vector<VkExtensionProperties> instance_extensions;
+    if (instance_extensions.empty()) {
+        auto add = [&](const char* name, uint32_t ver) {
+            VkExtensionProperties p{};
+            strncpy_s(p.extensionName, sizeof(p.extensionName), name, _TRUNCATE);
+            p.specVersion = ver;
+            instance_extensions.push_back(p);
+        };
+        add(VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_SURFACE_SPEC_VERSION);
+        add("VK_KHR_win32_surface", 6);
+        add("VK_KHR_get_physical_device_properties2", 2);
+        add("VK_KHR_get_surface_capabilities2", 1);
+        add("VK_KHR_surface_protected_capabilities", 1);
+        add("VK_KHR_surface_maintenance1", 1);
+        add("VK_KHR_device_group_creation", 1);
+        add("VK_KHR_external_fence_capabilities", 1);
+        add("VK_KHR_external_memory_capabilities", 1);
+        add("VK_KHR_external_semaphore_capabilities", 1);
+        add("VK_KHR_display", 23);
+        add("VK_KHR_get_display_properties2", 1);
+        add("VK_KHR_portability_enumeration", 1);
+        add("VK_EXT_surface_maintenance1", 1);
+        add("VK_EXT_swapchain_colorspace", 5);
+        add("VK_EXT_debug_report", 10);
+        add("VK_EXT_debug_utils", 2);
+        add("VK_EXT_direct_mode_display", 1);
+        add("VK_LUNARG_direct_driver_loading", 1);
+        add("VK_NV_external_memory_capabilities", 1);
+    }
+    uint32_t count = static_cast<uint32_t>(instance_extensions.size());
 
     if (!pProperties) {
         *pPropertyCount = count;
         return VK_SUCCESS;
     }
-
     uint32_t to_copy = std::min(*pPropertyCount, count);
-    std::memcpy(pProperties, instance_extensions, to_copy * sizeof(VkExtensionProperties));
+    std::memcpy(pProperties, instance_extensions.data(), to_copy * sizeof(VkExtensionProperties));
     *pPropertyCount = to_copy;
-
     if (to_copy < count) return VK_INCOMPLETE;
     return VK_SUCCESS;
 }
@@ -268,40 +288,46 @@ VkResult VKAPI_PTR vkEnumerateDeviceExtensionProperties_hook(
     SPDLOG_TRACE("Intercepted: vkEnumerateDeviceExtensionProperties");
     if (!pPropertyCount) return VK_ERROR_INITIALIZATION_FAILED;
 
-    static const VkExtensionProperties device_extensions[] = {
-        {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_SWAPCHAIN_SPEC_VERSION},
-        {"VK_KHR_maintenance1", 2},
-        {"VK_KHR_maintenance2", 1},
-        {"VK_KHR_maintenance3", 1},
-        {"VK_KHR_maintenance4", 2},
-        {"VK_KHR_shader_draw_parameters", 1},
-        {"VK_KHR_storage_buffer_storage_class", 1},
-        {"VK_KHR_16bit_storage", 1},
-        {"VK_KHR_8bit_storage", 1},
-        {"VK_KHR_descriptor_update_template", 1},
-        {"VK_KHR_sampler_ycbcr_conversion", 14},
-        {"VK_KHR_multiview", 1},
-        {"VK_KHR_get_memory_requirements2", 1},
-        {"VK_KHR_bind_memory2", 1},
-        {"VK_KHR_dedicated_allocation", 3},
-        {"VK_KHR_driver_properties", 1},
-        {"VK_KHR_timeline_semaphore", 2},
-        {"VK_KHR_vulkan_memory_model", 3},
-        {"VK_KHR_uniform_buffer_standard_layout", 1},
-        {"VK_KHR_imageless_framebuffer", 1},
-        {"VK_KHR_spirv_1_4_extension", 1},
-        {"VK_KHR_separate_depth_stencil_layouts", 1},
-        {"VK_KHR_shader_subgroup_extended_types", 1},
-        {"VK_KHR_create_renderpass2", 1},
-        {"VK_KHR_depth_stencil_resolve", 1},
-        {"VK_EXT_vertex_input_dynamic_state", 2},
-        {"VK_EXT_private_data", 1},
-        {"VK_EXT_extended_dynamic_state", 1},
-        {"VK_EXT_extended_dynamic_state2", 1},
-        {"VK_EXT_tooling_info", 1},
-    };
-    uint32_t count = static_cast<uint32_t>(
-        sizeof(device_extensions) / sizeof(device_extensions[0]));
+    static std::vector<VkExtensionProperties> device_extensions;
+    if (device_extensions.empty()) {
+        auto add = [&](const char* name, uint32_t ver) {
+            VkExtensionProperties p{};
+            strncpy_s(p.extensionName, sizeof(p.extensionName), name, _TRUNCATE);
+            p.specVersion = ver;
+            device_extensions.push_back(p);
+        };
+        add(VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_SWAPCHAIN_SPEC_VERSION);
+        add("VK_KHR_maintenance1", 2);
+        add("VK_KHR_maintenance2", 1);
+        add("VK_KHR_maintenance3", 1);
+        add("VK_KHR_maintenance4", 2);
+        add("VK_KHR_shader_draw_parameters", 1);
+        add("VK_KHR_storage_buffer_storage_class", 1);
+        add("VK_KHR_16bit_storage", 1);
+        add("VK_KHR_8bit_storage", 1);
+        add("VK_KHR_descriptor_update_template", 1);
+        add("VK_KHR_sampler_ycbcr_conversion", 14);
+        add("VK_KHR_multiview", 1);
+        add("VK_KHR_get_memory_requirements2", 1);
+        add("VK_KHR_bind_memory2", 1);
+        add("VK_KHR_dedicated_allocation", 3);
+        add("VK_KHR_driver_properties", 1);
+        add("VK_KHR_timeline_semaphore", 2);
+        add("VK_KHR_vulkan_memory_model", 3);
+        add("VK_KHR_uniform_buffer_standard_layout", 1);
+        add("VK_KHR_imageless_framebuffer", 1);
+        add("VK_KHR_spirv_1_4_extension", 1);
+        add("VK_KHR_separate_depth_stencil_layouts", 1);
+        add("VK_KHR_shader_subgroup_extended_types", 1);
+        add("VK_KHR_create_renderpass2", 1);
+        add("VK_KHR_depth_stencil_resolve", 1);
+        add("VK_EXT_vertex_input_dynamic_state", 2);
+        add("VK_EXT_private_data", 1);
+        add("VK_EXT_extended_dynamic_state", 1);
+        add("VK_EXT_extended_dynamic_state2", 1);
+        add("VK_EXT_tooling_info", 1);
+    }
+    uint32_t count = static_cast<uint32_t>(device_extensions.size());
 
     if (!pProperties) {
         *pPropertyCount = count;
@@ -309,7 +335,7 @@ VkResult VKAPI_PTR vkEnumerateDeviceExtensionProperties_hook(
     }
 
     uint32_t to_copy = std::min(*pPropertyCount, count);
-    std::memcpy(pProperties, device_extensions, to_copy * sizeof(VkExtensionProperties));
+    std::memcpy(pProperties, device_extensions.data(), to_copy * sizeof(VkExtensionProperties));
     *pPropertyCount = to_copy;
 
     if (to_copy < count) return VK_INCOMPLETE;
@@ -975,17 +1001,466 @@ VkResult VKAPI_PTR vkGetPrivateData_hook(
 }
 
 // ---------------------------------------------------------------------------
-// Surface support
+// vkAllocateCommandBuffers / vkFreeCommandBuffers (dispatchable - heap alloc)
 // ---------------------------------------------------------------------------
+struct alignas(void*) FakeCommandBuffer {
+    void* loader_storage[8];
+};
+
+VkResult VKAPI_PTR vkAllocateCommandBuffers_hook(
+    VkDevice device,
+    const VkCommandBufferAllocateInfo* pAllocateInfo,
+    VkCommandBuffer* pCommandBuffers)
+{
+    SPDLOG_TRACE("Intercepted: vkAllocateCommandBuffers count={}",
+                 pAllocateInfo ? pAllocateInfo->commandBufferCount : 1);
+    uint32_t count = pAllocateInfo ? pAllocateInfo->commandBufferCount : 1;
+    for (uint32_t i = 0; i < count; i++) {
+        auto* cb = new FakeCommandBuffer{};
+        pCommandBuffers[i] = reinterpret_cast<VkCommandBuffer>(cb);
+    }
+
+    // Serialize and forward to host for real allocation
+    serializer::VulkanSerializer ser;
+    ser.write_handle((uint64_t)(device));
+    ser.write_raw(pAllocateInfo, sizeof(*pAllocateInfo));
+    ser.write_u32(count);
+    for (uint32_t i = 0; i < count; i++)
+        ser.write_handle((uint64_t)(pCommandBuffers[i]));
+
+    auto* batch = intercept::get_batch();
+    if (batch) {
+        static std::atomic<uint32_t> req_id{0xA0000000};
+        auto builder = protocol::build_command(
+            fbs::FunctionId_vkAllocateCommandBuffers,
+            req_id.fetch_add(1),
+            ser.data(), ser.size()
+        );
+        batch->append(builder);
+    }
+
+    return VK_SUCCESS;
+}
+
+void VKAPI_PTR vkFreeCommandBuffers_hook(
+    VkDevice device, VkCommandPool commandPool,
+    uint32_t commandBufferCount, const VkCommandBuffer* pCommandBuffers)
+{
+    SPDLOG_TRACE("Intercepted: vkFreeCommandBuffers");
+    for (uint32_t i = 0; i < commandBufferCount; i++) {
+        delete reinterpret_cast<FakeCommandBuffer*>(pCommandBuffers[i]);
+    }
+
+    serializer::VulkanSerializer ser;
+    ser.write_handle((uint64_t)(device));
+    ser.write_handle((uint64_t)(commandPool));
+    ser.write_u32(commandBufferCount);
+    for (uint32_t i = 0; i < commandBufferCount; i++)
+        ser.write_handle((uint64_t)(pCommandBuffers[i]));
+
+    auto* batch = intercept::get_batch();
+    if (batch) {
+        static std::atomic<uint32_t> req_id{0xA1000000};
+        auto builder = protocol::build_command(
+            fbs::FunctionId_vkFreeCommandBuffers,
+            req_id.fetch_add(1),
+            ser.data(), ser.size()
+        );
+        batch->append(builder);
+    }
+}
+
+VkResult VKAPI_PTR vkBeginCommandBuffer_hook(
+    VkCommandBuffer commandBuffer, const VkCommandBufferBeginInfo* pBeginInfo)
+{
+    SPDLOG_TRACE("Intercepted: vkBeginCommandBuffer");
+
+    serializer::VulkanSerializer ser;
+    ser.write_handle((uint64_t)(commandBuffer));
+    ser.write_raw(pBeginInfo, sizeof(*pBeginInfo));
+
+    auto* batch = intercept::get_batch();
+    if (batch) {
+        static std::atomic<uint32_t> req_id{0xA2000000};
+        auto builder = protocol::build_command(
+            fbs::FunctionId_vkBeginCommandBuffer,
+            req_id.fetch_add(1),
+            ser.data(), ser.size()
+        );
+        batch->append(builder);
+    }
+
+    return VK_SUCCESS;
+}
+
+VkResult VKAPI_PTR vkEndCommandBuffer_hook(VkCommandBuffer commandBuffer)
+{
+    SPDLOG_TRACE("Intercepted: vkEndCommandBuffer");
+
+    serializer::VulkanSerializer ser;
+    ser.write_handle((uint64_t)(commandBuffer));
+
+    auto* batch = intercept::get_batch();
+    if (batch) {
+        static std::atomic<uint32_t> req_id{0xA3000000};
+        auto builder = protocol::build_command(
+            fbs::FunctionId_vkEndCommandBuffer,
+            req_id.fetch_add(1),
+            ser.data(), ser.size()
+        );
+        batch->append(builder);
+    }
+
+    return VK_SUCCESS;
+}
+
+VkResult VKAPI_PTR vkResetCommandBuffer_hook(
+    VkCommandBuffer commandBuffer, VkCommandBufferResetFlags flags)
+{
+    SPDLOG_TRACE("Intercepted: vkResetCommandBuffer");
+
+    serializer::VulkanSerializer ser;
+    ser.write_handle((uint64_t)(commandBuffer));
+    ser.write_u32(static_cast<uint32_t>(flags));
+
+    auto* batch = intercept::get_batch();
+    if (batch) {
+        static std::atomic<uint32_t> req_id{0xA4000000};
+        auto builder = protocol::build_command(
+            fbs::FunctionId_vkResetCommandBuffer,
+            req_id.fetch_add(1),
+            ser.data(), ser.size()
+        );
+        batch->append(builder);
+    }
+
+    return VK_SUCCESS;
+}
+
+// ---------------------------------------------------------------------------
+// WSI Surface and Swapchain hooks (needed by vkcube)
+// ---------------------------------------------------------------------------
+static std::mutex g_swapchain_mutex;
+static std::unordered_map<uint64_t, std::vector<VkImage>> g_swapchain_images;
+static std::atomic<uint32_t> s_current_image{0};
+
+static uint64_t s_fake_handle{0x10000};
+static uint64_t next_fake_handle_id() {
+    static std::atomic<uint64_t> counter{0x10000};
+    return counter.fetch_add(1, std::memory_order_relaxed);
+}
+
+VkResult VKAPI_PTR vkCreateWin32SurfaceKHR_hook(
+    VkInstance instance,
+    const VkWin32SurfaceCreateInfoKHR* pCreateInfo,
+    const VkAllocationCallbacks* pAllocator,
+    VkSurfaceKHR* pSurface)
+{
+    SPDLOG_TRACE("Intercepted: vkCreateWin32SurfaceKHR");
+    if (pSurface) *pSurface = handle_from_u64<VkSurfaceKHR>(next_fake_handle_id());
+    return VK_SUCCESS;
+}
+
+void VKAPI_PTR vkDestroySurfaceKHR_hook(
+    VkInstance instance, VkSurfaceKHR surface, const VkAllocationCallbacks* pAllocator)
+{
+    SPDLOG_TRACE("Intercepted: vkDestroySurfaceKHR");
+}
+
+VkResult VKAPI_PTR vkCreateSwapchainKHR_hook(
+    VkDevice device,
+    const VkSwapchainCreateInfoKHR* pCreateInfo,
+    const VkAllocationCallbacks* pAllocator,
+    VkSwapchainKHR* pSwapchain)
+{
+    SPDLOG_TRACE("Intercepted: vkCreateSwapchainKHR {}x{}",
+                 pCreateInfo ? pCreateInfo->imageExtent.width  : 0,
+                 pCreateInfo ? pCreateInfo->imageExtent.height : 0);
+    uint64_t sc_id = next_fake_handle_id();
+    VkSwapchainKHR sc = handle_from_u64<VkSwapchainKHR>(sc_id);
+    if (pSwapchain) *pSwapchain = sc;
+    uint32_t img_count = pCreateInfo ? std::max(pCreateInfo->minImageCount, 2u) : 2;
+    std::vector<VkImage> imgs;
+    imgs.reserve(img_count);
+    for (uint32_t i = 0; i < img_count; i++) {
+        imgs.push_back(handle_from_u64<VkImage>(next_fake_handle_id()));
+    }
+    std::lock_guard<std::mutex> lock(g_swapchain_mutex);
+    g_swapchain_images[sc_id] = std::move(imgs);
+    return VK_SUCCESS;
+}
+
+VkResult VKAPI_PTR vkGetSwapchainImagesKHR_hook(
+    VkDevice device,
+    VkSwapchainKHR swapchain,
+    uint32_t* pSwapchainImageCount,
+    VkImage* pSwapchainImages)
+{
+    SPDLOG_TRACE("Intercepted: vkGetSwapchainImagesKHR");
+    if (!pSwapchainImageCount) return VK_ERROR_INITIALIZATION_FAILED;
+    uint64_t sc_id = handle_to_u64(swapchain);
+    std::lock_guard<std::mutex> lock(g_swapchain_mutex);
+    auto it = g_swapchain_images.find(sc_id);
+    uint32_t count = (it != g_swapchain_images.end()) ? static_cast<uint32_t>(it->second.size()) : 2;
+    if (!pSwapchainImages) {
+        *pSwapchainImageCount = count;
+        return VK_SUCCESS;
+    }
+    uint32_t to_copy = std::min(*pSwapchainImageCount, count);
+    if (it != g_swapchain_images.end()) {
+        for (uint32_t i = 0; i < to_copy; i++) pSwapchainImages[i] = it->second[i];
+    }
+    *pSwapchainImageCount = to_copy;
+    return (to_copy < count) ? VK_INCOMPLETE : VK_SUCCESS;
+}
+
+void VKAPI_PTR vkDestroySwapchainKHR_hook(
+    VkDevice device, VkSwapchainKHR swapchain, const VkAllocationCallbacks* pAllocator)
+{
+    SPDLOG_TRACE("Intercepted: vkDestroySwapchainKHR");
+    uint64_t sc_id = handle_to_u64(swapchain);
+    std::lock_guard<std::mutex> lock(g_swapchain_mutex);
+    g_swapchain_images.erase(sc_id);
+}
+
+VkResult VKAPI_PTR vkAcquireNextImageKHR_hook(
+    VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout,
+    VkSemaphore semaphore, VkFence fence, uint32_t* pImageIndex)
+{
+    SPDLOG_TRACE("Intercepted: vkAcquireNextImageKHR");
+    if (!pImageIndex) return VK_ERROR_INITIALIZATION_FAILED;
+    uint64_t sc_id = handle_to_u64(swapchain);
+    uint32_t count = 2;
+    {
+        std::lock_guard<std::mutex> lock(g_swapchain_mutex);
+        auto it = g_swapchain_images.find(sc_id);
+        if (it != g_swapchain_images.end()) count = static_cast<uint32_t>(it->second.size());
+    }
+    *pImageIndex = s_current_image.fetch_add(1, std::memory_order_relaxed) % count;
+    return VK_SUCCESS;
+}
+
+VkResult VKAPI_PTR vkQueuePresentKHR_hook(
+    VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
+{
+    SPDLOG_TRACE("Intercepted: vkQueuePresentKHR");
+    return VK_SUCCESS;
+}
+
+VkResult VKAPI_PTR vkGetDeviceGroupPresentCapabilitiesKHR_hook(
+    VkDevice device,
+    VkDeviceGroupPresentCapabilitiesKHR* pDeviceGroupPresentCapabilities)
+{
+    SPDLOG_TRACE("Intercepted: vkGetDeviceGroupPresentCapabilitiesKHR");
+    if (!pDeviceGroupPresentCapabilities) return VK_ERROR_INITIALIZATION_FAILED;
+    std::memset(pDeviceGroupPresentCapabilities, 0, sizeof(*pDeviceGroupPresentCapabilities));
+    pDeviceGroupPresentCapabilities->sType = VK_STRUCTURE_TYPE_DEVICE_GROUP_PRESENT_CAPABILITIES_KHR;
+    pDeviceGroupPresentCapabilities->presentMask[0] = 1;
+    pDeviceGroupPresentCapabilities->modes = VK_DEVICE_GROUP_PRESENT_MODE_LOCAL_BIT_KHR;
+    return VK_SUCCESS;
+}
+
+// ============ MEMORY REQUIREMENT QUERIES ============
+void VKAPI_PTR vkGetBufferMemoryRequirements_hook(
+    VkDevice device, VkBuffer buffer, VkMemoryRequirements* pMemoryRequirements)
+{
+    SPDLOG_TRACE("Intercepted: vkGetBufferMemoryRequirements");
+    if (pMemoryRequirements) {
+        pMemoryRequirements->size = 65536;
+        pMemoryRequirements->alignment = 64;
+        pMemoryRequirements->memoryTypeBits = 0xFFFFFFFF;
+    }
+}
+
+void VKAPI_PTR vkGetBufferMemoryRequirements2_hook(
+    VkDevice device, const VkBufferMemoryRequirementsInfo2* pInfo,
+    VkMemoryRequirements2* pMemoryRequirements)
+{
+    SPDLOG_TRACE("Intercepted: vkGetBufferMemoryRequirements2");
+    if (pMemoryRequirements && pInfo) {
+        vkGetBufferMemoryRequirements_hook(device, pInfo->buffer, &pMemoryRequirements->memoryRequirements);
+    }
+}
+
+void VKAPI_PTR vkGetImageMemoryRequirements_hook(
+    VkDevice device, VkImage image, VkMemoryRequirements* pMemoryRequirements)
+{
+    SPDLOG_TRACE("Intercepted: vkGetImageMemoryRequirements");
+    if (pMemoryRequirements) {
+        pMemoryRequirements->size = 262144;
+        pMemoryRequirements->alignment = 65536;
+        pMemoryRequirements->memoryTypeBits = 0xFFFFFFFF;
+    }
+}
+
+void VKAPI_PTR vkGetImageMemoryRequirements2_hook(
+    VkDevice device, const VkImageMemoryRequirementsInfo2* pInfo,
+    VkMemoryRequirements2* pMemoryRequirements)
+{
+    SPDLOG_TRACE("Intercepted: vkGetImageMemoryRequirements2");
+    if (pMemoryRequirements && pInfo) {
+        vkGetImageMemoryRequirements_hook(device, pInfo->image, &pMemoryRequirements->memoryRequirements);
+    }
+}
+
+void VKAPI_PTR vkGetImageSparseMemoryRequirements_hook(
+    VkDevice device, VkImage image, uint32_t* pSparseMemoryRequirementCount,
+    VkSparseImageMemoryRequirements* pSparseMemoryRequirements)
+{
+    SPDLOG_TRACE("Intercepted: vkGetImageSparseMemoryRequirements");
+    if (pSparseMemoryRequirementCount) *pSparseMemoryRequirementCount = 0;
+}
+
+void VKAPI_PTR vkGetImageSparseMemoryRequirements2_hook(
+    VkDevice device, const VkImageSparseMemoryRequirementsInfo2* pInfo,
+    uint32_t* pSparseMemoryRequirementCount,
+    VkSparseImageMemoryRequirements2* pSparseMemoryRequirements)
+{
+    SPDLOG_TRACE("Intercepted: vkGetImageSparseMemoryRequirements2");
+    if (pSparseMemoryRequirementCount) *pSparseMemoryRequirementCount = 0;
+}
+
+void VKAPI_PTR vkGetDeviceBufferMemoryRequirements_hook(
+    VkDevice device, const VkDeviceBufferMemoryRequirements* pInfo,
+    VkMemoryRequirements2* pMemoryRequirements)
+{
+    SPDLOG_TRACE("Intercepted: vkGetDeviceBufferMemoryRequirements");
+    if (pMemoryRequirements && pInfo && pInfo->pCreateInfo) {
+        pMemoryRequirements->sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
+        pMemoryRequirements->memoryRequirements.size = pInfo->pCreateInfo->size;
+        pMemoryRequirements->memoryRequirements.alignment = 64;
+        pMemoryRequirements->memoryRequirements.memoryTypeBits = 0xFFFFFFFF;
+    }
+}
+
+void VKAPI_PTR vkGetDeviceImageMemoryRequirements_hook(
+    VkDevice device, const VkDeviceImageMemoryRequirements* pInfo,
+    VkMemoryRequirements2* pMemoryRequirements)
+{
+    SPDLOG_TRACE("Intercepted: vkGetDeviceImageMemoryRequirements");
+    if (pMemoryRequirements && pInfo && pInfo->pCreateInfo) {
+        pMemoryRequirements->sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
+        pMemoryRequirements->memoryRequirements.size = 262144;
+        pMemoryRequirements->memoryRequirements.alignment = 65536;
+        pMemoryRequirements->memoryRequirements.memoryTypeBits = 0xFFFFFFFF;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Surface query hooks (needed by vkcube)
+// ---------------------------------------------------------------------------
+VkResult VKAPI_PTR vkGetPhysicalDeviceSurfaceCapabilitiesKHR_hook(
+    VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
+    VkSurfaceCapabilitiesKHR* pSurfaceCapabilities)
+{
+    SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
+    if (!pSurfaceCapabilities) return VK_ERROR_INITIALIZATION_FAILED;
+    auto& caps = caps::get();
+    uint32_t w = caps.valid() ? caps.max_framebuffer_width  : 3840;
+    uint32_t h = caps.valid() ? caps.max_framebuffer_height : 2160;
+    std::memset(pSurfaceCapabilities, 0, sizeof(*pSurfaceCapabilities));
+    pSurfaceCapabilities->minImageCount = 2;
+    pSurfaceCapabilities->maxImageCount = 8;
+    pSurfaceCapabilities->currentExtent  = {w, h};
+    pSurfaceCapabilities->minImageExtent = {1, 1};
+    pSurfaceCapabilities->maxImageExtent = {w, h};
+    pSurfaceCapabilities->maxImageArrayLayers = 1;
+    pSurfaceCapabilities->supportedTransforms = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+    pSurfaceCapabilities->currentTransform    = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+    pSurfaceCapabilities->supportedCompositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    pSurfaceCapabilities->supportedUsageFlags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+        VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    return VK_SUCCESS;
+}
+
+VkResult VKAPI_PTR vkGetPhysicalDeviceSurfaceFormatsKHR_hook(
+    VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
+    uint32_t* pSurfaceFormatCount, VkSurfaceFormatKHR* pSurfaceFormats)
+{
+    SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceSurfaceFormatsKHR");
+    if (!pSurfaceFormatCount) return VK_ERROR_INITIALIZATION_FAILED;
+    static const VkSurfaceFormatKHR formats[] = {
+        {VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
+        {VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
+    };
+    uint32_t count = static_cast<uint32_t>(sizeof(formats) / sizeof(formats[0]));
+    if (!pSurfaceFormats) {
+        *pSurfaceFormatCount = count;
+        return VK_SUCCESS;
+    }
+    uint32_t to_copy = std::min(*pSurfaceFormatCount, count);
+    std::memcpy(pSurfaceFormats, formats, to_copy * sizeof(VkSurfaceFormatKHR));
+    *pSurfaceFormatCount = to_copy;
+    return (to_copy < count) ? VK_INCOMPLETE : VK_SUCCESS;
+}
+
+VkResult VKAPI_PTR vkGetPhysicalDeviceSurfacePresentModesKHR_hook(
+    VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
+    uint32_t* pPresentModeCount, VkPresentModeKHR* pPresentModes)
+{
+    SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceSurfacePresentModesKHR");
+    if (!pPresentModeCount) return VK_ERROR_INITIALIZATION_FAILED;
+    static const VkPresentModeKHR modes[] = {
+        VK_PRESENT_MODE_FIFO_KHR, VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_IMMEDIATE_KHR,
+    };
+    uint32_t count = static_cast<uint32_t>(sizeof(modes) / sizeof(modes[0]));
+    if (!pPresentModes) {
+        *pPresentModeCount = count;
+        return VK_SUCCESS;
+    }
+    uint32_t to_copy = std::min(*pPresentModeCount, count);
+    std::memcpy(pPresentModes, modes, to_copy * sizeof(VkPresentModeKHR));
+    *pPresentModeCount = to_copy;
+    return (to_copy < count) ? VK_INCOMPLETE : VK_SUCCESS;
+}
+
 VkResult VKAPI_PTR vkGetPhysicalDeviceSurfaceSupportKHR_hook(
-    VkPhysicalDevice physicalDevice,
-    uint32_t queueFamilyIndex,
-    VkSurfaceKHR surface,
-    VkBool32* pSupported)
+    VkPhysicalDevice physicalDevice, uint32_t queueFamilyIndex,
+    VkSurfaceKHR surface, VkBool32* pSupported)
 {
     SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceSurfaceSupportKHR");
     if (pSupported) *pSupported = VK_TRUE;
     return VK_SUCCESS;
+}
+
+VkResult VKAPI_PTR vkGetPhysicalDeviceSurfaceCapabilities2KHR_hook(
+    VkPhysicalDevice physicalDevice,
+    const VkPhysicalDeviceSurfaceInfo2KHR* pSurfaceInfo,
+    VkSurfaceCapabilities2KHR* pSurfaceCapabilities)
+{
+    SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceSurfaceCapabilities2KHR");
+    if (!pSurfaceCapabilities) return VK_ERROR_INITIALIZATION_FAILED;
+    pSurfaceCapabilities->sType = VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR;
+    VkSurfaceKHR surf = pSurfaceInfo ? pSurfaceInfo->surface : VK_NULL_HANDLE;
+    return vkGetPhysicalDeviceSurfaceCapabilitiesKHR_hook(
+        physicalDevice, surf, &pSurfaceCapabilities->surfaceCapabilities);
+}
+
+VkResult VKAPI_PTR vkGetPhysicalDeviceSurfaceFormats2KHR_hook(
+    VkPhysicalDevice physicalDevice,
+    const VkPhysicalDeviceSurfaceInfo2KHR* pSurfaceInfo,
+    uint32_t* pSurfaceFormatCount,
+    VkSurfaceFormat2KHR* pSurfaceFormats)
+{
+    SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceSurfaceFormats2KHR");
+    if (!pSurfaceFormatCount) return VK_ERROR_INITIALIZATION_FAILED;
+    static const VkSurfaceFormatKHR fmts[] = {
+        {VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
+        {VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
+    };
+    uint32_t count = static_cast<uint32_t>(sizeof(fmts) / sizeof(fmts[0]));
+    if (!pSurfaceFormats) {
+        *pSurfaceFormatCount = count;
+        return VK_SUCCESS;
+    }
+    uint32_t to_copy = std::min(*pSurfaceFormatCount, count);
+    for (uint32_t i = 0; i < to_copy; i++) {
+        pSurfaceFormats[i].sType = VK_STRUCTURE_TYPE_SURFACE_FORMAT_2_KHR;
+        pSurfaceFormats[i].pNext = nullptr;
+        pSurfaceFormats[i].surfaceFormat = fmts[i];
+    }
+    *pSurfaceFormatCount = to_copy;
+    return (to_copy < count) ? VK_INCOMPLETE : VK_SUCCESS;
 }
 
 // ---------------------------------------------------------------------------
@@ -1033,6 +1508,361 @@ VkResult VKAPI_PTR vkGetPhysicalDeviceToolPropertiesEXT_hook(
         return VK_SUCCESS;
     }
     *pToolCount = 0;
+    return VK_SUCCESS;
+}
+
+// ---------------------------------------------------------------------------
+// vkMapMemory / vkUnmapMemory — allocate host memory for guest writes
+// ---------------------------------------------------------------------------
+static std::mutex s_map_mutex;
+static std::unordered_map<uint64_t, void*> s_mapped_ptrs;
+static std::unordered_map<uint64_t, VkDeviceSize> s_memory_sizes;
+static std::unordered_map<uint64_t, VkDevice> s_memory_devices;
+
+// Called by vkAllocateMemory hook to track allocation sizes
+static void track_memory_allocation(VkDevice device, VkDeviceMemory memory, VkDeviceSize allocSize) {
+    uint64_t mem_key = handle_to_u64(memory);
+    std::lock_guard<std::mutex> lock(s_map_mutex);
+    s_memory_sizes[mem_key] = allocSize;
+    s_memory_devices[mem_key] = device;
+}
+static void untrack_memory_allocation(VkDeviceMemory memory) {
+    uint64_t mem_key = handle_to_u64(memory);
+    std::lock_guard<std::mutex> lock(s_map_mutex);
+    s_memory_sizes.erase(mem_key);
+    s_memory_devices.erase(mem_key);
+}
+static VkDeviceSize get_memory_size(VkDeviceMemory memory) {
+    uint64_t mem_key = handle_to_u64(memory);
+    std::lock_guard<std::mutex> lock(s_map_mutex);
+    auto it = s_memory_sizes.find(mem_key);
+    return (it != s_memory_sizes.end()) ? it->second : 0;
+}
+
+VkResult VKAPI_PTR vkAllocateMemory_hook(
+    VkDevice device,
+    const VkMemoryAllocateInfo* pAllocateInfo,
+    const VkAllocationCallbacks* pAllocator,
+    VkDeviceMemory* pMemory)
+{
+    SPDLOG_TRACE("Intercepted: vkAllocateMemory size={}",
+                 pAllocateInfo ? pAllocateInfo->allocationSize : 0);
+
+    // Create fake handle and track allocation size
+    VkDeviceMemory fake_mem{};
+    if (pMemory) {
+        fake_mem = handle_from_u64<VkDeviceMemory>(next_fake_handle());
+        *pMemory = fake_mem;
+        if (pAllocateInfo) {
+            track_memory_allocation(device, fake_mem, pAllocateInfo->allocationSize);
+        }
+    }
+
+    // Serialize and forward to host for real allocation
+    serializer::VulkanSerializer ser;
+    ser.write_handle((uint64_t)(device));
+    serializer::write_VkMemoryAllocateInfo(ser, pAllocateInfo);
+    ser.write_raw(pAllocator, sizeof(*pAllocator));
+    ser.write_handle((uint64_t)(fake_mem));
+
+    auto* batch = intercept::get_batch();
+    if (batch) {
+        static std::atomic<uint32_t> req_id{1};
+        auto builder = protocol::build_command(
+            fbs::FunctionId_vkAllocateMemory,
+            req_id.fetch_add(1),
+            ser.data(),
+            ser.size()
+        );
+        batch->append(builder);
+    }
+
+    return VK_SUCCESS;
+}
+
+void VKAPI_PTR vkFreeMemory_hook(
+    VkDevice device, VkDeviceMemory memory,
+    const VkAllocationCallbacks* pAllocator)
+{
+    SPDLOG_TRACE("Intercepted: vkFreeMemory memory={}", (void*)memory);
+    untrack_memory_allocation(memory);
+    {
+        std::lock_guard<std::mutex> lock(s_map_mutex);
+        auto it = s_mapped_ptrs.find(handle_to_u64(memory));
+        if (it != s_mapped_ptrs.end()) {
+            std::free(it->second);
+            s_mapped_ptrs.erase(it);
+        }
+    }
+
+    serializer::VulkanSerializer ser;
+    ser.write_handle((uint64_t)(device));
+    ser.write_handle((uint64_t)(memory));
+    ser.write_raw(pAllocator, sizeof(*pAllocator));
+
+    auto* batch = intercept::get_batch();
+    if (batch) {
+        static std::atomic<uint32_t> req_id{1};
+        auto builder = protocol::build_command(
+            fbs::FunctionId_vkFreeMemory,
+            req_id.fetch_add(1),
+            ser.data(),
+            ser.size()
+        );
+        batch->append(builder);
+    }
+}
+
+static VkDeviceSize resolve_map_size(VkDeviceMemory memory, VkDeviceSize size, VkDeviceSize offset) {
+    if (size == VK_WHOLE_SIZE) {
+        VkDeviceSize total = get_memory_size(memory);
+        return (total > offset) ? (total - offset) : 0;
+    }
+    return size;
+}
+
+VkResult VKAPI_PTR vkMapMemory_hook(
+    VkDevice device, VkDeviceMemory memory,
+    VkDeviceSize offset, VkDeviceSize size,
+    VkMemoryMapFlags flags, void** ppData)
+{
+    VkDeviceSize actual_size = resolve_map_size(memory, size, offset);
+    SPDLOG_TRACE("Intercepted: vkMapMemory device={} memory={} size={} actual={}",
+                 (void*)device, (void*)memory, size, actual_size);
+    if (actual_size > 0 && ppData) {
+        void* ptr = std::malloc(static_cast<size_t>(actual_size));
+        if (ptr) {
+            std::memset(ptr, 0, static_cast<size_t>(actual_size));
+            *ppData = ptr;
+            uint64_t mem_key = handle_to_u64(memory);
+            {
+                std::lock_guard<std::mutex> lock(s_map_mutex);
+                s_mapped_ptrs[mem_key] = ptr;
+            }
+            SPDLOG_DEBUG("vkMapMemory: allocated {} bytes for mem={:#x}", actual_size, mem_key);
+        } else {
+            SPDLOG_ERROR("vkMapMemory: failed to allocate {} bytes", actual_size);
+            return VK_ERROR_OUT_OF_HOST_MEMORY;
+        }
+    }
+    return VK_SUCCESS;
+}
+
+void VKAPI_PTR vkUnmapMemory_hook(VkDevice device, VkDeviceMemory memory)
+{
+    SPDLOG_TRACE("Intercepted: vkUnmapMemory device={} memory={}",
+                 (void*)device, (void*)memory);
+    uint64_t mem_key = handle_to_u64(memory);
+    std::lock_guard<std::mutex> lock(s_map_mutex);
+    auto it = s_mapped_ptrs.find(mem_key);
+    if (it != s_mapped_ptrs.end()) {
+        std::free(it->second);
+        s_mapped_ptrs.erase(it);
+        SPDLOG_DEBUG("vkUnmapMemory: freed mapped memory for mem={:#x}", mem_key);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// vkMapMemory2 / vkUnmapMemory2 — Vulkan 1.4 variants
+// Used by newer apps (vkcube SDK 1.4+) instead of vkMapMemory
+// ---------------------------------------------------------------------------
+VkResult VKAPI_PTR vkMapMemory2_hook(
+    VkDevice device,
+    const VkMemoryMapInfo* pMemoryMapInfo,
+    void** ppData)
+{
+    if (!pMemoryMapInfo || !ppData) return VK_ERROR_INITIALIZATION_FAILED;
+    VkDeviceSize actual_size = resolve_map_size(
+        pMemoryMapInfo->memory, pMemoryMapInfo->size, pMemoryMapInfo->offset);
+    SPDLOG_TRACE("Intercepted: vkMapMemory2 device={} memory={} size={} actual={}",
+                 (void*)device, (void*)pMemoryMapInfo->memory,
+                 pMemoryMapInfo->size, actual_size);
+    if (actual_size > 0) {
+        void* ptr = std::malloc(static_cast<size_t>(actual_size));
+        if (ptr) {
+            std::memset(ptr, 0, static_cast<size_t>(actual_size));
+            *ppData = ptr;
+            uint64_t mem_key = handle_to_u64(pMemoryMapInfo->memory);
+            {
+                std::lock_guard<std::mutex> lock(s_map_mutex);
+                s_mapped_ptrs[mem_key] = ptr;
+            }
+            SPDLOG_DEBUG("vkMapMemory2: allocated {} bytes for mem={:#x}", actual_size, mem_key);
+        } else {
+            SPDLOG_ERROR("vkMapMemory2: failed to allocate {} bytes", actual_size);
+            return VK_ERROR_OUT_OF_HOST_MEMORY;
+        }
+    }
+    return VK_SUCCESS;
+}
+
+void VKAPI_PTR vkUnmapMemory2_hook(
+    VkDevice device,
+    const VkMemoryUnmapInfo* pMemoryUnmapInfo)
+{
+    if (!pMemoryUnmapInfo) return;
+    SPDLOG_TRACE("Intercepted: vkUnmapMemory2 device={} memory={}",
+                 (void*)device, (void*)pMemoryUnmapInfo->memory);
+    uint64_t mem_key = handle_to_u64(pMemoryUnmapInfo->memory);
+    std::lock_guard<std::mutex> lock(s_map_mutex);
+    auto it = s_mapped_ptrs.find(mem_key);
+    if (it != s_mapped_ptrs.end()) {
+        std::free(it->second);
+        s_mapped_ptrs.erase(it);
+        SPDLOG_DEBUG("vkUnmapMemory2: freed mapped memory for mem={:#x}", mem_key);
+    }
+}
+
+void sync_all_mapped_memory_to_host() {
+    std::lock_guard<std::mutex> lock(s_map_mutex);
+    if (s_mapped_ptrs.empty()) return;
+
+    auto* batch = get_batch();
+    if (!batch) return;
+
+    for (const auto& [mem_key, guest_ptr] : s_mapped_ptrs) {
+        VkDeviceSize size = s_memory_sizes[mem_key];
+        if (size == 0 || !guest_ptr) continue;
+
+        VkDevice device = s_memory_devices[mem_key];
+
+        serializer::VulkanSerializer ser;
+        ser.write_handle((uint64_t)(device));
+        ser.write_u32(1); // memoryRangeCount = 1
+
+        ser.write_handle(mem_key);
+        ser.write_u64(0); // offset = 0
+        ser.write_u64(size); // size
+
+        ser.write_raw(reinterpret_cast<const uint8_t*>(guest_ptr), size);
+
+        static std::atomic<uint32_t> req_id{0x90000000};
+        auto builder = protocol::build_command(
+            fbs::FunctionId_vkFlushMappedMemoryRanges,
+            req_id.fetch_add(1, std::memory_order_relaxed),
+            ser.data(),
+            ser.size()
+        );
+        batch->append(builder);
+    }
+}
+
+VkResult VKAPI_PTR vkFlushMappedMemoryRanges_hook(
+    VkDevice device, uint32_t memoryRangeCount, const VkMappedMemoryRange* pMemoryRanges)
+{
+    SPDLOG_TRACE("Intercepted: vkFlushMappedMemoryRanges");
+
+    auto* batch = get_batch();
+    if (batch) {
+        serializer::VulkanSerializer ser;
+        ser.write_handle((uint64_t)(device));
+        ser.write_u32(memoryRangeCount);
+
+        std::lock_guard<std::mutex> lock(s_map_mutex);
+        for (uint32_t i = 0; i < memoryRangeCount; i++) {
+            const auto& range = pMemoryRanges[i];
+            uint64_t mem_key = handle_to_u64(range.memory);
+            VkDeviceSize offset = range.offset;
+            VkDeviceSize size = resolve_map_size(range.memory, range.size, range.offset);
+
+            ser.write_handle(mem_key);
+            ser.write_u64(offset);
+            ser.write_u64(size);
+
+            void* guest_ptr = nullptr;
+            auto it = s_mapped_ptrs.find(mem_key);
+            if (it != s_mapped_ptrs.end()) {
+                guest_ptr = it->second;
+            }
+
+            if (guest_ptr && size > 0) {
+                ser.write_raw(reinterpret_cast<const uint8_t*>(guest_ptr) + offset, size);
+            } else {
+                if (size > 0) {
+                    std::vector<uint8_t> dummy(size, 0);
+                    ser.write_raw(dummy.data(), size);
+                }
+            }
+        }
+
+        static std::atomic<uint32_t> req_id{0x91000000};
+        auto builder = protocol::build_command(
+            fbs::FunctionId_vkFlushMappedMemoryRanges,
+            req_id.fetch_add(1, std::memory_order_relaxed),
+            ser.data(),
+            ser.size()
+        );
+        batch->append(builder);
+    }
+
+    return VK_SUCCESS;
+}
+
+VkResult VKAPI_PTR vkQueueSubmit_hook(
+    VkQueue queue, uint32_t submitCount, const VkSubmitInfo* pSubmits, VkFence fence)
+{
+    SPDLOG_TRACE("Intercepted: vkQueueSubmit");
+
+    // Sync all mapped memory writes first
+    sync_all_mapped_memory_to_host();
+
+    auto* batch = get_batch();
+    if (batch) {
+        serializer::VulkanSerializer ser;
+        ser.write_handle((uint64_t)(queue));
+        ser.write_u32(static_cast<uint32_t>(submitCount));
+        {
+            ser.write_u32(submitCount);
+            for (uint32_t i = 0; i < submitCount; i++) {
+                serializer::write_VkSubmitInfo(ser, &pSubmits[i]);
+            }
+        }
+        ser.write_handle((uint64_t)(fence));
+
+        static std::atomic<uint32_t> req_id{0x92000000};
+        auto builder = protocol::build_command(
+            fbs::FunctionId_vkQueueSubmit,
+            req_id.fetch_add(1, std::memory_order_relaxed),
+            ser.data(),
+            ser.size()
+        );
+        batch->append(builder);
+    }
+
+    return VK_SUCCESS;
+}
+
+VkResult VKAPI_PTR vkQueueSubmit2_hook(
+    VkQueue queue, uint32_t submitCount, const VkSubmitInfo2* pSubmits, VkFence fence)
+{
+    SPDLOG_TRACE("Intercepted: vkQueueSubmit2");
+
+    // Sync all mapped memory writes first
+    sync_all_mapped_memory_to_host();
+
+    auto* batch = get_batch();
+    if (batch) {
+        serializer::VulkanSerializer ser;
+        ser.write_handle((uint64_t)(queue));
+        ser.write_u32(static_cast<uint32_t>(submitCount));
+        {
+            ser.write_u32(submitCount);
+            for (uint32_t i = 0; i < submitCount; i++) {
+                serializer::write_VkSubmitInfo2(ser, &pSubmits[i]);
+            }
+        }
+        ser.write_handle((uint64_t)(fence));
+
+        static std::atomic<uint32_t> req_id{0x93000000};
+        auto builder = protocol::build_command(
+            fbs::FunctionId_vkQueueSubmit2,
+            req_id.fetch_add(1, std::memory_order_relaxed),
+            ser.data(),
+            ser.size()
+        );
+        batch->append(builder);
+    }
+
     return VK_SUCCESS;
 }
 
@@ -1105,8 +1935,74 @@ struct ManualHookRegistrar {
         // KHR
         register_manual_hook("vkGetPhysicalDeviceSurfaceSupportKHR", reinterpret_cast<void*>(vkGetPhysicalDeviceSurfaceSupportKHR_hook));
 
+        // KHR aliases for query functions (promoted to core in 1.1).
+        // Only register KHR variants of manual query functions that fill output data.
+        register_manual_hook("vkGetPhysicalDeviceProperties2KHR", reinterpret_cast<void*>(vkGetPhysicalDeviceProperties2_hook));
+        register_manual_hook("vkGetPhysicalDeviceFeatures2KHR", reinterpret_cast<void*>(vkGetPhysicalDeviceFeatures2_hook));
+        register_manual_hook("vkGetPhysicalDeviceMemoryProperties2KHR", reinterpret_cast<void*>(vkGetPhysicalDeviceMemoryProperties2_hook));
+        register_manual_hook("vkGetPhysicalDeviceQueueFamilyProperties2KHR", reinterpret_cast<void*>(vkGetPhysicalDeviceQueueFamilyProperties2_hook));
+        register_manual_hook("vkGetPhysicalDeviceFormatProperties2KHR", reinterpret_cast<void*>(vkGetPhysicalDeviceFormatProperties2_hook));
+        register_manual_hook("vkGetPhysicalDeviceImageFormatProperties2KHR", reinterpret_cast<void*>(vkGetPhysicalDeviceImageFormatProperties2_hook));
+        register_manual_hook("vkGetPhysicalDeviceSparseImageFormatProperties2KHR", reinterpret_cast<void*>(vkGetPhysicalDeviceSparseImageFormatProperties2_hook));
+        register_manual_hook("vkGetPhysicalDeviceExternalBufferPropertiesKHR", reinterpret_cast<void*>(vkGetPhysicalDeviceExternalBufferProperties_hook));
+        register_manual_hook("vkGetPhysicalDeviceExternalFencePropertiesKHR", reinterpret_cast<void*>(vkGetPhysicalDeviceExternalFenceProperties_hook));
+        register_manual_hook("vkGetPhysicalDeviceExternalSemaphorePropertiesKHR", reinterpret_cast<void*>(vkGetPhysicalDeviceExternalSemaphoreProperties_hook));
+        register_manual_hook("vkEnumeratePhysicalDeviceGroupsKHR", reinterpret_cast<void*>(vkEnumeratePhysicalDeviceGroups_hook));
+
         // Tool properties
         register_manual_hook("vkGetPhysicalDeviceToolPropertiesEXT", reinterpret_cast<void*>(vkGetPhysicalDeviceToolPropertiesEXT_hook));
+
+        // Memory requirement queries
+        register_manual_hook("vkGetBufferMemoryRequirements", reinterpret_cast<void*>(vkGetBufferMemoryRequirements_hook));
+        register_manual_hook("vkGetBufferMemoryRequirements2", reinterpret_cast<void*>(vkGetBufferMemoryRequirements2_hook));
+        register_manual_hook("vkGetImageMemoryRequirements", reinterpret_cast<void*>(vkGetImageMemoryRequirements_hook));
+        register_manual_hook("vkGetImageMemoryRequirements2", reinterpret_cast<void*>(vkGetImageMemoryRequirements2_hook));
+        register_manual_hook("vkGetImageSparseMemoryRequirements", reinterpret_cast<void*>(vkGetImageSparseMemoryRequirements_hook));
+        register_manual_hook("vkGetImageSparseMemoryRequirements2", reinterpret_cast<void*>(vkGetImageSparseMemoryRequirements2_hook));
+        register_manual_hook("vkGetDeviceBufferMemoryRequirements", reinterpret_cast<void*>(vkGetDeviceBufferMemoryRequirements_hook));
+        register_manual_hook("vkGetDeviceImageMemoryRequirements", reinterpret_cast<void*>(vkGetDeviceImageMemoryRequirements_hook));
+
+        // Command buffer (dispatchable handles)
+        register_manual_hook("vkAllocateCommandBuffers", reinterpret_cast<void*>(vkAllocateCommandBuffers_hook));
+        register_manual_hook("vkFreeCommandBuffers", reinterpret_cast<void*>(vkFreeCommandBuffers_hook));
+        register_manual_hook("vkBeginCommandBuffer", reinterpret_cast<void*>(vkBeginCommandBuffer_hook));
+        register_manual_hook("vkEndCommandBuffer", reinterpret_cast<void*>(vkEndCommandBuffer_hook));
+        register_manual_hook("vkResetCommandBuffer", reinterpret_cast<void*>(vkResetCommandBuffer_hook));
+
+        // WSI Surface / Swapchain
+        register_manual_hook("vkCreateWin32SurfaceKHR", reinterpret_cast<void*>(vkCreateWin32SurfaceKHR_hook));
+        register_manual_hook("vkDestroySurfaceKHR", reinterpret_cast<void*>(vkDestroySurfaceKHR_hook));
+        register_manual_hook("vkCreateSwapchainKHR", reinterpret_cast<void*>(vkCreateSwapchainKHR_hook));
+        register_manual_hook("vkDestroySwapchainKHR", reinterpret_cast<void*>(vkDestroySwapchainKHR_hook));
+        register_manual_hook("vkGetSwapchainImagesKHR", reinterpret_cast<void*>(vkGetSwapchainImagesKHR_hook));
+        register_manual_hook("vkAcquireNextImageKHR", reinterpret_cast<void*>(vkAcquireNextImageKHR_hook));
+        register_manual_hook("vkQueuePresentKHR", reinterpret_cast<void*>(vkQueuePresentKHR_hook));
+        register_manual_hook("vkGetDeviceGroupPresentCapabilitiesKHR", reinterpret_cast<void*>(vkGetDeviceGroupPresentCapabilitiesKHR_hook));
+
+        // Surface queries
+        register_manual_hook("vkGetPhysicalDeviceSurfaceCapabilitiesKHR", reinterpret_cast<void*>(vkGetPhysicalDeviceSurfaceCapabilitiesKHR_hook));
+        register_manual_hook("vkGetPhysicalDeviceSurfaceFormatsKHR", reinterpret_cast<void*>(vkGetPhysicalDeviceSurfaceFormatsKHR_hook));
+        register_manual_hook("vkGetPhysicalDeviceSurfacePresentModesKHR", reinterpret_cast<void*>(vkGetPhysicalDeviceSurfacePresentModesKHR_hook));
+        register_manual_hook("vkGetPhysicalDeviceSurfaceCapabilities2KHR", reinterpret_cast<void*>(vkGetPhysicalDeviceSurfaceCapabilities2KHR_hook));
+        register_manual_hook("vkGetPhysicalDeviceSurfaceFormats2KHR", reinterpret_cast<void*>(vkGetPhysicalDeviceSurfaceFormats2KHR_hook));
+
+        // Memory mapping (must allocate host memory for guest writes)
+        register_manual_hook("vkAllocateMemory", reinterpret_cast<void*>(vkAllocateMemory_hook));
+        register_manual_hook("vkFreeMemory", reinterpret_cast<void*>(vkFreeMemory_hook));
+        register_manual_hook("vkMapMemory", reinterpret_cast<void*>(vkMapMemory_hook));
+        register_manual_hook("vkUnmapMemory", reinterpret_cast<void*>(vkUnmapMemory_hook));
+        // Vulkan 1.4 variants
+        register_manual_hook("vkMapMemory2", reinterpret_cast<void*>(vkMapMemory2_hook));
+        register_manual_hook("vkUnmapMemory2", reinterpret_cast<void*>(vkUnmapMemory2_hook));
+        // KHR extension variants (same implementations)
+        register_manual_hook("vkMapMemory2KHR", reinterpret_cast<void*>(vkMapMemory2_hook));
+        register_manual_hook("vkUnmapMemory2KHR", reinterpret_cast<void*>(vkUnmapMemory2_hook));
+
+        // Submit & Memory Flush manual overrides
+        register_manual_hook("vkQueueSubmit", reinterpret_cast<void*>(vkQueueSubmit_hook));
+        register_manual_hook("vkQueueSubmit2", reinterpret_cast<void*>(vkQueueSubmit2_hook));
+        register_manual_hook("vkQueueSubmit2KHR", reinterpret_cast<void*>(vkQueueSubmit2_hook));
+        register_manual_hook("vkFlushMappedMemoryRanges", reinterpret_cast<void*>(vkFlushMappedMemoryRanges_hook));
     }
 } s_manual_registrar;
 }

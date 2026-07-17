@@ -84,18 +84,27 @@ SessionSummary Session::summary() const {
 }
 
 bool Session::recv_message(std::vector<uint8_t>& buffer) {
+    SPDLOG_INFO("Session::recv_message starting, clientFd={}", (int)clientFd_);
     uint32_t msgSize = 0;
     if (!tcp::recv_all(clientFd_, reinterpret_cast<uint8_t*>(&msgSize), sizeof(msgSize))) {
+        SPDLOG_INFO("Session::recv_message failed to read message size");
         return false;
     }
 
     msgSize = ntohl(msgSize);
+    SPDLOG_INFO("Session::recv_message: msgSize={}", msgSize);
     if (msgSize > 64 * 1024 * 1024) {
         SPDLOG_ERROR("Session #{}: message size {} exceeds 64MB limit", sessionId_, msgSize);
         return false;
     }
+    
+    SPDLOG_INFO("Session::recv_message: resizing buffer to {}", msgSize);
     buffer.resize(msgSize);
-    return tcp::recv_all(clientFd_, buffer.data(), msgSize);
+    
+    SPDLOG_INFO("Session::recv_message: reading payload bytes");
+    bool res = tcp::recv_all(clientFd_, buffer.data(), msgSize);
+    SPDLOG_INFO("Session::recv_message: payload read res={}", res);
+    return res;
 }
 
 bool Session::send_data_message(uint64_t data_id, const uint8_t* payload, size_t payload_size) {
@@ -210,12 +219,15 @@ void Session::handle_client() {
     commandDispatcher_.set_framebuffer_size(rw, rh);
     commandDispatcher_.setup_framebuffer();
 
+    SPDLOG_INFO("Session #{} entering main loop", sessionId_);
     while (running_) {
         std::vector<uint8_t> msgBuffer;
+        SPDLOG_INFO("Session #{}: calling recv_message", sessionId_);
         if (!recv_message(msgBuffer)) {
             SPDLOG_INFO("Session #{}: Client disconnected or error receiving", sessionId_);
             break;
         }
+        SPDLOG_INFO("Session #{}: message received, size={}", sessionId_, msgBuffer.size());
 
         // Check for synchronous query (16-byte non-FlatBuffer messages)
         if (msgBuffer.size() == 16) {
@@ -291,7 +303,7 @@ void Session::handle_client() {
             auto* args = cmd->args();
             size_t args_size = args ? args->size() : 0;
 
-            SPDLOG_DEBUG("Session #{}: {} (request_id={})",
+            SPDLOG_INFO("Session #{}: {} (request_id={})",
                          sessionId_,
                          fbs::EnumNameFunctionId(func_id), cmd->request_id());
 
@@ -410,6 +422,7 @@ void Session::handle_client() {
         }
     }
 
+    commandDispatcher_.cleanup();
     multiRenderer_.shutdown();
     tcp::close_socket(clientFd_);
     clientFd_ = INVALID_SOCKET;

@@ -97,6 +97,54 @@ uint32_t next_request_id() {
 ) {
     SPDLOG_TRACE("Intercepted: {}", "{{ func.name }}");
 
+    {% if func.has_output_handle_ptr %}
+    // Call original first (safe with null check)
+    auto original = reinterpret_cast<{{ func.return_type }} (VKAPI_PTR*)(
+        {%- for param in func.params -%}
+        {{ param.type }} {{ param.name }}{% if not loop.last %}, {% endif %}
+        {%- endfor -%}
+    )>(get_original_fns()["{{ func.name }}"]);
+
+    {% if func.return_type != "void" %}
+    {{ func.return_type }} res{};
+    {% endif %}
+    if (!original) {
+        {% for param in func.params %}
+        {% if param.kind == "output_handle_ptr" %}
+        if ({{ param.name }}) *{{ param.name }} = handle_from_u64<{{ param.type[:-1] }}>(next_fake_handle());
+        {% elif param.kind == "value_ptr" %}
+        if ({{ param.name }}) *{{ param.name }} = {};
+        {% endif %}
+        {% endfor %}
+    } else {
+        {% if func.return_type == "void" %}
+        original({% for param in func.params %}{{ param.name }}{% if not loop.last %}, {% endif %}{% endfor %});
+        {% else %}
+        res = original({% for param in func.params %}{{ param.name }}{% if not loop.last %}, {% endif %}{% endfor %});
+        {% endif %}
+    }
+
+    // Serialize arguments (after original is called, so output handles are valid!)
+    serializer::VulkanSerializer ser;
+    {% for param in func.params %}
+    {{ serialize_param(param, func.params) }}
+    {% endfor %}
+
+    // Append to batch
+    if (g_batch) {
+        auto builder = protocol::build_command(
+            fbs::FunctionId_{{ func.name }},
+            next_request_id(),
+            ser.data(),
+            ser.size()
+        );
+        g_batch->append(builder);
+    }
+
+    {% if func.return_type != "void" %}
+    return res;
+    {% endif %}
+    {% else %}
     // Serialize arguments
     serializer::VulkanSerializer ser;
     {% for param in func.params %}
@@ -124,7 +172,9 @@ uint32_t next_request_id() {
     if (!original) {
         {% for param in func.params %}
         {% if param.kind == "output_handle_ptr" %}
-        if ({{ param.name }}) *{{ param.name }} = ({{ param.type[:-1] }})({{ param.name }});
+        if ({{ param.name }}) *{{ param.name }} = handle_from_u64<{{ param.type[:-1] }}>(next_fake_handle());
+        {% elif param.kind == "value_ptr" %}
+        if ({{ param.name }}) *{{ param.name }} = {};
         {% endif %}
         {% endfor %}
         {% if func.return_type == "void" %}
@@ -134,6 +184,7 @@ uint32_t next_request_id() {
         {% endif %}
     }
     return original({% for param in func.params %}{{ param.name }}{% if not loop.last %}, {% endif %}{% endfor %});
+    {% endif %}
 }
 {% endfor %}
 
@@ -167,14 +218,22 @@ void register_manual_hook(const char* name, void* func) {
     get_hook_fns()[name] = func;
 }
 
+// Generic stub for optional extension functions not in our hook map.
+// Prevents loader crash during function probing.
+extern "C" VKAPI_ATTR VkResult VKAPI_CALL omnigpu_generic_stub() {
+    return VK_SUCCESS;
+}
+
 PFN_vkVoidFunction get_intercept_proc(const char* name) {
     auto& hook_fns = get_hook_fns();
     auto it = hook_fns.find(name);
     if (it != hook_fns.end() && it->second) {
         return reinterpret_cast<PFN_vkVoidFunction>(it->second);
     }
-    // Fallback to real Vulkan loader functions
-    return reinterpret_cast<PFN_vkVoidFunction>(get_real_proc(name));
+    // Return a generic stub instead of nullptr to prevent loader crashes
+    // during function probing at instance and device creation time.
+    SPDLOG_TRACE("get_intercept_proc: stub for '{}'", name);
+    return reinterpret_cast<PFN_vkVoidFunction>(omnigpu_generic_stub);
 }
 
 // ---------------------------------------------------------------------------
@@ -206,6 +265,10 @@ void set_batch(batch::CommandBatch* batch) {
     g_batch = batch;
     SPDLOG_INFO("OmniGPU batch set ({} commands threshold)",
                 batch ? batch->command_count() : 0);
+}
+
+batch::CommandBatch* get_batch() {
+    return g_batch;
 }
 
 void shutdown_hooks() {
@@ -265,7 +328,15 @@ def get_serialize_code(param: dict, all_params: list[dict]) -> str:
         return f'ser.write_handle((uint64_t)({name}));'
 
     if kind == "output_handle_ptr":
-        return f'ser.write_handle((uint64_t)({name}));'
+        count_expr = None
+        for p in all_params:
+            if p["name"] == "createInfoCount":
+                count_expr = "createInfoCount"
+            elif p["name"] == "pAllocateInfo":
+                count_expr = "pAllocateInfo ? pAllocateInfo->descriptorSetCount : 1"
+        if count_expr:
+            return f'if ({name}) {{ ser.write_u32({count_expr}); for (uint32_t _i = 0; _i < ({count_expr}); _i++) ser.write_handle((uint64_t)({name}[_i])); }} else {{ ser.write_u32(0); }}'
+        return f'ser.write_handle((uint64_t)({name} ? *{name} : 0));'
 
     if kind == "value":
         # 64-bit integer types
@@ -291,7 +362,14 @@ def get_serialize_code(param: dict, all_params: list[dict]) -> str:
         core_type = get_pure_type(ptype)
         if core_type in ("VkRenderPassBeginInfo", "VkRenderingInfo", "VkDependencyInfo",
                          "VkPipelineViewportStateCreateInfo", "VkShaderModuleCreateInfo",
-                         "VkSemaphoreCreateInfo", "VkDescriptorUpdateTemplateCreateInfo"):
+                         "VkSemaphoreCreateInfo", "VkDescriptorUpdateTemplateCreateInfo",
+                         "VkCommandPoolCreateInfo", "VkBufferCreateInfo",
+                         "VkImageCreateInfo", "VkImageViewCreateInfo",
+                         "VkSamplerCreateInfo", "VkRenderPassCreateInfo",
+                         "VkFramebufferCreateInfo", "VkPipelineLayoutCreateInfo",
+                         "VkDescriptorSetLayoutCreateInfo", "VkDescriptorPoolCreateInfo",
+                         "VkDescriptorSetAllocateInfo", "VkSwapchainCreateInfoKHR",
+                         "VkMemoryAllocateInfo"):
             return f'serializer::write_{core_type}(ser, {name});'
         return f'ser.write_raw({name}, sizeof(*{name}));'
 
@@ -393,6 +471,9 @@ def generate(
         "vkGetImageMemoryRequirements2",
         "vkGetImageSparseMemoryRequirements",
         "vkGetImageSparseMemoryRequirements2",
+        "vkGetDeviceBufferMemoryRequirements",
+        "vkGetDeviceImageMemoryRequirements",
+        "vkGetDeviceImageSparseMemoryRequirements",
         "vkGetDeviceMemoryCommitment",
         "vkGetFenceStatus",
         "vkGetEventStatus",
@@ -423,6 +504,21 @@ def generate(
         "vkGetPrivateData",
         # Platform-specific (need VK_USE_PLATFORM_WIN32_KHR)
         "vkCreateWin32SurfaceKHR",
+        # WSI swapchain / present (manual for fake swapchain images)
+        "vkCreateSwapchainKHR", "vkDestroySwapchainKHR",
+        "vkGetSwapchainImagesKHR", "vkAcquireNextImageKHR", "vkAcquireNextImage2KHR",
+        "vkQueuePresentKHR", "vkGetDeviceGroupPresentCapabilitiesKHR",
+        # Command buffer (dispatchable handles need heap alloc for loader magic)
+        "vkAllocateCommandBuffers", "vkFreeCommandBuffers",
+        "vkBeginCommandBuffer", "vkEndCommandBuffer", "vkResetCommandBuffer",
+        # Memory mapping (void** output param needs host allocation)
+        "vkAllocateMemory", "vkFreeMemory",
+        "vkMapMemory", "vkUnmapMemory",
+        "vkMapMemory2KHR", "vkUnmapMemory2KHR",
+        # Surface queries (need GPU caps data)
+        "vkGetPhysicalDeviceSurfaceCapabilitiesKHR", "vkGetPhysicalDeviceSurfaceCapabilities2KHR",
+        "vkGetPhysicalDeviceSurfaceFormatsKHR", "vkGetPhysicalDeviceSurfaceFormats2KHR",
+        "vkGetPhysicalDeviceSurfacePresentModesKHR", "vkGetPhysicalDeviceSurfaceSupportKHR",
         "vkGetPhysicalDeviceWin32PresentationSupportKHR",
         "vkCreateHeadlessSurfaceEXT",
         "vkCreateMetalSurfaceEXT",
@@ -430,8 +526,13 @@ def generate(
         "vkCreateXcbSurfaceKHR",
         "vkCreateXlibSurfaceKHR",
         "vkCreateAndroidSurfaceKHR",
+        "vkFlushMappedMemoryRanges",
+        "vkQueueSubmit",
+        "vkQueueSubmit2",
     }
     auto_functions = [f for f in functions if f["name"] not in manual_functions]
+    for f in auto_functions:
+        f["has_output_handle_ptr"] = any(p.get("kind") == "output_handle_ptr" for p in f.get("params", []))
 
     def serialize_param(param, loop):
         return get_serialize_code(param, loop)

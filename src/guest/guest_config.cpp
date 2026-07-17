@@ -12,6 +12,13 @@ namespace omnigpu::config {
 
 using json = nlohmann::json;
 
+static std::string trim(const std::string& str) {
+    auto start = str.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) return "";
+    auto end = str.find_last_not_of(" \t\r\n");
+    return str.substr(start, end - start + 1);
+}
+
 const char* config_path() {
 #ifdef _WIN32
     static std::string path;
@@ -43,26 +50,25 @@ GuestConfig load(const std::string& path) {
     std::string cfg_path = path.empty() ? config_path() : path;
 
     std::ifstream file(cfg_path);
-    if (!file.is_open()) {
+    if (file.is_open()) {
+        try {
+            json j;
+            file >> j;
+
+            if (j.contains("host")) cfg.host = j["host"].get<std::string>();
+            if (j.contains("port")) cfg.port = j["port"].get<uint16_t>();
+            if (j.contains("cache_ttl_seconds")) cfg.cache_ttl_seconds = j["cache_ttl_seconds"].get<uint64_t>();
+            if (j.contains("adaptive_batching")) cfg.adaptive_batching = j["adaptive_batching"].get<bool>();
+            if (j.contains("max_batch_interval_ms")) cfg.max_batch_interval_ms = j["max_batch_interval_ms"].get<uint32_t>();
+
+            SPDLOG_INFO("Loaded config from {}: host={}:{}, adaptive={}",
+                        cfg_path, cfg.host, cfg.port,
+                        cfg.adaptive_batching);
+        } catch (const std::exception& e) {
+            SPDLOG_WARN("Failed to parse config {}: {}", cfg_path, e.what());
+        }
+    } else {
         SPDLOG_DEBUG("Config file not found: {} (using defaults)", cfg_path);
-        return cfg;
-    }
-
-    try {
-        json j;
-        file >> j;
-
-        if (j.contains("host")) cfg.host = j["host"].get<std::string>();
-        if (j.contains("port")) cfg.port = j["port"].get<uint16_t>();
-        if (j.contains("cache_ttl_seconds")) cfg.cache_ttl_seconds = j["cache_ttl_seconds"].get<uint64_t>();
-        if (j.contains("adaptive_batching")) cfg.adaptive_batching = j["adaptive_batching"].get<bool>();
-        if (j.contains("max_batch_interval_ms")) cfg.max_batch_interval_ms = j["max_batch_interval_ms"].get<uint32_t>();
-
-        SPDLOG_INFO("Loaded config from {}: host={}:{}, adaptive={}",
-                    cfg_path, cfg.host, cfg.port,
-                    cfg.adaptive_batching);
-    } catch (const std::exception& e) {
-        SPDLOG_WARN("Failed to parse config {}: {}", cfg_path, e.what());
     }
 
 #ifdef _WIN32
@@ -70,23 +76,23 @@ GuestConfig load(const std::string& path) {
     char env_buf[256] = {};
     DWORD env_ret = GetEnvironmentVariableA("OMNIGPU_HOST", env_buf, sizeof(env_buf));
     if (env_ret > 0 && env_ret < sizeof(env_buf)) {
-        cfg.host = env_buf;
+        cfg.host = trim(env_buf);
         SPDLOG_INFO("OMNIGPU_HOST env override: {}", cfg.host);
     }
     env_ret = GetEnvironmentVariableA("OMNIGPU_PORT", env_buf, sizeof(env_buf));
     if (env_ret > 0 && env_ret < sizeof(env_buf)) {
-        cfg.port = static_cast<uint16_t>(std::atoi(env_buf));
+        cfg.port = static_cast<uint16_t>(std::atoi(trim(env_buf).c_str()));
         SPDLOG_INFO("OMNIGPU_PORT env override: {}", cfg.port);
     }
 #else
     const char* env_host = std::getenv("OMNIGPU_HOST");
     if (env_host) {
-        cfg.host = env_host;
+        cfg.host = trim(env_host);
         SPDLOG_INFO("OMNIGPU_HOST env override: {}", cfg.host);
     }
     const char* env_port = std::getenv("OMNIGPU_PORT");
     if (env_port) {
-        cfg.port = static_cast<uint16_t>(std::atoi(env_port));
+        cfg.port = static_cast<uint16_t>(std::atoi(trim(env_port).c_str()));
         SPDLOG_INFO("OMNIGPU_PORT env override: {}", cfg.port);
     }
 #endif

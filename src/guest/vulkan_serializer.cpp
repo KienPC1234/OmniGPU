@@ -40,6 +40,9 @@ void VulkanSerializer::write_raw(const void* data, size_t size) {
     if (data && size > 0) {
         auto* bytes = static_cast<const uint8_t*>(data);
         buffer_.insert(buffer_.end(), bytes, bytes + size);
+    } else if (size > 0) {
+        // Write zeroes when data is null (e.g. pAllocator) to keep stream aligned
+        buffer_.insert(buffer_.end(), size, 0);
     }
 }
 
