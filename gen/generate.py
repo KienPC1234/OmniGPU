@@ -570,7 +570,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="OmniGPU Vulkan Interception Code Generator")
     parser.add_argument("--manifest", type=Path, default="gen/vulkan_api.json",
                         help="Path to JSON API manifest")
-    parser.add_argument("--output", type=Path, required=True, help="Output C++ file path")
+    parser.add_argument("--output", type=Path, help="Output C++ file path (not needed with --list)")
     parser.add_argument("--list", action="store_true", help="List parsed functions and exit")
     args = parser.parse_args()
 
@@ -587,6 +587,8 @@ def main() -> None:
         print(f"\nTotal: {len(functions)} functions")
         return
 
+    if not args.output:
+        parser.error("--output is required (unless --list is used)")
     generate(functions, source, args.output)
 
 
