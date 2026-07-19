@@ -96,3 +96,5 @@ Thumbs.db
 
 .playwright-mcp
 third_party/ffmpeg-bin
+third_party/Vulkan-Headers
+third_party/Vulkan-ValidationLayers
