@@ -49,10 +49,6 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Fetch translation layers
-        run: |
-          python third_party/fetch_zink.py --output-dir third_party/zink || true
-          python third_party/fetch_clvk.py --output-dir third_party/clvk || true
 
       - name: Install codegen dependencies
         run: pip install -r gen/requirements.txt
