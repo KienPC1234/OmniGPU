@@ -1,163 +1,142 @@
-# OmniGPU — Compute-First Task List
+# Báo Cáo Phân Tích Dự Án OmniGPU
 
-> **Định hướng:** Compute là tương lai. Render 3D qua TCP quá tốn kém.
-> Compute workloads (ML, science, CI/CD) fit hoàn hảo với TCP forwarding.
+> **Phase 1-4: 60+ lỗi đã fix. Phase 5: 8 lỗi mới phát hiện (chưa fix).**
 
----
+## ✅ TỔNG KẾT CÁC PHASE ĐÃ FIX
 
-## ✅ PHASE 1 — Core Pipeline (16/16)
+### Phase 1 — P0 Critical (10 bugs)
+| Bug | Fix |
+|-----|-----|
+| **C0** | vkCmdBeginRendering depth/stencil attachment remap (imageView + resolveImageView) |
+| **C1** | vkCmdClearAttachments imageView remap (field-by-field đọc + mapper) |
+| **C2** | next_fake_handle_id() start 0x10000→0x20000000 |
+| **C3** | vkAcquireNextImage2KHR manual hook (delegate) |
+| **C4** | vkCmdBlitImage2 manual hook + host handler (regions data) |
+| **C5** | vkDestroySwapchainKHR đọc stream đúng (offscreen no-op) |
+| **C6** | vkCreateSamplerYcbcrConversion skip (ko có guest hook) |
 
-- [x] **1.1** `vkQueueSubmit` — gọi submit thật với fence (was: chỉ log "recorded")
-- [x] **1.2** `flush_and_readback()` — pipeline hoàn chỉnh (was: sai state)
-- [x] **1.3** `renderTargetImage_` tracking
-- [x] **1.4-1.5** `vkCmdPipelineBarrier`/`Barrier2` — forward barriers thật (was: rỗng)
-- [x] **1.6** `ResourceMapper::cleanup()` — destroy đúng thứ tự
-- [x] **1.7** `vkQueueSubmit2` — implementation đầy đủ (was: STUB)
-- [x] **1.8-1.9** `vkCmdBeginRenderPass`/`2` — fix serializer mismatch
-- [x] **1.10-1.12** `vkCmdWaitEvents`/`2`, `vkCmdSetVertexInputEXT` — fix từ STUB
-- [x] **1.13** Dispatchable handle structs — đủ kích thước cho loader
-- [x] **1.14-1.16** Command buffer lifecycle — forward hoàn chỉnh đến host
+### Phase 2 — P1 Severe (15 bugs)
+| Bug | Fix |
+|-----|------|
+| **S1** | Schema thêm offset field (cần regenerate FlatBuffers) |
+| **S2** | Track map_offset + adjust flush pointers (s_memory_map_offsets) |
+| **S3** | VK_WHOLE_SIZE actual_size==0 → VK_ERROR_MEMORY_MAP_FAILED |
+| **S4** | vkResetQueryPool dùng firstQuery/queryCount từ stream |
+| **S5** | vkCmdBeginQuery dùng flags từ stream |
+| **S6** | vkCmdWriteTimestamp dùng pipelineStage từ stream |
+| **S7** | vkCmdBindDescriptorSets null pipeline layout check |
+| **S8** | vkCreateDescriptorSetLayout remap immutable sampler handles |
+| **S9** | Null pipeline sub-structs preserved (set =null nếu is_present=false) |
+| **S10** | vkCmdCopyImage dùng srcLayout/dstLayout từ stream |
+| **S11** | VkClearValue zero-init (cv{}) |
+| **S12** | teardown_framebuffer reset handles = VK_NULL_HANDLE |
+| **S13** | running_ flag std::atomic\<bool\> |
+| **S14** | Unknown sync query fallthrough default→continue |
+| **S15** | Guest receive xoá spurious set_sync_response from non-DataType_Unknown |
 
----
+### Phase 3 — P2 Moderate (16 bugs)
+| Bug | Fix |
+|-----|------|
+| **M1** | vkCmdClearDepthStencilImage implement |
+| **M2** | vkCmdResolveImage implement |
+| **M3** | vkCreateBufferView + vkDestroyBufferView implement + store/remove mapper |
+| **M4-M12** | Các STUB còn lại skip (ko có guest hook) |
+| **M13** | GPU caps populate 8 field từ VkPhysicalDeviceVulkan11/12Properties |
+| **M14** | GPU scoring tính VRAM (+10/4GB, max+50) |
+| **M15** | initialize_guest failure check + log |
+| **M16** | Receive thread ưu tiên DataMessage trước VideoFrame |
 
-## ✅ PHASE 2 — Compute Path (17/17)
-
-### Buffer Management
-- [x] **2.1** `vkMapMemory` dirty page tracking — chỉ gửi ranges đã flush
-- [x] **2.2** `sync_all_mapped_memory_to_host()` — optimize: chỉ gửi dirty ranges
-- [x] **2.3** Staging buffer pattern — BufferManager với persistent + staging
-- [x] **2.4** Async buffer readback — `vkInvalidateMappedMemoryRanges` gửi DataMessage về guest
-
-### Compute Pipeline verified
-- [x] **2.5** `vkCmdDispatch` E2E — compute test (vector add + matmul)
-- [x] **2.6** `vkCmdDispatchIndirect` — buffer remap
-- [x] **2.7** Compute pipeline creation + specialization constants
-- [x] **2.8** `vkCmdPushConstants` cho compute
-- [x] **2.9** Multiple descriptor sets + update
-- [x] **2.10** `vkGetBufferDeviceAddress` sync query 0x80 round-trip
-
-### Physical Device Info — compute-optimized
-- [x] **2.11** `vkGetPhysicalDeviceFeatures` — chỉ enable compute-critical, không VK_TRUE hết
-- [x] **2.12** `vkGetPhysicalDeviceMemoryProperties` — 5 types, compute-optimized
-- [x] **2.13** `vkGetBufferMemoryRequirements` — sync từ host qua 0x83/0x84
-- [x] **2.14** `vkGetPhysicalDeviceQueueFamilyProperties` — 2 queues (GFX+CMP, CMP only)
-
-### Compute Test
-- [x] **2.15** Test vector addition + matrix multiplication + buffer device address
-- [x] **2.16-2.17** SPIR-V shaders compile tự động (compute_add, compute_mul)
-
----
-
-## ✅ PHASE 3 — Compute Infrastructure (MỚI)
-
-### Multi-GPU Compute Engine
-- [x] **3.1** `MultiGpuCompute` — per-GPU device+queue+pool, work splitting, load balancing
-- [x] **3.2** `BufferManager` — persistent GPU buffers, staging upload/download, LRU eviction
-- [x] **3.3** Zero-copy VRAM: upload once → reference by ID → reuse across dispatches
-
-### Protocol mở rộng
-- [x] **3.4** `compute_queue_count`, `supports_buffer_device_address`, `auth_required`, `buffer_manager_capable`
-- [x] **3.5** `compute_mode`, `large_buffers` flags trong CapabilitiesRequest
+### Phase 4 — P3 Low (18 bugs)
+| Bug | Fix |
+|-----|------|
+| **L1-L18** | Dead code removal, null checks, log fixes, operator[] safety, thread safety, schema cleanup |
 
 ---
 
-## ✅ PHASE 4 — Security (6/6)
+## ⚠️ PHASE 5 — LỖI MỚI PHÁT HIỆN (Chưa fix)
 
-- [x] **4.1** Auth token — `constant_time_compare()`, configurable
-- [x] **4.2** Rate limiting — max 10 connections/second
-- [x] **4.3** Max sessions — `max_sessions` (mặc định 16)
-- [x] **4.4** Socket timeout — `session_timeout_s` (mặc định 300s)
-- [x] **4.5** Message size limit — `max_msg_size_mb` (mặc định 16MB)
-- [x] **4.6** VRAM budget — `per_session_memory_budget`
+### 🔴 CRITICAL
 
----
+### [N0] `handshake.cpp` — Fields OFF-BY-ONE do thiếu `max_samples`
+**File:** `handshake.cpp:275-283`
 
-## ✅ PHASE 5 — Memory Audit (8/8)
-
-- [x] **5.1** Null pAllocator crash — `write_raw(pAllocator, sizeof(*pAllocator))` đọc từ nullptr
-- [x] **5.2** `vkFreeMemory` double-free — `remove_device_memory()` sau free
-- [x] **5.3** `BufferManager::find_memory_type` — trả về 0 luôn, fix query memory properties thật
-- [x] **5.4** VRAM budget enforcement — từ chối allocate nếu quá hạn mức
-- [x] **5.5** `vkGetBufferDeviceAddress` sync query — round-trip 0x80
-- [x] **5.6** Memory type selection đúng — HOST_VISIBLE|COHERENT, DEVICE_LOCAL, etc.
-- [x] **5.7** Shadow buffer lifecycle — free+remove khi vkFreeMemory
-- [x] **5.8** ResourceMapper cleanup — destroy đúng thứ tự phụ thuộc
-
----
-
-## ✅ PHASE 6 — STUB Audit (16/16)
-
-- [x] **6.1** `vkCmdCopyBufferToImage` — STUB → real với buffer+image remap
-- [x] **6.2** `vkCmdCopyImageToBuffer` — STUB → real
-- [x] **6.3** `vkCmdClearAttachments` — STUB → real
-- [x] **6.4** `vkCmdExecuteCommands` — STUB → real (secondary CBs)
-- [x] **6.5** `vkCmdCopyQueryPoolResults` — STUB → real (profiling)
-- [x] **6.6-6.16** 11 Vulkan 1.3 "2" variants — STUB → best-effort (raw struct limitation)
-
----
-
-## ✅ PHASE 7 — Batch System (5/5)
-
-- [x] **7.1** **DEADLOCK FIX**: `vkQueueSubmit` force_flush ngay sau append (compute deadlock)
-- [x] **7.2** `vkQueueSubmit2` + `vkQueuePresentKHR` force_flush
-- [x] **7.3** Log sai: "0 commands" vì zeroed trước log — save count trước swap
-- [x] **7.4** Data loss: send fail → batch cleared mất data — log error
-- [x] **7.5** `on_present()` flush rỗng — check `empty()` trước
-
----
-
-## ✅ PHASE 8 — Sync & Synchronization (10/10)
-
-- [x] **8.1** `vkWaitForFences` — **CRITICAL**: skip fences, không wait → fix remap+wait thật
-- [x] **8.2** `vkResetFences` — skip → fix remap+reset thật
-- [x] **8.3** `vkWaitSemaphores` — custom serializer + remap
-- [x] **8.4** `vkSignalSemaphore` — custom serializer
-- [x] **8.5** `vkGetSemaphoreCounterValue` — remap + call thật
-- [x] **8.6** Timeline semaphore support (VkSemaphoreTypeCreateInfo)
-- [x] **8.7** `vkInvalidateMappedMemoryRanges` — readback từ host GPU → guest shadow buffer
-- [x] **8.8** Thread-safe recv thread + DataMessage handler
-- [x] **8.9** Guest `update_shadow_buffer()` — copy host data vào guest pointer
-- [x] **8.10** Config JSON mẫu — host + guest với đầy đủ security fields
-
----
-
-## 🟡 PHASE 9 — Còn Lại (Không ưu tiên)
-
-### Stability
-- [ ] **9.1** Static initializer order — `ManualHookRegistrar` race với DllMain
-- [ ] **9.2** `shutdown_guest()` — delete batch trước disconnect
-- [ ] **9.3** `connect_to_host()` — `std::call_once` không retry
-- [ ] **9.4** Pool fences/command buffers — performance
-
-### Compute Features (nice to have)
-- [ ] **9.5** `vkCmdDispatchBase` — base group for multi-dispatch
-- [ ] **9.6** Large buffer benchmark (1GB+)
-- [ ] **9.7** Workload test: reduction, prefix sum, FFT
-
-### Rendering (Secondary — không ưu tiên)
-- [ ] **9.8** Video encoder pipeline cleanup
-- [ ] **9.9** Swapchain backing store thật
-- [ ] **9.10** Multi-GPU tiled rendering
-
-### Testing
-- [ ] **9.11** End-to-end compute test trên VM
-- [ ] **9.12** Stress test + memory leak check
-- [ ] **9.13** Protocol versioning
-
----
-
-## PROGRESS
-
+Schema `.fbs` field ID order: `sample_counts(50)` → `max_samples(51)` → `max_tessellation_factor(52)` → `framebuffer_color_sample_counts(53)`.
+Nhưng `CreateCapabilitiesResponse()` call **bỏ qua** `max_samples`:
+```cpp
+caps.sample_counts,                    // → id 50 ✓
+caps.max_tessellation_factor,          // → id 51 (LẼ RA: max_samples) ✗
+caps.framebuffer_color_sample_counts,  // → id 52 (LẼ RA: max_tessellation_factor) ✗
+caps.compute_queue_count,              // → id 53 (LẼ RA: framebuffer_color_sample_counts) ✗
 ```
-Phase 1 (Core Pipeline):     ████████████████████ 16/16 ✅
-Phase 2 (Compute Path):      ████████████████████ 17/17 ✅
-Phase 3 (Infrastructure):    ████████████████████  5/5  ✅ (MỚI)
-Phase 4 (Security):          ████████████████████  6/6  ✅ (MỚI)
-Phase 5 (Memory Audit):      ████████████████████  8/8  ✅ (MỚI)
-Phase 6 (STUB Audit):        ████████████████████ 16/16 ✅ (MỚI)
-Phase 7 (Batch System):      ████████████████████  5/5  ✅ (MỚI)
-Phase 8 (Sync):              ████████████████████ 10/10 ✅ (MỚI)
-Phase 9 (Remaining):         ░░░░░░░░░░░░░░░░░░░░  0/13
-```
+**Tất cả field từ đây trở đi bị lệch 1 position.** Guest nhận sai: tessellation_factor = framebuffer sample counts, sample counts = compute_queue, etc.
 
-**Tổng: 83/96 tasks completed (86%) — 13 tasks low priority còn lại**
+**Fix:** Thêm `1 /* max_samples */` vào giữa `sample_counts` và `max_tessellation_factor`.
+
+---
+
+### 🔴 HIGH
+
+### [N1] `ManualHookRegistrar` — thiếu `vkCmdBlitImage2KHR`
+**File:** `vk_intercept.cpp` lines 2535-2540
+
+5 Copy2 KHR aliases đã registered, `vkCmdBlitImage2KHR` **bị thiếu**.
+App gọi `vkCmdBlitImage2KHR` → fallback `omnigpu_generic_stub` → blit silently skipped.
+
+**Fix:** Thêm `register_manual_hook("vkCmdBlitImage2KHR", reinterpret_cast<void*>(vkCmdBlitImage2_hook));`
+
+---
+
+### [N2] `ResourceMapper::store_*` — silent overwrite → potential GPU memory leak
+**File:** `command_dispatcher.h:33-84`
+
+Tất cả `store_*` methods dùng `map[key] = value` — nếu key đã tồn tại, old resource bị ghi đè không destroy.
+Thông thường handles unique, nhưng nếu lỗi app gọi create 2 lần cho cùng handle → leak.
+
+**Fix:** Check `find()`, log warning hoặc destroy old handle trước khi overwrite.
+
+---
+
+### [N3] `vkGetDeviceProcAddr` — không cache → 13 calls/frame
+**File:** `command_dispatcher.cpp` (13 handlers)
+
+`vkGetDeviceProcAddr` gọi mỗi lần dispatch cho: `vkCmdPipelineBarrier2, vkCmdCopy*2(x5), vkQueueSubmit2, vkCmdSetVertexInputEXT, vkBind*Memory2(x2), vkCmdWaitEvents2, vkCmdBlitImage2, vkGetSemaphoreCounterValue`.
+
+**Fix:** Cache function pointers trong `CommandDispatcher::set_device()`.
+
+---
+
+### [N4] `handshake.cpp` — Auth token hoàn toàn broken
+**File:** `guest_init.cpp:59` + `handshake.cpp:22-31`
+
+Guest `CreateCapabilitiesRequest` không bao giờ gửi `auth_token`. Nếu host config có token → luôn auth fail → handshake fail.
+
+**Fix:** Guest đọc token từ config hoặc thêm param vào `CreateCapabilitiesRequest`.
+
+---
+
+### 🟡 MODERATE
+
+### [N5] `handshake.cpp` — Response loss = deadlock host-guest
+**File:** `handshake.cpp:286-300`
+
+Host gửi response xong vào thẳng main loop. Guest đang blocking `receive_data()`. Nếu response bị mất (TCP issue) → host chờ command, guest chờ caps → **deadlock vĩnh viễn**. Không có timeout bên host.
+
+**Fix:** Thêm timeout trên host sau gửi response (nếu không nhận CommandMessage trong N giây → disconnect).
+
+---
+
+### [N6] `vkGetPhysicalDeviceProperties_hook` — đọc caps KHÔNG check `valid()`
+**File:** `vk_intercept.cpp:484-486`
+
+`vendorID`, `deviceID`, `deviceType` đọc từ caps không check `caps.valid()`. Khi handshake fail → guest trả RTX 4090 default thay vì fallback.
+
+**Fix:** Check `caps.valid()` cho mọi field.
+
+---
+
+### [N7] `gpu_caps_store.cpp` — data race trên `get()/store()`
+**File:** `gpu_caps_store.cpp:7-17`
+
+`std::string gpu_name` được gán non-atomic trong `store()`. `get()` trả reference → UB nếu gọi đồng thời.
+
+**Fix:** `std::atomic` hoặc mutex.

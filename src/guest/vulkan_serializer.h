@@ -31,7 +31,6 @@ public:
 
     template <typename T>
     void write_array(const T* arr, uint32_t count) {
-        write_u32(count);
         if (arr && count > 0) {
             write_raw(arr, sizeof(T) * count);
         }

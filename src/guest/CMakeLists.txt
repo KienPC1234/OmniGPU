@@ -7,7 +7,6 @@ set(GUEST_SOURCES
   guest_init.cpp
   icd_entrypoints.cpp
   icd_registry.cpp
-  resource_tracker.cpp
   video_decoder.cpp
   vk_intercept.cpp
   vk_intercept_gen.cpp
@@ -61,7 +60,6 @@ add_executable(omnigpu_guest_test
   guest_config.cpp
   guest_init.cpp
   icd_registry.cpp
-  resource_tracker.cpp
   video_decoder.cpp
   client.cpp
   command_batch.cpp

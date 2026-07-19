@@ -90,20 +90,34 @@ struct FFmpegEncoder::Impl {
         ctx->max_b_frames = 0;
         ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
 
+        AVPixelFormat selected_fmt = AV_PIX_FMT_NONE;
     #if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(61, 0, 0)
         const enum AVPixelFormat *pix_fmts = nullptr;
         int ret = avcodec_get_supported_config(nullptr, codec,
             AV_CODEC_CONFIG_PIX_FORMAT, 0, (const void**)&pix_fmts, nullptr);
-        if (ret >= 0 && pix_fmts)
-            ctx->pix_fmt = pix_fmts[0];
-        else
+        if (ret >= 0 && pix_fmts) {
+            for (int i = 0; pix_fmts[i] != AV_PIX_FMT_NONE; i++) {
+                if (!is_hw_pix_fmt(pix_fmts[i])) {
+                    selected_fmt = pix_fmts[i];
+                    break;
+                }
+            }
+        }
+    #else
+        if (codec->pix_fmts) {
+            for (int i = 0; codec->pix_fmts[i] != AV_PIX_FMT_NONE; i++) {
+                if (!is_hw_pix_fmt(codec->pix_fmts[i])) {
+                    selected_fmt = codec->pix_fmts[i];
+                    break;
+                }
+            }
+        }
+    #endif
+        if (selected_fmt != AV_PIX_FMT_NONE) {
+            ctx->pix_fmt = selected_fmt;
+        } else {
             ctx->pix_fmt = AV_PIX_FMT_NV12;
-#else
-        if (codec->pix_fmts)
-            ctx->pix_fmt = codec->pix_fmts[0];
-        else
-            ctx->pix_fmt = AV_PIX_FMT_NV12;
-#endif
+        }
 
         ctx->gop_size = optGopLength;
 

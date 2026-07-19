@@ -226,10 +226,18 @@ bool read_VkGraphicsPipelineCreateInfo(VulkanDeserializer& d, VkGraphicsPipeline
     SPDLOG_INFO("  [deser] after inputAssembly, d.ok={}", d.ok());
     VkPipelineTessellationStateCreateInfo* ts = new VkPipelineTessellationStateCreateInfo;
     read_VkPipelineTessellationStateCreateInfo(d, ts);
+    if (ts->patchControlPoints == 0) {
+        delete ts;
+        ts = nullptr;
+    }
     out->pTessellationState = ts;
     SPDLOG_INFO("  [deser] after tessellation, d.ok={}", d.ok());
     VkPipelineViewportStateCreateInfo* vs = new VkPipelineViewportStateCreateInfo;
     read_VkPipelineViewportStateCreateInfo(d, vs);
+    if (vs->viewportCount == 0 && vs->scissorCount == 0) {
+        delete vs;
+        vs = nullptr;
+    }
     out->pViewportState = vs;
     SPDLOG_INFO("  [deser] after viewport, d.ok={}", d.ok());
     VkPipelineRasterizationStateCreateInfo* rs = new VkPipelineRasterizationStateCreateInfo;
@@ -242,6 +250,10 @@ bool read_VkGraphicsPipelineCreateInfo(VulkanDeserializer& d, VkGraphicsPipeline
     SPDLOG_INFO("  [deser] after multisample, d.ok={}", d.ok());
     VkPipelineDepthStencilStateCreateInfo* ds = new VkPipelineDepthStencilStateCreateInfo;
     read_VkPipelineDepthStencilStateCreateInfo(d, ds);
+    if (ds->sType == 0) {
+        delete ds;
+        ds = nullptr;
+    }
     out->pDepthStencilState = ds;
     SPDLOG_INFO("  [deser] after depthStencil, d.ok={}", d.ok());
     VkPipelineColorBlendStateCreateInfo* cbs = new VkPipelineColorBlendStateCreateInfo;
@@ -250,6 +262,10 @@ bool read_VkGraphicsPipelineCreateInfo(VulkanDeserializer& d, VkGraphicsPipeline
     SPDLOG_INFO("  [deser] after colorBlend, d.ok={}", d.ok());
     VkPipelineDynamicStateCreateInfo* dyn = new VkPipelineDynamicStateCreateInfo;
     read_VkPipelineDynamicStateCreateInfo(d, dyn);
+    if (dyn->dynamicStateCount == 0) {
+        delete dyn;
+        dyn = nullptr;
+    }
     out->pDynamicState = dyn;
     SPDLOG_INFO("  [deser] after dynamicState, d.ok={}", d.ok());
     uint64_t rawLayout = d.read_handle();
@@ -271,6 +287,7 @@ void free_VkGraphicsPipelineCreateInfo(VkGraphicsPipelineCreateInfo* info) {
     // Free shader stages and their specialization info
     if (info->pStages) {
         for (uint32_t i = 0; i < info->stageCount; i++) {
+            delete[] const_cast<char*>(info->pStages[i].pName);
             auto* spec = const_cast<VkSpecializationInfo*>(info->pStages[i].pSpecializationInfo);
             if (spec) {
                 delete[] spec->pMapEntries;
@@ -289,7 +306,7 @@ void free_VkGraphicsPipelineCreateInfo(VkGraphicsPipelineCreateInfo* info) {
     }
 
     delete info->pInputAssemblyState;
-    delete info->pTessellationState;
+    if (info->pTessellationState) delete info->pTessellationState;
 
     // Free viewport state sub-arrays
     if (info->pViewportState) {
@@ -301,8 +318,11 @@ void free_VkGraphicsPipelineCreateInfo(VkGraphicsPipelineCreateInfo* info) {
     delete info->pRasterizationState;
 
     // Free multisample state (pSampleMask is optional)
-    delete info->pMultisampleState;
-    delete info->pDepthStencilState;
+    if (info->pMultisampleState) {
+        delete[] info->pMultisampleState->pSampleMask;
+        delete info->pMultisampleState;
+    }
+    if (info->pDepthStencilState) delete info->pDepthStencilState;
 
     // Free color blend state sub-arrays
     if (info->pColorBlendState) {
@@ -338,6 +358,18 @@ bool read_VkComputePipelineCreateInfo(VulkanDeserializer& d, VkComputePipelineCr
     return d.ok();
 }
 
+void free_VkComputePipelineCreateInfo(VkComputePipelineCreateInfo* info) {
+    if (!info) return;
+    delete[] const_cast<char*>(info->stage.pName);
+    auto* spec = const_cast<VkSpecializationInfo*>(info->stage.pSpecializationInfo);
+    if (spec) {
+        delete[] spec->pMapEntries;
+        std::free(const_cast<void*>(spec->pData));
+        delete spec;
+    }
+    std::memset(info, 0, sizeof(*info));
+}
+
 bool read_VkWriteDescriptorSet(VulkanDeserializer& d, VkWriteDescriptorSet* out,
                                 VkDescriptorImageInfo** outImg, VkDescriptorBufferInfo** outBuf,
                                 VkBufferView** outView) {
@@ -351,11 +383,17 @@ bool read_VkWriteDescriptorSet(VulkanDeserializer& d, VkWriteDescriptorSet* out,
     uint32_t count = out->descriptorCount;
     if (count > 0) {
         *outImg = new VkDescriptorImageInfo[count];
-        for (uint32_t i = 0; i < count; i++)
-            d.read_raw(&(*outImg)[i], sizeof(VkDescriptorImageInfo));
+        for (uint32_t i = 0; i < count; i++) {
+            (*outImg)[i].sampler = handle_from_u64<VkSampler>(d.read_handle());
+            (*outImg)[i].imageView = handle_from_u64<VkImageView>(d.read_handle());
+            (*outImg)[i].imageLayout = static_cast<VkImageLayout>(d.read_u32());
+        }
         *outBuf = new VkDescriptorBufferInfo[count];
-        for (uint32_t i = 0; i < count; i++)
-            d.read_raw(&(*outBuf)[i], sizeof(VkDescriptorBufferInfo));
+        for (uint32_t i = 0; i < count; i++) {
+            (*outBuf)[i].buffer = handle_from_u64<VkBuffer>(d.read_handle());
+            (*outBuf)[i].offset = d.read_u64();
+            (*outBuf)[i].range = d.read_u64();
+        }
         *outView = new VkBufferView[count];
         for (uint32_t i = 0; i < count; i++)
             (*outView)[i] = handle_from_u64<VkBufferView>(d.read_handle());
@@ -777,6 +815,28 @@ bool read_VkMemoryAllocateInfo(VulkanDeserializer& d, VkMemoryAllocateInfo* out)
     out->sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     out->allocationSize = static_cast<VkDeviceSize>(d.read_u64());
     out->memoryTypeIndex = d.read_u32();
+
+    // Read pNext: VkMemoryDedicatedAllocateInfo
+    VkMemoryDedicatedAllocateInfo dedicated{};
+    dedicated.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
+    bool hasDedicated = d.read_bool() != VK_FALSE;
+    if (hasDedicated) {
+        dedicated.image = handle_from_u64<VkImage>(d.read_handle());
+        dedicated.buffer = handle_from_u64<VkBuffer>(d.read_handle());
+        dedicated.pNext = out->pNext;
+        out->pNext = new VkMemoryDedicatedAllocateInfo(dedicated);
+    }
+
+    // Read pNext: VkMemoryAllocateFlagsInfo
+    VkMemoryAllocateFlagsInfo flags{};
+    flags.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
+    bool hasFlags = d.read_bool() != VK_FALSE;
+    if (hasFlags) {
+        flags.flags = static_cast<VkMemoryAllocateFlags>(d.read_u64());
+        flags.pNext = out->pNext;
+        out->pNext = new VkMemoryAllocateFlagsInfo(flags);
+    }
+
     return d.ok();
 }
 
@@ -846,6 +906,75 @@ void free_VkSubmitInfo2(VkSubmitInfo2* info) {
     delete[] info->pWaitSemaphoreInfos;
     delete[] info->pCommandBufferInfos;
     delete[] info->pSignalSemaphoreInfos;
+    std::memset(info, 0, sizeof(*info));
+}
+
+bool read_VkDependencyInfo(VulkanDeserializer& d, VkDependencyInfo* out) {
+    std::memset(out, 0, sizeof(*out));
+    out->sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    out->dependencyFlags = static_cast<VkDependencyFlags>(d.read_u32());
+
+    out->memoryBarrierCount = d.read_u32();
+    if (out->memoryBarrierCount > 0) {
+        auto* barriers = new VkMemoryBarrier2[out->memoryBarrierCount];
+        for (uint32_t i = 0; i < out->memoryBarrierCount; i++) {
+            barriers[i].sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+            barriers[i].pNext = nullptr;
+            barriers[i].srcStageMask = d.read_u64();
+            barriers[i].srcAccessMask = d.read_u64();
+            barriers[i].dstStageMask = d.read_u64();
+            barriers[i].dstAccessMask = d.read_u64();
+        }
+        out->pMemoryBarriers = barriers;
+    }
+
+    out->bufferMemoryBarrierCount = d.read_u32();
+    if (out->bufferMemoryBarrierCount > 0) {
+        auto* barriers = new VkBufferMemoryBarrier2[out->bufferMemoryBarrierCount];
+        for (uint32_t i = 0; i < out->bufferMemoryBarrierCount; i++) {
+            barriers[i].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+            barriers[i].pNext = nullptr;
+            barriers[i].srcStageMask = d.read_u64();
+            barriers[i].srcAccessMask = d.read_u64();
+            barriers[i].dstStageMask = d.read_u64();
+            barriers[i].dstAccessMask = d.read_u64();
+            barriers[i].srcQueueFamilyIndex = d.read_u32();
+            barriers[i].dstQueueFamilyIndex = d.read_u32();
+            barriers[i].buffer = handle_from_u64<VkBuffer>(d.read_handle());
+            barriers[i].offset = d.read_u64();
+            barriers[i].size = d.read_u64();
+        }
+        out->pBufferMemoryBarriers = barriers;
+    }
+
+    out->imageMemoryBarrierCount = d.read_u32();
+    if (out->imageMemoryBarrierCount > 0) {
+        auto* barriers = new VkImageMemoryBarrier2[out->imageMemoryBarrierCount];
+        for (uint32_t i = 0; i < out->imageMemoryBarrierCount; i++) {
+            barriers[i].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            barriers[i].pNext = nullptr;
+            barriers[i].srcStageMask = d.read_u64();
+            barriers[i].srcAccessMask = d.read_u64();
+            barriers[i].dstStageMask = d.read_u64();
+            barriers[i].dstAccessMask = d.read_u64();
+            barriers[i].oldLayout = static_cast<VkImageLayout>(d.read_u32());
+            barriers[i].newLayout = static_cast<VkImageLayout>(d.read_u32());
+            barriers[i].srcQueueFamilyIndex = d.read_u32();
+            barriers[i].dstQueueFamilyIndex = d.read_u32();
+            barriers[i].image = handle_from_u64<VkImage>(d.read_handle());
+            d.read_raw(&barriers[i].subresourceRange, sizeof(VkImageSubresourceRange));
+        }
+        out->pImageMemoryBarriers = barriers;
+    }
+
+    return d.ok();
+}
+
+void free_VkDependencyInfo(VkDependencyInfo* info) {
+    if (!info) return;
+    delete[] static_cast<const VkMemoryBarrier2*>(info->pMemoryBarriers);
+    delete[] static_cast<const VkBufferMemoryBarrier2*>(info->pBufferMemoryBarriers);
+    delete[] static_cast<const VkImageMemoryBarrier2*>(info->pImageMemoryBarriers);
     std::memset(info, 0, sizeof(*info));
 }
 

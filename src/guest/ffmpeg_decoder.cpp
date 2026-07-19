@@ -25,6 +25,9 @@ struct FFmpegVideoDecoder::Impl {
     bool hw_enabled = false;
     AVBufferRef* hw_device_ctx = nullptr;
     AVHWDeviceType hw_type = AV_HWDEVICE_TYPE_NONE;
+    int last_w = 0;
+    int last_h = 0;
+    AVPixelFormat last_fmt = AV_PIX_FMT_NONE;
 };
 
 FFmpegVideoDecoder::FFmpegVideoDecoder()
@@ -253,11 +256,16 @@ bool FFmpegVideoDecoder::decode(Codec codec, bool is_keyframe,
         int w = src->width;
         int h = src->height;
 
-        if (impl_->sws) { sws_freeContext(impl_->sws); impl_->sws = nullptr; }
-        impl_->sws = sws_getContext(
-            w, h, static_cast<AVPixelFormat>(src->format),
-            w, h, AV_PIX_FMT_RGBA,
-            SWS_BILINEAR, nullptr, nullptr, nullptr);
+        if (!impl_->sws || impl_->last_w != w || impl_->last_h != h || impl_->last_fmt != src->format) {
+            if (impl_->sws) { sws_freeContext(impl_->sws); }
+            impl_->sws = sws_getContext(
+                w, h, static_cast<AVPixelFormat>(src->format),
+                w, h, AV_PIX_FMT_RGBA,
+                SWS_BILINEAR, nullptr, nullptr, nullptr);
+            impl_->last_w = w;
+            impl_->last_h = h;
+            impl_->last_fmt = static_cast<AVPixelFormat>(src->format);
+        }
 
         int rgba_size = av_image_get_buffer_size(AV_PIX_FMT_RGBA, w, h, 1);
         if (rgba_size > impl_->rgba_buf_size) {

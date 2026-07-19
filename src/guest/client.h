@@ -26,7 +26,7 @@ public:
     const std::string& host() const { return host_; }
     uint16_t port() const { return port_; }
 
-    std::recursive_mutex& recv_mutex() { return recv_mutex_; }
+    std::mutex& send_mutex() { return send_mutex_; }
 
 private:
     std::string host_;
@@ -34,8 +34,7 @@ private:
     SOCKET socket_ = INVALID_SOCKET;
     bool tcpInitialized_ = false;
 
-    std::recursive_mutex recv_mutex_;
-
+    std::mutex send_mutex_;
     std::mutex sync_mutex_;
     std::condition_variable sync_cv_;
     bool has_sync_response_ = false;

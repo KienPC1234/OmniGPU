@@ -307,14 +307,18 @@ void write_VkRenderingInfo(VulkanSerializer& ser, const VkRenderingInfo* info) {
     ser.write_u32(info->colorAttachmentCount);
     for (uint32_t i = 0; i < info->colorAttachmentCount; i++)
         write_VkRenderingAttachmentInfo(ser, &info->pColorAttachments[i]);
-    if (info->pDepthAttachment)
+    if (info->pDepthAttachment) {
+        write_nullable_ptr(ser, info->pDepthAttachment);
         write_VkRenderingAttachmentInfo(ser, info->pDepthAttachment);
-    else
+    } else {
         write_nullable_ptr(ser, nullptr);
-    if (info->pStencilAttachment)
+    }
+    if (info->pStencilAttachment) {
+        write_nullable_ptr(ser, info->pStencilAttachment);
         write_VkRenderingAttachmentInfo(ser, info->pStencilAttachment);
-    else
+    } else {
         write_nullable_ptr(ser, nullptr);
+    }
 }
 
 void write_VkSubmitInfo(VulkanSerializer& ser, const VkSubmitInfo* info) {
@@ -361,10 +365,40 @@ void write_VkSubmitInfo2(VulkanSerializer& ser, const VkSubmitInfo2* info) {
 void write_VkDependencyInfo(VulkanSerializer& ser, const VkDependencyInfo* info) {
     ser.write_u32(static_cast<uint32_t>(info->dependencyFlags));
     ser.write_u32(info->memoryBarrierCount);
+    for (uint32_t i = 0; i < info->memoryBarrierCount; i++) {
+        const auto& b = info->pMemoryBarriers[i];
+        ser.write_u64(b.srcStageMask);
+        ser.write_u64(b.srcAccessMask);
+        ser.write_u64(b.dstStageMask);
+        ser.write_u64(b.dstAccessMask);
+    }
     ser.write_u32(info->bufferMemoryBarrierCount);
+    for (uint32_t i = 0; i < info->bufferMemoryBarrierCount; i++) {
+        const auto& b = info->pBufferMemoryBarriers[i];
+        ser.write_u64(b.srcStageMask);
+        ser.write_u64(b.srcAccessMask);
+        ser.write_u64(b.dstStageMask);
+        ser.write_u64(b.dstAccessMask);
+        ser.write_u32(b.srcQueueFamilyIndex);
+        ser.write_u32(b.dstQueueFamilyIndex);
+        ser.write_handle(handle_to_u64(b.buffer));
+        ser.write_u64(b.offset);
+        ser.write_u64(b.size);
+    }
     ser.write_u32(info->imageMemoryBarrierCount);
-    // Individual barriers are skipped (complex nested structs with pointer chains)
-    // The host knows the counts and skips the appropriate amount
+    for (uint32_t i = 0; i < info->imageMemoryBarrierCount; i++) {
+        const auto& b = info->pImageMemoryBarriers[i];
+        ser.write_u64(b.srcStageMask);
+        ser.write_u64(b.srcAccessMask);
+        ser.write_u64(b.dstStageMask);
+        ser.write_u64(b.dstAccessMask);
+        ser.write_u32(static_cast<uint32_t>(b.oldLayout));
+        ser.write_u32(static_cast<uint32_t>(b.newLayout));
+        ser.write_u32(b.srcQueueFamilyIndex);
+        ser.write_u32(b.dstQueueFamilyIndex);
+        ser.write_handle(handle_to_u64(b.image));
+        ser.write_raw(&b.subresourceRange, sizeof(VkImageSubresourceRange));
+    }
 }
 
 void write_VkRenderPassBeginInfo(VulkanSerializer& ser, const VkRenderPassBeginInfo* info) {
@@ -538,8 +572,10 @@ void write_VkDescriptorSetLayoutCreateInfo(VulkanSerializer& ser, const VkDescri
         ser.write_u32(b.descriptorCount);
         ser.write_u32(static_cast<uint32_t>(b.stageFlags));
         ser.write_bool(b.pImmutableSamplers != nullptr);
-        if (b.pImmutableSamplers)
-            ser.write_array(b.pImmutableSamplers, b.descriptorCount);
+        if (b.pImmutableSamplers) {
+            for (uint32_t si = 0; si < b.descriptorCount; si++)
+                ser.write_handle(handle_to_u64(b.pImmutableSamplers[si]));
+        }
     }
 }
 
@@ -585,6 +621,38 @@ void write_VkSwapchainCreateInfoKHR(VulkanSerializer& ser, const VkSwapchainCrea
 void write_VkMemoryAllocateInfo(VulkanSerializer& ser, const VkMemoryAllocateInfo* info) {
     ser.write_u64(static_cast<uint64_t>(info->allocationSize));
     ser.write_u32(info->memoryTypeIndex);
+
+    // Serialize known pNext extensions
+    bool hasDedicated = false, hasFlags = false;
+    VkMemoryDedicatedAllocateInfo dedicated{};
+    VkMemoryAllocateFlagsInfo flags{};
+    dedicated.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
+    flags.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
+
+    const VkBaseInStructure* next = reinterpret_cast<const VkBaseInStructure*>(info->pNext);
+    while (next) {
+        if (next->sType == VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO) {
+            const auto* dai = reinterpret_cast<const VkMemoryDedicatedAllocateInfo*>(next);
+            dedicated.image = dai->image;
+            dedicated.buffer = dai->buffer;
+            hasDedicated = true;
+        } else if (next->sType == VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO) {
+            const auto* afi = reinterpret_cast<const VkMemoryAllocateFlagsInfo*>(next);
+            flags.flags = afi->flags;
+            hasFlags = true;
+        }
+        next = reinterpret_cast<const VkBaseInStructure*>(next->pNext);
+    }
+
+    ser.write_bool(hasDedicated ? VK_TRUE : VK_FALSE);
+    if (hasDedicated) {
+        ser.write_handle(handle_to_u64(dedicated.image));
+        ser.write_handle(handle_to_u64(dedicated.buffer));
+    }
+    ser.write_bool(hasFlags ? VK_TRUE : VK_FALSE);
+    if (hasFlags) {
+        ser.write_u64(flags.flags);
+    }
 }
 
 } // namespace omnigpu::serializer

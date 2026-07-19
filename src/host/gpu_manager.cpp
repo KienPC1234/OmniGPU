@@ -12,7 +12,10 @@ GpuManager::~GpuManager() {
     }
 }
 
-int GpuManager::compute_score(const VkPhysicalDeviceProperties& props) const {
+int GpuManager::compute_score(VkPhysicalDevice physDev) const {
+    VkPhysicalDeviceProperties props;
+    vkGetPhysicalDeviceProperties(physDev, &props);
+
     int score = 10;
 
     // Device type scoring
@@ -33,10 +36,18 @@ int GpuManager::compute_score(const VkPhysicalDeviceProperties& props) const {
         break;
     }
 
-    // Memory bonus (up to +50 for 24GB+) — query memory properties for actual heap size
-    // Note: maxMemoryAllocationCount is limit count, not memory size. We skip mem bonus
-    // since we only have VkPhysicalDeviceProperties here, not VkPhysicalDeviceMemoryProperties.
-    // Memory is queried separately in Session if needed.
+    // Memory bonus (up to +50 based on heap size)
+    VkPhysicalDeviceMemoryProperties memProps;
+    vkGetPhysicalDeviceMemoryProperties(physDev, &memProps);
+    uint64_t totalVram = 0;
+    for (uint32_t i = 0; i < memProps.memoryHeapCount; i++) {
+        if (memProps.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
+            totalVram = memProps.memoryHeaps[i].size;
+            break;
+        }
+    }
+    // +10 per 4GB of VRAM, max +50
+    score += std::min(50, static_cast<int>(totalVram / (4ULL * 1024 * 1024 * 1024)) * 10);
 
     // API version bonus
     if (props.apiVersion >= VK_API_VERSION_1_3) score += 20;
@@ -82,12 +93,18 @@ bool GpuManager::init() {
             info.device = devices[i];
             vkGetPhysicalDeviceProperties(devices[i], &info.props);
             info.name = info.props.deviceName;
-            info.performanceScore = compute_score(info.props);
+            info.performanceScore = compute_score(info.device);
             gpus_.push_back(info);
 
-            SPDLOG_INFO("GpuManager: GPU {} = {} (score={}, mem={} MB)",
+            VkPhysicalDeviceMemoryProperties memProps;
+            vkGetPhysicalDeviceMemoryProperties(devices[i], &memProps);
+            uint64_t vramBytes = 0;
+            for (uint32_t h = 0; h < memProps.memoryHeapCount; h++)
+                if (memProps.memoryHeaps[h].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+                    vramBytes = memProps.memoryHeaps[h].size;
+            SPDLOG_INFO("GpuManager: GPU {} = {} (score={}, vram={} MB)",
                         i, info.name, info.performanceScore,
-                        info.props.limits.maxMemoryAllocationCount / (1024 * 1024));
+                        static_cast<uint32_t>(vramBytes / (1024 * 1024)));
         }
 
         // Sort by score descending so best GPU is first

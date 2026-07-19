@@ -67,10 +67,30 @@ caps::GpuCapabilities query_host_gpu_caps() {
     instInfo.pApplicationInfo = &appInfo;
 
     if (vkCreateInstance(&instInfo, nullptr, &instance) == VK_SUCCESS) {
-        uint32_t devCount = 1;
-        VkResult enumRes = vkEnumeratePhysicalDevices(instance, &devCount, &physDevice);
-        if (enumRes != VK_SUCCESS && enumRes != VK_INCOMPLETE)
-            physDevice = VK_NULL_HANDLE;
+        uint32_t devCount = 0;
+        vkEnumeratePhysicalDevices(instance, &devCount, nullptr);
+        if (devCount > 0) {
+            std::vector<VkPhysicalDevice> devices(devCount);
+            vkEnumeratePhysicalDevices(instance, &devCount, devices.data());
+
+            // Pick device with highest VRAM (best for compute/rendering)
+            VkPhysicalDevice bestDev = VK_NULL_HANDLE;
+            uint64_t bestVram = 0;
+            for (auto pd : devices) {
+                VkPhysicalDeviceMemoryProperties memProps;
+                vkGetPhysicalDeviceMemoryProperties(pd, &memProps);
+                for (uint32_t i = 0; i < memProps.memoryHeapCount; i++) {
+                    if ((memProps.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) &&
+                        memProps.memoryHeaps[i].size > bestVram) {
+                        bestVram = memProps.memoryHeaps[i].size;
+                        bestDev = pd;
+                    }
+                }
+            }
+            if (bestDev == VK_NULL_HANDLE && devCount > 0)
+                bestDev = devices[0];
+            physDevice = bestDev;
+        }
 
         if (physDevice != VK_NULL_HANDLE) {
             VkPhysicalDeviceProperties props;
@@ -113,10 +133,21 @@ caps::GpuCapabilities query_host_gpu_caps() {
             caps.max_combined_clip_and_cull_distances = props.limits.maxCombinedClipAndCullDistances;
             caps.max_tessellation_factor = props.limits.maxTessellationGenerationLevel;
             caps.sample_counts = static_cast<uint32_t>(props.limits.framebufferColorSampleCounts);
+            caps.max_samples = static_cast<uint32_t>(VK_SAMPLE_COUNT_1_BIT);
             caps.framebuffer_color_sample_counts = static_cast<uint32_t>(props.limits.framebufferColorSampleCounts);
 
             caps.compute_queue_count = query_compute_queue_count(physDevice);
             caps.supported_subgroup_operations = query_subgroup_ops(physDevice);
+
+            // Query per-stage descriptor limits from VkPhysicalDeviceProperties (already in VkPhysicalDeviceLimits)
+            caps.max_bound_descriptor_sets_ext = props.limits.maxBoundDescriptorSets;
+            caps.max_per_stage_descriptor_samplers = props.limits.maxPerStageDescriptorSamplers;
+            caps.max_per_stage_descriptor_uniform_buffers = props.limits.maxPerStageDescriptorUniformBuffers;
+            caps.max_per_stage_descriptor_storage_buffers = props.limits.maxPerStageDescriptorStorageBuffers;
+            caps.max_per_stage_descriptor_sampled_images = props.limits.maxPerStageDescriptorSampledImages;
+            caps.max_per_stage_descriptor_storage_images = props.limits.maxPerStageDescriptorStorageImages;
+            caps.max_per_stage_resources_ext = props.limits.maxPerStageResources;
+            caps.subgroup_size = query_subgroup_ops(physDevice);
 
             VkPhysicalDeviceMemoryProperties memProps;
             vkGetPhysicalDeviceMemoryProperties(physDevice, &memProps);
@@ -232,8 +263,8 @@ HandshakeResult handle_capabilities_request(SOCKET client_fd,
         caps.max_compute_shared_memory_size,
         caps.max_clip_distances, caps.max_cull_distances,
         caps.max_combined_clip_and_cull_distances,
-        caps.sample_counts, caps.max_tessellation_factor,
-        caps.framebuffer_color_sample_counts,
+        caps.sample_counts, caps.max_samples,
+        caps.max_tessellation_factor, caps.framebuffer_color_sample_counts,
         caps.compute_queue_count,
         true, // supports_buffer_device_address
         caps.supported_subgroup_operations,

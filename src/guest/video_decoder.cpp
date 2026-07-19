@@ -451,6 +451,12 @@ public:
                 return false;
             }
 
+            uint32_t dw = width, dh = height;
+            get_target_display_size(width, height, dw, dh);
+            create_display_window(dw, dh);
+            if (g_disp_created)
+                update_display(rgba.data(), width, height);
+
             DecodedFrame frame;
             frame.frame_id = frame_id;
             frame.width = width;
@@ -458,11 +464,6 @@ public:
             frame.timestamp_ms = timestamp_ms;
             frame.rgba_pixels = std::move(rgba);
             callback_(std::move(frame));
-            uint32_t dw = width, dh = height;
-            get_target_display_size(width, height, dw, dh);
-            create_display_window(dw, dh);
-            if (g_disp_created && !frame.rgba_pixels.empty())
-                update_display(frame.rgba_pixels.data(), width, height);
             return true;
         }
 
@@ -476,6 +477,12 @@ public:
                     std::vector<uint8_t> rgba(static_cast<size_t>(jpeg_w) * jpeg_h * 4);
                     if (tjDecompress2(tj, data, size, rgba.data(),
                                       jpeg_w, 0, jpeg_h, TJPF_RGBA, 0) == 0) {
+                        uint32_t dw = (uint32_t)jpeg_w, dh = (uint32_t)jpeg_h;
+                        get_target_display_size(dw, dh, dw, dh);
+                        create_display_window(dw, dh);
+                        if (g_disp_created)
+                            update_display(rgba.data(), (uint32_t)jpeg_w, (uint32_t)jpeg_h);
+
                         DecodedFrame frame;
                         frame.frame_id = frame_id;
                         frame.width = (uint32_t)jpeg_w;
@@ -483,11 +490,6 @@ public:
                         frame.timestamp_ms = timestamp_ms;
                         frame.rgba_pixels = std::move(rgba);
                         callback_(std::move(frame));
-                        uint32_t dw = frame.width, dh = frame.height;
-                        get_target_display_size(frame.width, frame.height, dw, dh);
-                        create_display_window(dw, dh);
-                        if (g_disp_created && !frame.rgba_pixels.empty())
-                            update_display(frame.rgba_pixels.data(), frame.width, frame.height);
                     }
                 }
                 tjDestroy(tj);
@@ -509,18 +511,22 @@ public:
         }
 
         // Passthrough (corrupted but non-crashing)
+        size_t expected_size = static_cast<size_t>(width) * height * 4;
+        std::vector<uint8_t> rgba(expected_size, 0);
+
+        uint32_t dw = width, dh = height;
+        get_target_display_size(width, height, dw, dh);
+        create_display_window(dw, dh);
+        if (g_disp_created)
+            update_display(rgba.data(), width, height);
+
         DecodedFrame frame;
         frame.frame_id = frame_id;
         frame.width = width;
         frame.height = height;
         frame.timestamp_ms = timestamp_ms;
-        frame.rgba_pixels.assign(data, data + size);
+        frame.rgba_pixels = std::move(rgba);
         callback_(std::move(frame));
-        uint32_t dw = width, dh = height;
-        get_target_display_size(width, height, dw, dh);
-        create_display_window(dw, dh);
-        if (g_disp_created && !frame.rgba_pixels.empty())
-            update_display(frame.rgba_pixels.data(), width, height);
         return true;
     }
 };

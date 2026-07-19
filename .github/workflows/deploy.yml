@@ -14,15 +14,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup vcpkg
-        uses: friendlyanon/setup-vcpkg@v1
+      - name: Restore vcpkg cache
+        uses: actions/cache@v4
         with:
-          cache: true
+          path: vcpkg
+          key: vcpkg-windows-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-windows-
+
+      - name: Setup vcpkg
+        run: |
+          if (-not (Test-Path "vcpkg")) {
+            git clone --depth=1 https://github.com/Microsoft/vcpkg.git
+          }
+          .\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+          echo "VCPKG_ROOT=${{ github.workspace }}\vcpkg" | Out-File -Append $env:GITHUB_ENV
 
       - name: Install LLVM/Clang
         run: |
-          choco install llvm -y --no-progress
+          choco install llvm -y --no-progress --allow-downgrade --force
           echo "C:\Program Files\LLVM\bin" | Out-File -Append $env:GITHUB_PATH
+
+      - name: Remove Git usr/bin from PATH (prevents Unix link.exe shadowing MSVC linker)
+        run: |
+          $gitBin = "C:\Program Files\Git\usr\bin"
+          $newPath = ($env:PATH -split ';' | Where-Object { $_ -ne $gitBin }) -join ';'
+          echo "PATH=$newPath" | Out-File -Append $env:GITHUB_ENV
 
       - name: Install Ninja
         run: choco install ninja -y --no-progress
@@ -36,6 +52,9 @@ jobs:
         run: |
           python third_party/fetch_mesa3d.py --output-dir third_party/mesa3d || echo "Mesa3D fetch skipped"
 
+      - name: Install codegen dependencies
+        run: pip install -r gen/requirements.txt
+
       - name: Generate intercept stubs
         run: python gen/generate.py --manifest gen/vulkan_api.json --output src/guest/vk_intercept_gen.cpp
 
@@ -48,49 +67,18 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          $binDir = "build/release/bin"
           $pkgDir = "omnigpu-windows-x64"
-          New-Item -ItemType Directory -Path $pkgDir -Force
+
+          # Let CMake install everything (binaries, FFmpeg DLLs, configs, Mesa3D, clvk)
+          cmake --install "build/release" --prefix "$pkgDir"
+
+          # Scripts and docs (not part of cmake install)
           New-Item -ItemType Directory -Path "$pkgDir/scripts" -Force
           New-Item -ItemType Directory -Path "$pkgDir/docs" -Force
-
-          # Copy all executable binaries
-          $binaries = @(
-            "omnigpu_guest.dll",
-            "omnigpu_host.exe",
-            "omnigpu_guestd.exe",
-            "omnigpu_vk_test.exe",
-            "vk_icd.json"
-          )
-          foreach ($bin in $binaries) {
-            if (Test-Path "$binDir/$bin") {
-              Copy-Item "$binDir/$bin" $pkgDir/
-            }
-          }
-
-          # Copy scripts
           Copy-Item "scripts/windows/quick-install.ps1" "$pkgDir/scripts/" -ErrorAction SilentlyContinue
-          Copy-Item "scripts/windows/install_guest.ps1" "$pkgDir/scripts/" -ErrorAction SilentlyContinue
-
-          # Copy configs & docs
-          Copy-Item "omnigpu_guest.json" $pkgDir/ -ErrorAction SilentlyContinue
+          Copy-Item "scripts/windows/install_guest.ps1"  "$pkgDir/scripts/" -ErrorAction SilentlyContinue
           Copy-Item "README.md" "$pkgDir/docs/" -ErrorAction SilentlyContinue
           Copy-Item "AGENTS.md" "$pkgDir/docs/" -ErrorAction SilentlyContinue
-
-          # Translation layers (if fetched)
-          if (Test-Path "third_party/zink/opengl32.dll") {
-            Copy-Item "third_party/zink/opengl32.dll" $pkgDir/
-          }
-          if (Test-Path "third_party/clvk/OpenCL.dll") {
-            Copy-Item "third_party/clvk/OpenCL.dll" $pkgDir/
-          }
-
-          # Runtime dependencies
-          Get-ChildItem "$binDir/*.dll" | ForEach-Object {
-            if (-not (Test-Path "$pkgDir/$($_.Name)")) {
-              Copy-Item $_.FullName $pkgDir/
-            }
-          }
 
           Compress-Archive -Path "$pkgDir/*" -DestinationPath "omnigpu-windows-x64.zip" -Force
 
@@ -115,18 +103,33 @@ jobs:
 
       - name: Install dependencies
         run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/llvm.asc
+          sudo add-apt-repository -y 'deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main'
           sudo apt-get update
           sudo apt-get install -y clang-19 clang++-19 ninja-build mesa-utils
 
-      - name: Setup vcpkg
-        uses: friendlyanon/setup-vcpkg@v1
+      - name: Restore vcpkg cache
+        uses: actions/cache@v4
         with:
-          cache: true
+          path: vcpkg
+          key: vcpkg-linux-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-linux-
+
+      - name: Setup vcpkg
+        run: |
+          if [ ! -d "vcpkg" ]; then
+            git clone --depth=1 https://github.com/Microsoft/vcpkg.git
+          fi
+          ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          echo "VCPKG_ROOT=$(pwd)/vcpkg" >> $GITHUB_ENV
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Install codegen dependencies
+        run: pip install -r gen/requirements.txt
 
       - name: Generate intercept stubs
         run: python gen/generate.py --manifest gen/vulkan_api.json --output src/guest/vk_intercept_gen.cpp
@@ -140,30 +143,16 @@ jobs:
       - name: Package
         run: |
           pkgDir="omnigpu-linux-x64"
-          mkdir -p "$pkgDir"
-          mkdir -p "$pkgDir/scripts"
-          mkdir -p "$pkgDir/docs"
 
-          # Core binaries
-          cp build/linux/bin/omnigpu_guest.so "$pkgDir/" 2>/dev/null || true
-          cp build/linux/bin/omnigpu_host       "$pkgDir/" 2>/dev/null || true
-          cp build/linux/bin/omnigpu_guestd      "$pkgDir/" 2>/dev/null || true
-          cp build/linux/bin/omnigpu_guest_test  "$pkgDir/" 2>/dev/null || true
-          cp build/linux/bin/omnigpu_vk_test    "$pkgDir/" 2>/dev/null || true
-          cp src/guest/vk_icd.json "$pkgDir/"
+          # Let CMake install everything (binaries, configs, clvk)
+          cmake --install build/linux --prefix "$pkgDir"
 
-          # Scripts and configs
+          # Scripts and docs (not part of cmake install)
+          mkdir -p "$pkgDir/scripts" "$pkgDir/docs"
           cp scripts/linux/install_guest.sh "$pkgDir/scripts/" 2>/dev/null || true
-          cp scripts/linux/diagnose.sh "$pkgDir/scripts/" 2>/dev/null || true
-          cp omnigpu_guest.json "$pkgDir/" 2>/dev/null || true
-
-          # Docs
+          cp scripts/linux/diagnose.sh      "$pkgDir/scripts/" 2>/dev/null || true
           cp README.md "$pkgDir/docs/" 2>/dev/null || true
           cp AGENTS.md "$pkgDir/docs/" 2>/dev/null || true
-
-          # Translation layers & libraries
-          cp third_party/clvk/*.so* "$pkgDir/" 2>/dev/null || true
-          cp /usr/lib/x86_64-linux-gnu/libGL.so* "$pkgDir/" 2>/dev/null || true
 
           tar czf "omnigpu-linux-x64.tar.gz" "$pkgDir/"
 

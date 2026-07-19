@@ -5,15 +5,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <vector>
+#include <vulkan/vulkan.h>
 
 namespace omnigpu::protocol {
 
 using Builder = flatbuffers::FlatBufferBuilder;
-
-struct SerializedMessage {
-    const uint8_t* data;
-    size_t size;
-};
 
 Builder build_command(
     fbs::FunctionId func_id,
@@ -26,12 +22,11 @@ Builder build_data(
     fbs::DataType data_type,
     uint64_t data_id,
     const uint8_t* payload,
-    size_t payload_size
+    size_t payload_size,
+    VkDeviceSize offset = 0
 );
 
 std::vector<uint8_t> to_vector(Builder& builder);
-
-SerializedMessage to_serialized(Builder& builder);
 
 const fbs::Message* verify_root(const uint8_t* data, size_t size);
 

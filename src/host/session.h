@@ -6,9 +6,7 @@
 #include "command_dispatcher.h"
 #include "config.h"
 #include "multi_gpu_compute.h"
-#include "multi_gpu_renderer.h"
 #include "renderer.h"
-#include "resource_cache.h"
 #include "video_encoder.h"
 #include <atomic>
 #include <chrono>
@@ -51,12 +49,10 @@ private:
     GpuManager& gpuMgr_;
     std::vector<int> gpuIndices_;
     int sessionId_ = 0;
-    MultiGpuRenderer multiRenderer_;
     MultiGpuCompute computeEngine_;
     host::BufferManager bufferMgr_;
     host::CommandDispatcher commandDispatcher_;
     AdaptiveCompressor adaptiveCompressor_;
-    cache::ResourceCache resourceCache_;
     std::vector<uint8_t> framebufferPixels_;
     std::unique_ptr<VideoEncoder> videoEncoder_;
     bool useVideoEncoder_ = false;
@@ -69,8 +65,8 @@ private:
     std::atomic<double> currentFps_{0.0};
 
     void handle_client();
-    bool recv_message(std::vector<uint8_t>& buffer);
-    bool send_data_message(uint64_t data_id, const uint8_t* payload, size_t payload_size);
+    bool recv_message(std::vector<uint8_t>& buffer, bool is_first = false);
+    bool send_data_message(uint64_t data_id, const uint8_t* payload, size_t payload_size, VkDeviceSize offset = 0);
     bool send_video_frame(uint64_t frame_id, uint8_t codec,
                           const uint8_t* data, size_t data_size,
                           uint32_t width, uint32_t height,

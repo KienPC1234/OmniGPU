@@ -267,6 +267,10 @@ enum FunctionId : uint16 {
   vkCreateHeadlessSurfaceEXT = 185,
   vkGetPhysicalDeviceSurfaceCapabilities2KHR = 186,
   vkGetPhysicalDeviceSurfaceFormats2KHR = 187,
+
+  // Synchronous query commands (guest → host → guest round-trip)
+  vkGetQueryPoolResults = 191,
+  vkGetImageSubresourceLayout = 192,
 }
 
 // ---------------------------------------------------------------------------
@@ -387,6 +391,7 @@ table DataMessage {
   data_type: DataType = Unknown;
   data_id: uint64 = 0;
   total_size: uint64 = 0;
+  offset: uint64 = 0;
   payload: [ubyte];
 }
 

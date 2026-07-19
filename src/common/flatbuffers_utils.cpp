@@ -2,6 +2,10 @@
 #include <cstring>
 #include <spdlog/spdlog.h>
 
+#ifdef GetMessage
+#undef GetMessage
+#endif
+
 namespace omnigpu::protocol {
 
 Builder build_command(
@@ -27,13 +31,14 @@ Builder build_data(
     fbs::DataType data_type,
     uint64_t data_id,
     const uint8_t* payload,
-    size_t payload_size
+    size_t payload_size,
+    VkDeviceSize offset
 ) {
     Builder builder;
 
     auto payload_vec = builder.CreateVector(payload, payload_size);
 
-    auto data = fbs::CreateDataMessage(builder, data_type, data_id, payload_size, payload_vec);
+    auto data = fbs::CreateDataMessage(builder, data_type, data_id, payload_size, offset, payload_vec);
 
     auto msg = fbs::CreateMessage(builder, fbs::MessagePayload_DataMessage, data.Union());
 
@@ -47,19 +52,16 @@ std::vector<uint8_t> to_vector(Builder& builder) {
     return {span.data(), span.data() + span.size()};
 }
 
-SerializedMessage to_serialized(Builder& builder) {
-    auto span = builder.GetBufferSpan();
-    return {span.data(), span.size()};
-}
-
 const fbs::Message* verify_root(const uint8_t* data, size_t size) {
+    if (!data || size == 0) {
+        SPDLOG_ERROR("verify_root: null data or zero size");
+        return nullptr;
+    }
     flatbuffers::Verifier verifier(data, size);
-
     if (!fbs::VerifyMessageBuffer(verifier)) {
         SPDLOG_ERROR("FlatBuffers verification failed");
         return nullptr;
     }
-
     return fbs::GetMessage(data);
 }
 

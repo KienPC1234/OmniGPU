@@ -125,12 +125,7 @@ else()
 endif()
 
 if(OMNIGPU_BUILD_GUEST)
-    # clvk DLLs + clspv.exe
-    if(DEFINED CLVK_DLL AND EXISTS "${CLVK_DLL}")
-        install(FILES "${CLVK_DLL}" DESTINATION "${CMAKE_INSTALL_BINDIR}")
-    endif()
-    set(CLVK_BIN_DIR "${CMAKE_SOURCE_DIR}/third_party/clvk-bin")
-    if(EXISTS "${CLVK_BIN_DIR}/clspv.exe")
-        install(PROGRAMS "${CLVK_BIN_DIR}/clspv.exe" DESTINATION "${CMAKE_INSTALL_BINDIR}")
-    endif()
+    # clvk DLLs + clspv.exe — install rules are in the root CMakeLists.txt
+    # (centralized with all other install() calls)
 endif()
+

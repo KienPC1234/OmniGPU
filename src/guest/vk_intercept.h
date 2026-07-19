@@ -18,6 +18,10 @@ PFN_vkVoidFunction get_intercept_proc(const char* name);
 #define DECL_HOOK(ret, name, ...) \
     ret VKAPI_PTR name##_hook(__VA_ARGS__)
 
+// Manual hook declarations (for functions in vk_intercept.cpp)
+DECL_HOOK(VkResult, vkAcquireNextImage2KHR, VkDevice, const VkAcquireNextImageInfoKHR*, uint32_t*);
+DECL_HOOK(void, vkCmdBlitImage2, VkCommandBuffer, const VkBlitImageInfo2*);
+
 // ---- Vulkan 1.0 Core — Auto-generated hooks ----
 DECL_HOOK(VkResult, vkQueueSubmit, VkQueue, uint32_t, const VkSubmitInfo*, VkFence);
 DECL_HOOK(VkResult, vkQueuePresentKHR, VkQueue, const VkPresentInfoKHR*);
@@ -278,6 +282,9 @@ void sync_all_mapped_memory_to_host();
 
 // Receive buffer data back from host (for vkInvalidateMappedMemoryRanges)
 void update_shadow_buffer(uint64_t mem_key, const uint8_t* data, size_t size, VkDeviceSize offset = 0);
+
+void write_query_results(uint64_t pool_key, const uint8_t* data, size_t size);
+void write_layout_result(uint64_t image_key, const uint8_t* data, size_t size);
 
 // Register a manual hook (implemented in generated vk_intercept_gen.cpp)
 void register_manual_hook(const char* name, void* func);

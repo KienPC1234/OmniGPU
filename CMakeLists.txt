@@ -136,3 +136,60 @@ if(OMNIGPU_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
 endif()
+
+# ---------------------------------------------------------------------------
+# Top-level install rules (targets not covered by subdirectory CMakeLists)
+# ---------------------------------------------------------------------------
+
+# Vulkan compute test tool
+install(
+  TARGETS omnigpu_vk_test
+  RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+  COMPONENT "Tools"
+)
+
+# Config files
+install(
+  FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/omnigpu_guest.json"
+  DESTINATION "${CMAKE_INSTALL_BINDIR}"
+  COMPONENT "Config"
+  OPTIONAL
+)
+
+if(OMNIGPU_BUILD_HOST)
+  install(
+    FILES "${CMAKE_CURRENT_SOURCE_DIR}/omnigpu_host.json"
+    DESTINATION "${CMAKE_INSTALL_BINDIR}"
+    COMPONENT "Config"
+    OPTIONAL
+  )
+endif()
+
+# Mesa3D distribution directory (opengl32.dll + libgallium_wgl.dll)
+if(OMNIGPU_FETCH_MESA3D AND OMNIGPU_BUILD_GUEST AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mesa3d")
+  install(
+    DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mesa3d/"
+    DESTINATION "${CMAKE_INSTALL_BINDIR}/mesa3d"
+    COMPONENT "ThirdParty"
+    OPTIONAL
+  )
+endif()
+
+# clvk OpenCL translation layer
+if(OMNIGPU_BUILD_GUEST AND DEFINED CLVK_DLL AND EXISTS "${CLVK_DLL}")
+  install(
+    FILES "${CLVK_DLL}"
+    DESTINATION "${CMAKE_INSTALL_BINDIR}"
+    COMPONENT "ThirdParty"
+  )
+  set(CLVK_BIN_DIR "${CMAKE_SOURCE_DIR}/third_party/clvk-bin")
+  if(EXISTS "${CLVK_BIN_DIR}/clspv.exe")
+    install(
+      PROGRAMS "${CLVK_BIN_DIR}/clspv.exe"
+      DESTINATION "${CMAKE_INSTALL_BINDIR}"
+      COMPONENT "ThirdParty"
+    )
+  endif()
+endif()
+

@@ -65,7 +65,6 @@ private:
     std::atomic<uint32_t> max_interval_ms_{16};
 
     mutable std::mutex mutex_;
-    mutable std::mutex send_mutex_;   // serialises flush() sends to prevent interleaving
     std::vector<std::vector<uint8_t>> pending_cmds_;  // each entry = one FlatBuffer Message
     size_t total_pending_bytes_ = 0;
     size_t command_count_ = 0;

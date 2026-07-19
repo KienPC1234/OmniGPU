@@ -94,6 +94,7 @@ CommandDispatcher::CommandDispatcher() {
         r.skip(sizeof(VkAllocationCallbacks));
         auto p = d.mapper_.get_command_pool(pool);
         if (p) vkDestroyCommandPool(d.mapper_.device(), p, nullptr);
+        d.mapper_.remove_command_pool(pool);
     });
     REGISTER(fbs::FunctionId_vkResetCommandPool, [](auto& d, auto& r) {
         r.read_handle(); // device
@@ -107,6 +108,7 @@ CommandDispatcher::CommandDispatcher() {
         VkCommandBufferAllocateInfo ai{};
         r.read_raw(&ai, sizeof(ai));
         ai.pNext = nullptr;
+        ai.commandPool = d.mapper_.get_command_pool(handle_to_u64(ai.commandPool));
         uint32_t count = r.read_u32();
         std::vector<VkCommandBuffer> cbs(count);
         if (count > 0 && vkAllocateCommandBuffers(d.mapper_.device(), &ai, cbs.data()) == VK_SUCCESS) {
@@ -129,6 +131,7 @@ CommandDispatcher::CommandDispatcher() {
             uint64_t gcb = r.read_handle();
             auto cb = d.mapper_.get_command_buffer(gcb);
             if (cb) cbs.push_back(cb);
+            d.mapper_.remove_command_buffer(gcb);
         }
         if (!cbs.empty() && poolH)
             vkFreeCommandBuffers(d.mapper_.device(), poolH, static_cast<uint32_t>(cbs.size()), cbs.data());
@@ -136,9 +139,26 @@ CommandDispatcher::CommandDispatcher() {
     REGISTER(fbs::FunctionId_vkBeginCommandBuffer, [](auto& d, auto& r) {
         uint64_t cb = r.read_handle();
         VkCommandBufferBeginInfo bi{};
-        r.read_raw(&bi, sizeof(bi));
+        bi.sType = static_cast<VkStructureType>(r.read_u32());
         bi.pNext = nullptr;
-        bi.pInheritanceInfo = nullptr;  // guest pointer is garbage on host
+        bi.flags = static_cast<VkCommandBufferUsageFlags>(r.read_u32());
+        
+        bool has_inherit = r.read_bool();
+        VkCommandBufferInheritanceInfo inheritInfo{};
+        if (has_inherit) {
+            inheritInfo.sType = static_cast<VkStructureType>(r.read_u32());
+            inheritInfo.pNext = nullptr;
+            inheritInfo.renderPass = d.mapper_.get_render_pass(r.read_handle());
+            inheritInfo.subpass = r.read_u32();
+            inheritInfo.framebuffer = d.mapper_.get_framebuffer(r.read_handle());
+            inheritInfo.occlusionQueryEnable = r.read_bool();
+            inheritInfo.queryFlags = static_cast<VkQueryControlFlags>(r.read_u32());
+            inheritInfo.pipelineStatistics = static_cast<VkQueryPipelineStatisticFlags>(r.read_u32());
+            bi.pInheritanceInfo = &inheritInfo;
+        } else {
+            bi.pInheritanceInfo = nullptr;
+        }
+
         d.mapper_.set_active_cmd(d.mapper_.get_command_buffer(cb));
         auto cmd = d.mapper_.active_cmd();
         if (cmd) vkBeginCommandBuffer(cmd, &bi);
@@ -179,6 +199,7 @@ CommandDispatcher::CommandDispatcher() {
         if (res == VK_SUCCESS) {
             d.mapper_.store_device_memory(pMem, mem);
             d.vramUsed_ += ai.allocationSize;
+            d.memorySizes_[pMem] = ai.allocationSize;
         } else {
             SPDLOG_ERROR("vkAllocateMemory host failed: size={} type={} res={}",
                          ai.allocationSize, ai.memoryTypeIndex, static_cast<int>(res));
@@ -194,14 +215,14 @@ CommandDispatcher::CommandDispatcher() {
         }
         VkDeviceMemory hostMem = d.mapper_.get_device_memory(gMem);
         if (hostMem != VK_NULL_HANDLE) {
-            // Deduct from VRAM tracking (we don't know the size at free time,
-            // so we store it alongside)
-            // For now, use a rough estimate. In production, store size per memory handle.
-            VkMemoryAllocateInfo ai{};
-            ai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
             vkFreeMemory(dev, hostMem, nullptr);
             d.mapper_.remove_device_memory(gMem);
-            d.vramUsed_ = d.vramUsed_ > 0 ? d.vramUsed_ - 1 : 0; // approximate
+            auto it = d.memorySizes_.find(gMem);
+            if (it != d.memorySizes_.end()) {
+                uint64_t size = it->second;
+                d.vramUsed_ = d.vramUsed_ >= size ? d.vramUsed_ - size : 0;
+                d.memorySizes_.erase(it);
+            }
         } else {
             SPDLOG_WARN("vkFreeMemory: handle {:#x} not found (double-free?)", gMem);
         }
@@ -229,10 +250,20 @@ CommandDispatcher::CommandDispatcher() {
 
             VkDeviceMemory hostMem = d.mapper_.get_device_memory(gMem);
             if (hostMem != VK_NULL_HANDLE && size > 0) {
+                VkPhysicalDeviceProperties props;
+                vkGetPhysicalDeviceProperties(d.physDev_, &props);
+                uint64_t alignment = props.limits.minMemoryMapAlignment;
+                if (alignment == 0) alignment = 64;
+
+                uint64_t aligned_offset = (offset / alignment) * alignment;
+                uint64_t alignment_diff = offset - aligned_offset;
+                uint64_t aligned_size = size + alignment_diff;
+
                 void* mapped = nullptr;
-                VkResult res = vkMapMemory(dev, hostMem, offset, size, 0, &mapped);
+                VkResult res = vkMapMemory(dev, hostMem, aligned_offset, aligned_size, 0, &mapped);
                 if (res == VK_SUCCESS && mapped) {
-                    std::memcpy(mapped, data.data(), static_cast<size_t>(size));
+                    uint8_t* target = static_cast<uint8_t*>(mapped) + alignment_diff;
+                    std::memcpy(target, data.data(), static_cast<size_t>(size));
                     vkUnmapMemory(dev, hostMem);
                 } else {
                     SPDLOG_ERROR("vkFlushMappedMemoryRanges: map failed (res={})", static_cast<int>(res));
@@ -251,14 +282,21 @@ CommandDispatcher::CommandDispatcher() {
 
             VkDeviceMemory hostMem = d.mapper_.get_device_memory(gMem);
             if (hostMem != VK_NULL_HANDLE && size > 0) {
+                VkPhysicalDeviceProperties props;
+                vkGetPhysicalDeviceProperties(d.physDev_, &props);
+                uint64_t alignment = props.limits.minMemoryMapAlignment;
+                if (alignment == 0) alignment = 64;
+
+                uint64_t aligned_offset = (offset / alignment) * alignment;
+                uint64_t alignment_diff = offset - aligned_offset;
+                uint64_t aligned_size = size + alignment_diff;
+
                 void* mapped = nullptr;
-                VkResult res = vkMapMemory(dev, hostMem, offset, size, 0, &mapped);
+                VkResult res = vkMapMemory(dev, hostMem, aligned_offset, aligned_size, 0, &mapped);
                 if (res == VK_SUCCESS && mapped) {
-                    // Read GPU memory and send back to guest via callback
+                    const uint8_t* source = static_cast<const uint8_t*>(mapped) + alignment_diff;
                     if (d.sendDataFn_) {
-                        d.sendDataFn_(gMem,
-                            static_cast<const uint8_t*>(mapped) + offset,
-                            static_cast<size_t>(size));
+                        d.sendDataFn_(gMem, source, static_cast<size_t>(size), offset);
                     }
                     vkUnmapMemory(dev, hostMem);
                 }
@@ -297,14 +335,26 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); auto buf = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
         auto b = d.mapper_.get_buffer(buf);
         if (b) vkDestroyBuffer(d.mapper_.device(), b, nullptr);
+        d.mapper_.remove_buffer(buf);
     });
     REGISTER(fbs::FunctionId_vkCreateBufferView, [](auto& d, auto& r) {
-        r.read_handle();
-        auto sz = sizeof(VkBufferViewCreateInfo);
-        r.skip(sz); r.skip(sizeof(VkAllocationCallbacks)); r.read_handle();
+        r.read_handle(); // device
+        VkBufferViewCreateInfo ci{};
+        r.read_raw(&ci, sizeof(ci));
+        ci.pNext = nullptr;
+        ci.buffer = d.mapper_.get_buffer(handle_to_u64(ci.buffer));
+        if (r.read_bool()) r.skip(sizeof(VkAllocationCallbacks));
+        uint64_t pView = r.read_handle();
+        VkBufferView view;
+        if (ci.buffer && vkCreateBufferView(d.mapper_.device(), &ci, nullptr, &view) == VK_SUCCESS) {
+            d.mapper_.store_buffer_view(pView, view);
+        }
     });
     REGISTER(fbs::FunctionId_vkDestroyBufferView, [](auto& d, auto& r) {
-        r.read_handle(); r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
+        r.read_handle(); uint64_t gView = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
+        auto view = d.mapper_.get_buffer_view(gView);
+        if (view) vkDestroyBufferView(d.mapper_.device(), view, nullptr);
+        d.mapper_.remove_buffer_view(gView);
     });
 
     // --- Image ---
@@ -324,6 +374,7 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); auto img = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
         auto i = d.mapper_.get_image(img);
         if (i) vkDestroyImage(d.mapper_.device(), i, nullptr);
+        d.mapper_.remove_image(img);
     });
     REGISTER(fbs::FunctionId_vkCreateImageView, [](auto& d, auto& r) {
         r.read_handle();
@@ -334,10 +385,14 @@ CommandDispatcher::CommandDispatcher() {
         uint64_t gImg = handle_to_u64(ci.image);
         VkImage hostImg = d.mapper_.get_image(gImg);
         if (hostImg == VK_NULL_HANDLE) {
-            // Unregistered image -> assume it is a guest swapchain image.
-            // Map it to our offscreen colorImage_.
-            hostImg = d.colorImage_;
-            ci.format = VK_FORMAT_R8G8B8A8_UNORM; // Force match colorImage_ format
+            if (d.colorImage_ != VK_NULL_HANDLE) {
+                // Unregistered image -> assume it is a guest swapchain image.
+                // Map it to our offscreen colorImage_.
+                hostImg = d.colorImage_;
+                ci.format = VK_FORMAT_R8G8B8A8_UNORM;
+            } else {
+                SPDLOG_WARN("vkCreateImageView: cannot resolve image handle {:#x}, no fallback available", gImg);
+            }
         }
         ci.image = hostImg;
         VkImageView view;
@@ -350,6 +405,7 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); auto v = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
         auto view = d.mapper_.get_image_view(v);
         if (view) vkDestroyImageView(d.mapper_.device(), view, nullptr);
+        d.mapper_.remove_image_view(v);
     });
 
     // --- Sampler ---
@@ -368,6 +424,7 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); auto s = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
         auto samp = d.mapper_.get_sampler(s);
         if (samp) vkDestroySampler(d.mapper_.device(), samp, nullptr);
+        d.mapper_.remove_sampler(s);
     });
 
     // --- Shader Module ---
@@ -395,6 +452,7 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); auto s = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
         auto sm = d.mapper_.get_shader_module(s);
         if (sm) vkDestroyShaderModule(d.mapper_.device(), sm, nullptr);
+        d.mapper_.remove_shader_module(s);
     });
 
     // --- Pipeline Layout ---
@@ -418,6 +476,7 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); auto pl = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
         auto p = d.mapper_.get_pipeline_layout(pl);
         if (p) vkDestroyPipelineLayout(d.mapper_.device(), p, nullptr);
+        d.mapper_.remove_pipeline_layout(pl);
     });
 
     // --- Pipelines (complex struct with pointer chains) ---
@@ -427,7 +486,6 @@ CommandDispatcher::CommandDispatcher() {
         uint64_t pCache = r.read_handle();
         VkPipelineCache cache = d.mapper_.get_pipeline_cache(pCache);
         uint32_t count = r.read_u32();
-        r.read_u32(); // read the second u32 count
 
         SPDLOG_INFO("vkCreateGraphicsPipelines: count={}, cache={}", count, (void*)cache);
         std::vector<VkGraphicsPipelineCreateInfo> infos(count);
@@ -487,7 +545,6 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); uint64_t pCache = r.read_handle();
         VkPipelineCache cache = d.mapper_.get_pipeline_cache(pCache);
         uint32_t count = r.read_u32();
-        r.read_u32(); // read the second u32 count
 
         std::vector<VkComputePipelineCreateInfo> infos(count);
         for (uint32_t i = 0; i < count; i++)
@@ -520,20 +577,15 @@ CommandDispatcher::CommandDispatcher() {
                 d.mapper_.store_pipeline(guestPipeline, pipelines[i]);
             }
         }
-        for (auto& info : infos) {
-            auto* spec = const_cast<VkSpecializationInfo*>(info.stage.pSpecializationInfo);
-            if (spec) {
-                delete[] spec->pMapEntries;
-                std::free(const_cast<void*>(spec->pData));
-                delete spec;
-            }
-        }
+        for (auto& info : infos)
+            free_VkComputePipelineCreateInfo(&info);
         SPDLOG_DEBUG("  vkCreateComputePipelines ({} pipelines) result={}", count, static_cast<int>(res));
     });
     REGISTER(fbs::FunctionId_vkDestroyPipeline, [](auto& d, auto& r) {
         r.read_handle(); auto pp = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
         auto p = d.mapper_.get_pipeline(pp);
         if (p) vkDestroyPipeline(d.mapper_.device(), p, nullptr);
+        d.mapper_.remove_pipeline(pp);
     });
     REGISTER(fbs::FunctionId_vkCreatePipelineCache, [](auto& d, auto& r) {
         r.read_handle(); r.skip(sizeof(VkPipelineCacheCreateInfo));
@@ -550,6 +602,7 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); auto pc = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
         auto p = d.mapper_.get_pipeline_cache(pc);
         if (p) vkDestroyPipelineCache(d.mapper_.device(), p, nullptr);
+        d.mapper_.remove_pipeline_cache(pc);
     });
 
     // --- Render Pass ---
@@ -570,6 +623,7 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); auto rp = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
         auto rph = d.mapper_.get_render_pass(rp);
         if (rph) vkDestroyRenderPass(d.mapper_.device(), rph, nullptr);
+        d.mapper_.remove_render_pass(rp);
     });
     REGISTER(fbs::FunctionId_vkCreateRenderPass2, [](auto& d, auto& r) {
         r.read_handle(); r.skip(sizeof(VkRenderPassCreateInfo2));
@@ -581,22 +635,23 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle();
         VkFramebufferCreateInfo ci{};
         read_VkFramebufferCreateInfo(r, &ci);
+        VkImage firstImg = VK_NULL_HANDLE;
         for (uint32_t i = 0; i < ci.attachmentCount; i++) {
             uint64_t gView = handle_to_u64(ci.pAttachments[i]);
             VkImageView hostView = d.mapper_.get_image_view(gView);
             if (i == 0) {
-                VkImage img = d.mapper_.get_view_image(gView);
-                if (img != VK_NULL_HANDLE) d.renderTargetImage_ = img;
+                firstImg = d.mapper_.get_view_image(gView);
             }
             const_cast<VkImageView*>(ci.pAttachments)[i] = hostView;
         }
-        if (d.renderTargetImage_ == VK_NULL_HANDLE)
-            d.renderTargetImage_ = d.colorImage_;
+        if (firstImg == VK_NULL_HANDLE)
+            firstImg = d.colorImage_;
         r.skip(sizeof(VkAllocationCallbacks));
         uint64_t pFB = r.read_handle();
         VkFramebuffer fb;
         if (vkCreateFramebuffer(d.mapper_.device(), &ci, nullptr, &fb) == VK_SUCCESS) {
             d.mapper_.store_framebuffer(pFB, fb);
+            d.framebufferRenderTarget_[pFB] = firstImg;
         }
         free_VkFramebufferCreateInfo(&ci);
     });
@@ -604,6 +659,8 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); auto fb = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
         auto f = d.mapper_.get_framebuffer(fb);
         if (f) vkDestroyFramebuffer(d.mapper_.device(), f, nullptr);
+        d.mapper_.remove_framebuffer(fb);
+        d.framebufferRenderTarget_.erase(fb);
     });
 
     // --- Descriptor Set Layout ---
@@ -611,6 +668,15 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle();
         VkDescriptorSetLayoutCreateInfo ci{};
         read_VkDescriptorSetLayoutCreateInfo(r, &ci);
+        // Remap immutable sampler handles
+        for (uint32_t b = 0; b < ci.bindingCount; b++) {
+            auto* bind = const_cast<VkDescriptorSetLayoutBinding*>(&ci.pBindings[b]);
+            if (bind->pImmutableSamplers) {
+                for (uint32_t s = 0; s < bind->descriptorCount; s++)
+                    const_cast<VkSampler*>(bind->pImmutableSamplers)[s] =
+                        d.mapper_.get_sampler(handle_to_u64(bind->pImmutableSamplers[s]));
+            }
+        }
         r.skip(sizeof(VkAllocationCallbacks));
         uint64_t pDSL = r.read_handle();
         VkDescriptorSetLayout dsl;
@@ -623,6 +689,7 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); auto g = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
         auto h = d.mapper_.get_dsl(g);
         if (h) vkDestroyDescriptorSetLayout(d.mapper_.device(), h, nullptr);
+        d.mapper_.remove_dsl(g);
     });
     REGISTER(fbs::FunctionId_vkCreateDescriptorPool, [](auto& d, auto& r) {
         r.read_handle();
@@ -640,6 +707,7 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); auto dp = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
         auto p = d.mapper_.get_dp(dp);
         if (p) vkDestroyDescriptorPool(d.mapper_.device(), p, nullptr);
+        d.mapper_.remove_dp(dp);
     });
     REGISTER(fbs::FunctionId_vkAllocateDescriptorSets, [](auto& d, auto& r) {
         r.read_handle();
@@ -664,12 +732,15 @@ CommandDispatcher::CommandDispatcher() {
         delete[] ai.pSetLayouts;
     });
     REGISTER(fbs::FunctionId_vkFreeDescriptorSets, [](auto& d, auto& r) {
-        r.read_handle(); auto dp = r.read_handle(); r.read_u32();
-        auto v = r.template read_array<uint64_t>();
+        r.read_handle();
+        auto dp = r.read_handle();
+        uint32_t count = r.read_u32();
+        auto v = r.template read_array<uint64_t>(count);
         auto pool = d.mapper_.get_dp(dp);
         for (auto& gds : v) {
             auto ds = d.mapper_.get_ds(gds);
             if (ds && pool) vkFreeDescriptorSets(d.mapper_.device(), pool, 1, &ds);
+            d.mapper_.remove_ds(gds);
         }
     });
     REGISTER(fbs::FunctionId_vkUpdateDescriptorSets, [](auto& d, auto& r) {
@@ -689,8 +760,12 @@ CommandDispatcher::CommandDispatcher() {
         uint32_t cc = r.read_u32();
         SPDLOG_INFO("vkUpdateDescriptorSets: cc={}", cc);
         std::vector<VkCopyDescriptorSet> copies(cc);
-        for (uint32_t i = 0; i < cc; i++)
+        for (uint32_t i = 0; i < cc; i++) {
             r.read_raw(&copies[i], sizeof(VkCopyDescriptorSet));
+            copies[i].pNext = nullptr;
+            copies[i].srcSet = d.mapper_.get_ds(handle_to_u64(copies[i].srcSet));
+            copies[i].dstSet = d.mapper_.get_ds(handle_to_u64(copies[i].dstSet));
+        }
 
         // Remap handles
         SPDLOG_INFO("vkUpdateDescriptorSets: remapping handles");
@@ -740,6 +815,7 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); auto f = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
         auto fence = d.mapper_.get_fence(f);
         if (fence) vkDestroyFence(d.mapper_.device(), fence, nullptr);
+        d.mapper_.remove_fence(f);
     });
     REGISTER(fbs::FunctionId_vkWaitForFences, [](auto& d, auto& r) {
         r.read_handle(); // device
@@ -795,6 +871,7 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); auto s = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
         auto sem = d.mapper_.get_semaphore(s);
         if (sem) vkDestroySemaphore(d.mapper_.device(), sem, nullptr);
+        d.mapper_.remove_semaphore(s);
     });
 
     // --- Event ---
@@ -813,6 +890,7 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); auto e = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
         auto ev = d.mapper_.get_event(e);
         if (ev) vkDestroyEvent(d.mapper_.device(), ev, nullptr);
+        d.mapper_.remove_event(e);
     });
     REGISTER(fbs::FunctionId_vkSetEvent, [](auto& d, auto& r) {
         r.read_handle(); auto e = r.read_handle();
@@ -841,6 +919,7 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); auto qp = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
         auto q = d.mapper_.get_query_pool(qp);
         if (q) vkDestroyQueryPool(d.mapper_.device(), q, nullptr);
+        d.mapper_.remove_query_pool(qp);
     });
 
     // --- Command Recording ---
@@ -853,9 +932,10 @@ CommandDispatcher::CommandDispatcher() {
     });
     REGISTER(fbs::FunctionId_vkCmdBindVertexBuffers, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint32_t first = r.read_u32(); r.read_u32();
-        auto buf_handles = r.template read_array<uint64_t>();
-        auto offsets = r.template read_array<uint64_t>();
+        uint32_t first = r.read_u32();
+        uint32_t count = r.read_u32();
+        auto buf_handles = r.template read_array<uint64_t>(count);
+        auto offsets = r.template read_array<uint64_t>(count);
         if (cb && buf_handles.size() > 0) {
             std::vector<VkBuffer> bufs;
             for (auto& g : buf_handles) bufs.push_back(d.mapper_.get_buffer(g));
@@ -875,12 +955,14 @@ CommandDispatcher::CommandDispatcher() {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         VkPipelineBindPoint bp = static_cast<VkPipelineBindPoint>(r.read_u32());
         uint64_t layout = r.read_handle();
-        uint32_t firstSet = r.read_u32(); r.read_u32();
-        auto desc_handles = r.template read_array<uint64_t>();
+        uint32_t firstSet = r.read_u32();
+        uint32_t count = r.read_u32();
+        auto desc_handles = r.template read_array<uint64_t>(count);
         uint32_t dynCount = r.read_u32();
-        auto dynOffsets = r.template read_array<uint32_t>();
+        auto dynOffsets = r.template read_array<uint32_t>(dynCount);
         if (cb) {
             VkPipelineLayout pl = d.mapper_.get_pipeline_layout(layout);
+            if (!pl) { SPDLOG_WARN("vkCmdBindDescriptorSets: null pipeline layout"); return; }
             std::vector<VkDescriptorSet> dss;
             for (auto& g : desc_handles) dss.push_back(d.mapper_.get_ds(g));
             vkCmdBindDescriptorSets(cb, bp, pl, firstSet,
@@ -890,22 +972,25 @@ CommandDispatcher::CommandDispatcher() {
     });
     REGISTER(fbs::FunctionId_vkCmdSetViewport, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint32_t first = r.read_u32(); r.read_u32();
-        auto vps = r.template read_array<VkViewport>();
+        uint32_t first = r.read_u32();
+        uint32_t count = r.read_u32();
+        auto vps = r.template read_array<VkViewport>(count);
         if (cb) vkCmdSetViewport(cb, first, static_cast<uint32_t>(vps.size()), vps.data());
     });
     REGISTER(fbs::FunctionId_vkCmdSetScissor, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint32_t first = r.read_u32(); r.read_u32();
-        auto scis = r.template read_array<VkRect2D>();
+        uint32_t first = r.read_u32();
+        uint32_t count = r.read_u32();
+        auto scis = r.template read_array<VkRect2D>(count);
         if (cb) vkCmdSetScissor(cb, first, static_cast<uint32_t>(scis.size()), scis.data());
     });
     REGISTER(fbs::FunctionId_vkCmdPushConstants, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint64_t layout = r.read_handle();
         VkShaderStageFlags stages = r.read_u32();
-        uint32_t offset = r.read_u32(); r.read_u32();
-        auto data = r.template read_array<uint8_t>();
+        uint32_t offset = r.read_u32();
+        uint32_t size = r.read_u32();
+        auto data = r.template read_array<uint8_t>(size);
         VkPipelineLayout pl = d.mapper_.get_pipeline_layout(layout);
         if (cb && data.size() > 0)
             vkCmdPushConstants(cb, pl, stages, offset, static_cast<uint32_t>(data.size()), data.data());
@@ -978,27 +1063,28 @@ CommandDispatcher::CommandDispatcher() {
     REGISTER(fbs::FunctionId_vkCmdCopyBuffer, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint64_t src = r.read_handle(); uint64_t dst = r.read_handle();
-        r.read_u32();
-        auto regions = r.template read_array<VkBufferCopy>();
+        uint32_t count = r.read_u32();
+        auto regions = r.template read_array<VkBufferCopy>(count);
         auto s = d.mapper_.get_buffer(src); auto d2 = d.mapper_.get_buffer(dst);
         if (cb && s && d2)
             vkCmdCopyBuffer(cb, s, d2, static_cast<uint32_t>(regions.size()), regions.data());
     });
     REGISTER(fbs::FunctionId_vkCmdCopyImage, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint64_t src = r.read_handle(); r.read_u32(); // srcLayout
-        uint64_t dst = r.read_handle(); r.read_u32(); // dstLayout
-        r.read_u32(); auto regions = r.template read_array<VkImageCopy>();
+        uint64_t src = r.read_handle(); VkImageLayout srcLayout = static_cast<VkImageLayout>(r.read_u32());
+        uint64_t dst = r.read_handle(); VkImageLayout dstLayout = static_cast<VkImageLayout>(r.read_u32());
+        uint32_t count = r.read_u32();
+        auto regions = r.template read_array<VkImageCopy>(count);
         auto s = d.mapper_.get_image(src); auto d2 = d.mapper_.get_image(dst);
-        if (cb && s && d2) vkCmdCopyImage(cb, s, VK_IMAGE_LAYOUT_GENERAL, d2, VK_IMAGE_LAYOUT_GENERAL,
+        if (cb && s && d2) vkCmdCopyImage(cb, s, srcLayout, d2, dstLayout,
                                            static_cast<uint32_t>(regions.size()), regions.data());
     });
     REGISTER(fbs::FunctionId_vkCmdBlitImage, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint64_t src = r.read_handle(); VkImageLayout srcLayout = static_cast<VkImageLayout>(r.read_u32());
         uint64_t dst = r.read_handle(); VkImageLayout dstLayout = static_cast<VkImageLayout>(r.read_u32());
-        r.read_u32();
-        auto regions = r.template read_array<VkImageBlit>();
+        uint32_t count = r.read_u32();
+        auto regions = r.template read_array<VkImageBlit>(count);
         VkFilter filter = static_cast<VkFilter>(r.read_u32());
         auto s = d.mapper_.get_image(src);
         auto d2 = d.mapper_.get_image(dst);
@@ -1033,8 +1119,9 @@ CommandDispatcher::CommandDispatcher() {
     REGISTER(fbs::FunctionId_vkCmdUpdateBuffer, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint64_t dst = r.read_handle();
-        uint64_t off = r.read_u64(); r.read_u64();
-        auto data = r.template read_array<uint8_t>();
+        uint64_t off = r.read_u64();
+        uint64_t size = r.read_u64();
+        auto data = r.template read_array<uint8_t>(static_cast<uint32_t>(size));
         auto b = d.mapper_.get_buffer(dst);
         if (cb && b && data.size() > 0)
             vkCmdUpdateBuffer(cb, b, off, data.size(), data.data());
@@ -1052,8 +1139,8 @@ CommandDispatcher::CommandDispatcher() {
         VkImageLayout layout = static_cast<VkImageLayout>(r.read_u32());
         VkClearColorValue color;
         r.read_raw(&color, sizeof(VkClearColorValue));
-        r.read_u32();
-        auto ranges = r.template read_array<VkImageSubresourceRange>();
+        uint32_t count = r.read_u32();
+        auto ranges = r.template read_array<VkImageSubresourceRange>(count);
         auto i = d.mapper_.get_image(img);
         if (cb && i)
             vkCmdClearColorImage(cb, i, layout, &color,
@@ -1061,17 +1148,25 @@ CommandDispatcher::CommandDispatcher() {
     });
     REGISTER(fbs::FunctionId_vkCmdClearDepthStencilImage, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
-        r.read_handle(); r.read_u32(); r.skip(sizeof(VkClearDepthStencilValue));
-        uint32_t rc = r.read_u32(); r.skip(rc * sizeof(VkImageSubresourceRange));
-        if (cb) SPDLOG_DEBUG("  vkCmdClearDepthStencilImage -> STUB");
+        VkImage img = d.mapper_.get_image(r.read_handle());
+        VkImageLayout layout = static_cast<VkImageLayout>(r.read_u32());
+        VkClearDepthStencilValue ds{};
+        r.read_raw(&ds, sizeof(ds));
+        uint32_t rc = r.read_u32();
+        std::vector<VkImageSubresourceRange> ranges(rc);
+        for (auto& rg : ranges) r.read_raw(&rg, sizeof(rg));
+        if (cb && img) vkCmdClearDepthStencilImage(cb, img, layout, &ds, rc, ranges.data());
     });
     REGISTER(fbs::FunctionId_vkCmdClearAttachments, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint32_t ac = r.read_u32();
-        // VkClearAttachment contains imageView handle (uint64_t) — but auto-gen
-        // serializes as raw struct, so we just read the raw bytes
         std::vector<VkClearAttachment> attachments(ac);
-        for (auto& a : attachments) r.read_raw(&a, sizeof(a));
+        for (uint32_t i = 0; i < ac; i++) {
+            // VkClearAttachment has: aspectMask + colorAttachment + clearValue
+            attachments[i].aspectMask = static_cast<VkImageAspectFlags>(r.read_u32());
+            attachments[i].colorAttachment = r.read_u32();
+            r.read_raw(&attachments[i].clearValue, sizeof(VkClearValue));
+        }
         uint32_t rc = r.read_u32();
         std::vector<VkClearRect> rects(rc);
         for (auto& rect : rects) r.read_raw(&rect, sizeof(rect));
@@ -1079,9 +1174,14 @@ CommandDispatcher::CommandDispatcher() {
     });
     REGISTER(fbs::FunctionId_vkCmdResolveImage, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
-        r.read_handle(); r.read_u32(); r.read_handle(); r.read_u32();
-        uint32_t rc = r.read_u32(); r.skip(rc * sizeof(VkImageResolve));
-        if (cb) SPDLOG_DEBUG("  vkCmdResolveImage -> STUB");
+        VkImage src = d.mapper_.get_image(r.read_handle());
+        VkImageLayout srcLayout = static_cast<VkImageLayout>(r.read_u32());
+        VkImage dst = d.mapper_.get_image(r.read_handle());
+        VkImageLayout dstLayout = static_cast<VkImageLayout>(r.read_u32());
+        uint32_t rc = r.read_u32();
+        std::vector<VkImageResolve> regions(rc);
+        for (auto& reg : regions) r.read_raw(&reg, sizeof(reg));
+        if (cb && src && dst) vkCmdResolveImage(cb, src, srcLayout, dst, dstLayout, rc, regions.data());
     });
     REGISTER(fbs::FunctionId_vkCmdExecuteCommands, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
@@ -1131,9 +1231,14 @@ CommandDispatcher::CommandDispatcher() {
         r.read_u32(); // contents
         if (cb) {
             bi.renderPass = d.mapper_.get_render_pass(handle_to_u64(bi.renderPass));
-            bi.framebuffer = d.mapper_.get_framebuffer(handle_to_u64(bi.framebuffer));
-            if (d.renderTargetImage_ == VK_NULL_HANDLE)
+            uint64_t gFB = handle_to_u64(bi.framebuffer);
+            bi.framebuffer = d.mapper_.get_framebuffer(gFB);
+            auto rtIt = d.framebufferRenderTarget_.find(gFB);
+            if (rtIt != d.framebufferRenderTarget_.end()) {
+                d.renderTargetImage_ = rtIt->second;
+            } else {
                 d.renderTargetImage_ = d.colorImage_;
+            }
             vkCmdBeginRenderPass(cb, &bi, VK_SUBPASS_CONTENTS_INLINE);
         }
         delete[] bi.pClearValues;
@@ -1200,9 +1305,10 @@ CommandDispatcher::CommandDispatcher() {
     // --- Query commands ---
     REGISTER(fbs::FunctionId_vkCmdBeginQuery, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint64_t qp = r.read_handle(); uint32_t q = r.read_u32(); r.read_u32();
+        uint64_t qp = r.read_handle(); uint32_t q = r.read_u32();
+        VkQueryControlFlags flags = static_cast<VkQueryControlFlags>(r.read_u32());
         auto qph = d.mapper_.get_query_pool(qp);
-        if (cb && qph) vkCmdBeginQuery(cb, qph, q, 0);
+        if (cb && qph) vkCmdBeginQuery(cb, qph, q, flags);
     });
     REGISTER(fbs::FunctionId_vkCmdEndQuery, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
@@ -1212,9 +1318,10 @@ CommandDispatcher::CommandDispatcher() {
     });
     REGISTER(fbs::FunctionId_vkCmdWriteTimestamp, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
-        r.read_u32(); uint64_t qp = r.read_handle(); uint32_t q = r.read_u32();
+        VkPipelineStageFlags stage = static_cast<VkPipelineStageFlags>(r.read_u32());
+        uint64_t qp = r.read_handle(); uint32_t q = r.read_u32();
         auto qph = d.mapper_.get_query_pool(qp);
-        if (cb && qph) vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, qph, q);
+        if (cb && qph) vkCmdWriteTimestamp(cb, static_cast<VkPipelineStageFlagBits>(stage), qph, q);
     });
     REGISTER(fbs::FunctionId_vkCmdResetQueryPool, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
@@ -1236,6 +1343,43 @@ CommandDispatcher::CommandDispatcher() {
         if (cb && pool && dstBuf)
             vkCmdCopyQueryPoolResults(cb, pool, firstQuery, queryCount,
                                        dstBuf, dstOffset, stride, flags);
+    });
+    REGISTER(fbs::FunctionId_vkGetQueryPoolResults, [](auto& d, auto& r) {
+        VkDevice dev = d.mapper_.device();
+        r.read_handle();
+        uint64_t gPool = r.read_handle();
+        uint32_t firstQuery = r.read_u32();
+        uint32_t queryCount = r.read_u32();
+        uint64_t dataSize = r.read_u64();
+        uint64_t stride = r.read_u64();
+        VkQueryResultFlags flags = static_cast<VkQueryResultFlags>(r.read_u32());
+
+        VkQueryPool pool = d.mapper_.get_query_pool(gPool);
+        std::vector<uint8_t> data(dataSize, 0);
+        if (dev && pool && dataSize > 0) {
+            VkResult res = vkGetQueryPoolResults(dev, pool, firstQuery, queryCount,
+                                                 static_cast<size_t>(dataSize), data.data(),
+                                                 static_cast<VkDeviceSize>(stride), flags);
+            if (res == VK_SUCCESS && d.sendDataFn_) {
+                d.sendDataFn_(gPool, data.data(), data.size(), 0);
+            }
+        }
+    });
+    REGISTER(fbs::FunctionId_vkGetImageSubresourceLayout, [](auto& d, auto& r) {
+        VkDevice dev = d.mapper_.device();
+        r.read_handle();
+        uint64_t gImg = r.read_handle();
+        VkImageSubresource sub{};
+        r.read_raw(&sub, sizeof(sub));
+
+        VkImage img = d.mapper_.get_image(gImg);
+        VkSubresourceLayout layout{};
+        if (dev && img) {
+            vkGetImageSubresourceLayout(dev, img, &sub, &layout);
+            if (d.sendDataFn_) {
+                d.sendDataFn_(gImg, reinterpret_cast<const uint8_t*>(&layout), sizeof(layout), 0);
+            }
+        }
     });
 
     // --- Dynamic state (Vulkan 1.3) ---
@@ -1298,13 +1442,13 @@ CommandDispatcher::CommandDispatcher() {
     REGISTER(fbs::FunctionId_vkCmdSetViewportWithCount, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint32_t count = r.read_u32();
-        auto vps = r.template read_array<VkViewport>();
+        auto vps = r.template read_array<VkViewport>(count);
         if (cb) vkCmdSetViewportWithCount(cb, count, vps.data());
     });
     REGISTER(fbs::FunctionId_vkCmdSetScissorWithCount, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint32_t count = r.read_u32();
-        auto scis = r.template read_array<VkRect2D>();
+        auto scis = r.template read_array<VkRect2D>(count);
         if (cb) vkCmdSetScissorWithCount(cb, count, scis.data());
     });
 
@@ -1314,20 +1458,46 @@ CommandDispatcher::CommandDispatcher() {
         VkDependencyFlags depFlags = static_cast<VkDependencyFlags>(r.read_u32());
         uint32_t mem_br = r.read_u32();
         std::vector<VkMemoryBarrier2> memBarriers2(mem_br);
-        for (auto& mb : memBarriers2) r.read_raw(&mb, sizeof(mb));
+        for (auto& mb : memBarriers2) {
+            mb.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+            mb.pNext = nullptr;
+            mb.srcStageMask = r.read_u64();
+            mb.srcAccessMask = r.read_u64();
+            mb.dstStageMask = r.read_u64();
+            mb.dstAccessMask = r.read_u64();
+        }
 
         uint32_t buf_br = r.read_u32();
         std::vector<VkBufferMemoryBarrier2> bufBarriers2(buf_br);
         for (auto& bb : bufBarriers2) {
-            r.read_raw(&bb, sizeof(bb));
-            bb.buffer = d.mapper_.get_buffer(handle_to_u64(bb.buffer));
+            bb.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+            bb.pNext = nullptr;
+            bb.srcStageMask = r.read_u64();
+            bb.srcAccessMask = r.read_u64();
+            bb.dstStageMask = r.read_u64();
+            bb.dstAccessMask = r.read_u64();
+            bb.srcQueueFamilyIndex = r.read_u32();
+            bb.dstQueueFamilyIndex = r.read_u32();
+            bb.buffer = d.mapper_.get_buffer(r.read_handle());
+            bb.offset = r.read_u64();
+            bb.size = r.read_u64();
         }
 
         uint32_t img_br = r.read_u32();
         std::vector<VkImageMemoryBarrier2> imgBarriers2(img_br);
         for (auto& ib : imgBarriers2) {
-            r.read_raw(&ib, sizeof(ib));
-            ib.image = d.mapper_.get_image(handle_to_u64(ib.image));
+            ib.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            ib.pNext = nullptr;
+            ib.srcStageMask = r.read_u64();
+            ib.srcAccessMask = r.read_u64();
+            ib.dstStageMask = r.read_u64();
+            ib.dstAccessMask = r.read_u64();
+            ib.oldLayout = static_cast<VkImageLayout>(r.read_u32());
+            ib.newLayout = static_cast<VkImageLayout>(r.read_u32());
+            ib.srcQueueFamilyIndex = r.read_u32();
+            ib.dstQueueFamilyIndex = r.read_u32();
+            ib.image = d.mapper_.get_image(r.read_handle());
+            r.read_raw(&ib.subresourceRange, sizeof(VkImageSubresourceRange));
         }
 
         VkDependencyInfo di{};
@@ -1339,7 +1509,13 @@ CommandDispatcher::CommandDispatcher() {
         di.pBufferMemoryBarriers = bufBarriers2.data();
         di.imageMemoryBarrierCount = img_br;
         di.pImageMemoryBarriers = imgBarriers2.data();
-        if (cb) vkCmdPipelineBarrier2(cb, &di);
+        if (cb) {
+            auto pfnCmdPipelineBarrier2 = reinterpret_cast<PFN_vkCmdPipelineBarrier2>(
+                vkGetDeviceProcAddr(d.mapper_.device(), "vkCmdPipelineBarrier2"));
+            if (pfnCmdPipelineBarrier2) {
+                pfnCmdPipelineBarrier2(cb, &di);
+            }
+        }
     });
     REGISTER(fbs::FunctionId_vkCmdBeginRendering, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
@@ -1358,6 +1534,16 @@ CommandDispatcher::CommandDispatcher() {
                         d.renderTargetImage_ = img;
                 }
             }
+            if (ri.pDepthAttachment) {
+                auto& da = const_cast<VkRenderingAttachmentInfo&>(*ri.pDepthAttachment);
+                da.imageView = d.mapper_.get_image_view(handle_to_u64(da.imageView));
+                da.resolveImageView = d.mapper_.get_image_view(handle_to_u64(da.resolveImageView));
+            }
+            if (ri.pStencilAttachment) {
+                auto& sa = const_cast<VkRenderingAttachmentInfo&>(*ri.pStencilAttachment);
+                sa.imageView = d.mapper_.get_image_view(handle_to_u64(sa.imageView));
+                sa.resolveImageView = d.mapper_.get_image_view(handle_to_u64(sa.resolveImageView));
+            }
             if (d.renderTargetImage_ == VK_NULL_HANDLE)
                 d.renderTargetImage_ = d.colorImage_;
             vkCmdBeginRendering(cb, &ri);
@@ -1369,25 +1555,156 @@ CommandDispatcher::CommandDispatcher() {
     });
 
     // --- Copy commands 2 (Vulkan 1.3) ---
-    // Note: auto-gen serializes these as raw bytes => pointer arrays (pRegions) are LOST.
-    // Best effort: read handles we can recover, remap them, skip regions.
     REGISTER(fbs::FunctionId_vkCmdCopyBuffer2, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        // VkCopyBufferInfo2 raw: sType(4) + pNext(8) + src(8) + dst(8) + regionCount(4) + pRegions ptr(8)
-        r.skip(4+8); // sType + pNext
-        (void)r.read_handle(); (void)r.read_handle(); // src + dst buffer handles (remapped but can't use without regions)
-        r.skip(4+8); // regionCount + pRegions ptr
-        if (cb) SPDLOG_DEBUG("  vkCmdCopyBuffer2: read-only (no regions due to raw struct serialization)");
+        auto cb = d.mapper_.active_cmd();
+        r.read_handle(); // cmdBuffer
+        VkBuffer src = d.mapper_.get_buffer(r.read_handle());
+        VkBuffer dst = d.mapper_.get_buffer(r.read_handle());
+        uint32_t count = r.read_u32();
+        std::vector<VkBufferCopy2> regions(count);
+        for (uint32_t i = 0; i < count; i++) {
+            r.read_raw(&regions[i], sizeof(VkBufferCopy2));
+            regions[i].pNext = nullptr;
+        }
+
+        VkCopyBufferInfo2 ci{};
+        ci.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2;
+        ci.pNext = nullptr;
+        ci.srcBuffer = src;
+        ci.dstBuffer = dst;
+        ci.regionCount = count;
+        ci.pRegions = regions.data();
+
+        if (cb && src && dst) {
+            auto pfnCmdCopyBuffer2 = reinterpret_cast<PFN_vkCmdCopyBuffer2>(
+                vkGetDeviceProcAddr(d.mapper_.device(), "vkCmdCopyBuffer2"));
+            if (pfnCmdCopyBuffer2) {
+                pfnCmdCopyBuffer2(cb, &ci);
+            }
+        }
     });
     REGISTER(fbs::FunctionId_vkCmdCopyImage2, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        r.skip(4+8);
-        uint64_t gSrc = r.read_handle(); uint64_t gDst = r.read_handle();
-        r.skip(4+4+8); // srcLayout + dstLayout + pRegions ptr
-        VkImage src = d.mapper_.get_image(gSrc);
-        VkImage dst = d.mapper_.get_image(gDst);
+        auto cb = d.mapper_.active_cmd();
+        r.read_handle();
+        VkImage src = d.mapper_.get_image(r.read_handle());
+        VkImageLayout srcLayout = static_cast<VkImageLayout>(r.read_u32());
+        VkImage dst = d.mapper_.get_image(r.read_handle());
+        VkImageLayout dstLayout = static_cast<VkImageLayout>(r.read_u32());
+        uint32_t count = r.read_u32();
+        std::vector<VkImageCopy2> regions(count);
+        for (uint32_t i = 0; i < count; i++) {
+            r.read_raw(&regions[i], sizeof(VkImageCopy2));
+            regions[i].pNext = nullptr;
+        }
+
+        VkCopyImageInfo2 ci{};
+        ci.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_INFO_2;
+        ci.pNext = nullptr;
+        ci.srcImage = src;
+        ci.srcImageLayout = srcLayout;
+        ci.dstImage = dst;
+        ci.dstImageLayout = dstLayout;
+        ci.regionCount = count;
+        ci.pRegions = regions.data();
+
         if (cb && src && dst) {
-            SPDLOG_DEBUG("  vkCmdCopyImage2: src={:#x} dst={:#x} (raw struct, skipping regions)", gSrc, gDst);
+            auto pfnCmdCopyImage2 = reinterpret_cast<PFN_vkCmdCopyImage2>(
+                vkGetDeviceProcAddr(d.mapper_.device(), "vkCmdCopyImage2"));
+            if (pfnCmdCopyImage2) {
+                pfnCmdCopyImage2(cb, &ci);
+            }
+        }
+    });
+    REGISTER(fbs::FunctionId_vkCmdCopyBufferToImage2, [](auto& d, auto& r) {
+        auto cb = d.mapper_.active_cmd();
+        r.read_handle();
+        VkBuffer src = d.mapper_.get_buffer(r.read_handle());
+        VkImage dst = d.mapper_.get_image(r.read_handle());
+        VkImageLayout dstLayout = static_cast<VkImageLayout>(r.read_u32());
+        uint32_t count = r.read_u32();
+        std::vector<VkBufferImageCopy2> regions(count);
+        for (uint32_t i = 0; i < count; i++) {
+            r.read_raw(&regions[i], sizeof(VkBufferImageCopy2));
+            regions[i].pNext = nullptr;
+        }
+
+        VkCopyBufferToImageInfo2 ci{};
+        ci.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2;
+        ci.pNext = nullptr;
+        ci.srcBuffer = src;
+        ci.dstImage = dst;
+        ci.dstImageLayout = dstLayout;
+        ci.regionCount = count;
+        ci.pRegions = regions.data();
+
+        if (cb && src && dst) {
+            auto pfnCmdCopyBufferToImage2 = reinterpret_cast<PFN_vkCmdCopyBufferToImage2>(
+                vkGetDeviceProcAddr(d.mapper_.device(), "vkCmdCopyBufferToImage2"));
+            if (pfnCmdCopyBufferToImage2) {
+                pfnCmdCopyBufferToImage2(cb, &ci);
+            }
+        }
+    });
+    REGISTER(fbs::FunctionId_vkCmdCopyImageToBuffer2, [](auto& d, auto& r) {
+        auto cb = d.mapper_.active_cmd();
+        r.read_handle();
+        VkImage src = d.mapper_.get_image(r.read_handle());
+        VkImageLayout srcLayout = static_cast<VkImageLayout>(r.read_u32());
+        VkBuffer dst = d.mapper_.get_buffer(r.read_handle());
+        uint32_t count = r.read_u32();
+        std::vector<VkBufferImageCopy2> regions(count);
+        for (uint32_t i = 0; i < count; i++) {
+            r.read_raw(&regions[i], sizeof(VkBufferImageCopy2));
+            regions[i].pNext = nullptr;
+        }
+
+        VkCopyImageToBufferInfo2 ci{};
+        ci.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_BUFFER_INFO_2;
+        ci.pNext = nullptr;
+        ci.srcImage = src;
+        ci.srcImageLayout = srcLayout;
+        ci.dstBuffer = dst;
+        ci.regionCount = count;
+        ci.pRegions = regions.data();
+
+        if (cb && src && dst) {
+            auto pfnCmdCopyImageToBuffer2 = reinterpret_cast<PFN_vkCmdCopyImageToBuffer2>(
+                vkGetDeviceProcAddr(d.mapper_.device(), "vkCmdCopyImageToBuffer2"));
+            if (pfnCmdCopyImageToBuffer2) {
+                pfnCmdCopyImageToBuffer2(cb, &ci);
+            }
+        }
+    });
+    REGISTER(fbs::FunctionId_vkCmdResolveImage2, [](auto& d, auto& r) {
+        auto cb = d.mapper_.active_cmd();
+        r.read_handle();
+        VkImage src = d.mapper_.get_image(r.read_handle());
+        VkImageLayout srcLayout = static_cast<VkImageLayout>(r.read_u32());
+        VkImage dst = d.mapper_.get_image(r.read_handle());
+        VkImageLayout dstLayout = static_cast<VkImageLayout>(r.read_u32());
+        uint32_t count = r.read_u32();
+        std::vector<VkImageResolve2> regions(count);
+        for (uint32_t i = 0; i < count; i++) {
+            r.read_raw(&regions[i], sizeof(VkImageResolve2));
+            regions[i].pNext = nullptr;
+        }
+
+        VkResolveImageInfo2 ci{};
+        ci.sType = VK_STRUCTURE_TYPE_RESOLVE_IMAGE_INFO_2;
+        ci.pNext = nullptr;
+        ci.srcImage = src;
+        ci.srcImageLayout = srcLayout;
+        ci.dstImage = dst;
+        ci.dstImageLayout = dstLayout;
+        ci.regionCount = count;
+        ci.pRegions = regions.data();
+
+        if (cb && src && dst) {
+            auto pfnCmdResolveImage2 = reinterpret_cast<PFN_vkCmdResolveImage2>(
+                vkGetDeviceProcAddr(d.mapper_.device(), "vkCmdResolveImage2"));
+            if (pfnCmdResolveImage2) {
+                pfnCmdResolveImage2(cb, &ci);
+            }
         }
     });
 
@@ -1404,16 +1721,19 @@ CommandDispatcher::CommandDispatcher() {
             auto& si = submits[i];
             for (uint32_t j = 0; j < si.commandBufferInfoCount; j++) {
                 auto& cmdInfo = const_cast<VkCommandBufferSubmitInfo&>(si.pCommandBufferInfos[j]);
+                cmdInfo.pNext = nullptr;
                 cmdInfo.commandBuffer = d.mapper_.get_command_buffer(
                     handle_to_u64(cmdInfo.commandBuffer));
             }
             for (uint32_t j = 0; j < si.waitSemaphoreInfoCount; j++) {
                 auto& semInfo = const_cast<VkSemaphoreSubmitInfo&>(si.pWaitSemaphoreInfos[j]);
+                semInfo.pNext = nullptr;
                 semInfo.semaphore = d.mapper_.get_semaphore(
                     handle_to_u64(semInfo.semaphore));
             }
             for (uint32_t j = 0; j < si.signalSemaphoreInfoCount; j++) {
                 auto& semInfo = const_cast<VkSemaphoreSubmitInfo&>(si.pSignalSemaphoreInfos[j]);
+                semInfo.pNext = nullptr;
                 semInfo.semaphore = d.mapper_.get_semaphore(
                     handle_to_u64(semInfo.semaphore));
             }
@@ -1453,6 +1773,7 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle();
         VkPrivateDataSlotCreateInfo ci{};
         r.read_raw(&ci, sizeof(ci));
+        ci.pNext = nullptr;
         r.skip(sizeof(VkAllocationCallbacks));
         uint64_t pSlot = r.read_handle();
         VkPrivateDataSlot slot;
@@ -1461,23 +1782,22 @@ CommandDispatcher::CommandDispatcher() {
         }
     });
     REGISTER(fbs::FunctionId_vkDestroyPrivateDataSlot, [](auto& d, auto& r) {
-        r.read_handle(); r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
-        SPDLOG_DEBUG("  vkDestroyPrivateDataSlot -> STUB");
+        r.read_handle(); uint64_t gSlot = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
+        auto slot = d.mapper_.get_private_data_slot(gSlot);
+        if (slot) vkDestroyPrivateDataSlot(d.mapper_.device(), slot, nullptr);
+        d.mapper_.remove_private_data_slot(gSlot);
     });
     REGISTER(fbs::FunctionId_vkSetPrivateData, [](auto& d, auto& r) {
         r.read_handle(); r.read_u32(); r.read_u64(); r.read_handle(); r.read_u64();
     });
 
-    // --- Swapchain (KHR) ---
+    // --- Swapchain (KHR) - Offscreen only ---
     REGISTER(fbs::FunctionId_vkCreateSwapchainKHR, [](auto& d, auto& r) {
         r.read_handle();
         VkSwapchainCreateInfoKHR ci{};
         read_VkSwapchainCreateInfoKHR(r, &ci);
         r.skip(sizeof(VkAllocationCallbacks));
         r.read_handle();
-        VkSwapchainKHR sc;
-        if (vkCreateSwapchainKHR(d.mapper_.device(), &ci, nullptr, &sc) == VK_SUCCESS) {
-        }
         delete[] ci.pQueueFamilyIndices;
     });
     REGISTER(fbs::FunctionId_vkDestroySwapchainKHR, [](auto& d, auto& r) {
@@ -1527,6 +1847,7 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); auto t = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
         auto tpl = d.mapper_.get_descriptor_update_template(t);
         if (tpl) vkDestroyDescriptorUpdateTemplate(d.mapper_.device(), tpl, nullptr);
+        d.mapper_.remove_descriptor_update_template(t);
     });
     REGISTER(fbs::FunctionId_vkUpdateDescriptorSetWithTemplate, [](auto& d, auto& r) {
         auto dev = d.mapper_.device();
@@ -1535,8 +1856,10 @@ CommandDispatcher::CommandDispatcher() {
         uint64_t gTpl = r.read_handle();
         auto ds = d.mapper_.get_ds(gDS);
         auto tpl = d.mapper_.get_descriptor_update_template(gTpl);
-        auto data = r.template read_array<uint8_t>();
-        if (dev && ds && tpl && data.size() > 0) {
+        uint64_t remaining = r.remaining();
+        std::vector<uint8_t> data(remaining);
+        if (remaining > 0) r.read_raw(data.data(), remaining);
+        if (dev && ds && tpl) {
             vkUpdateDescriptorSetWithTemplate(dev, ds, tpl, data.data());
         }
     });
@@ -1616,10 +1939,42 @@ CommandDispatcher::CommandDispatcher() {
 
     // --- Bind buffer/image 2 (1.1) ---
     REGISTER(fbs::FunctionId_vkBindBufferMemory2, [](auto& d, auto& r) {
-        r.read_handle(); uint32_t c = r.read_u32(); r.skip(c * sizeof(VkBindBufferMemoryInfo));
+        VkDevice dev = d.mapper_.device();
+        r.read_handle(); // device
+        uint32_t count = r.read_u32();
+        std::vector<VkBindBufferMemoryInfo> infos(count);
+        for (uint32_t i = 0; i < count; i++) {
+            r.read_raw(&infos[i], sizeof(VkBindBufferMemoryInfo));
+            infos[i].pNext = nullptr;
+            infos[i].buffer = d.mapper_.get_buffer(handle_to_u64(infos[i].buffer));
+            infos[i].memory = d.mapper_.get_device_memory(handle_to_u64(infos[i].memory));
+        }
+        if (dev && count > 0) {
+            auto pfnBindBufferMemory2 = reinterpret_cast<PFN_vkBindBufferMemory2>(
+                vkGetDeviceProcAddr(dev, "vkBindBufferMemory2"));
+            if (pfnBindBufferMemory2) {
+                pfnBindBufferMemory2(dev, count, infos.data());
+            }
+        }
     });
     REGISTER(fbs::FunctionId_vkBindImageMemory2, [](auto& d, auto& r) {
-        r.read_handle(); uint32_t c = r.read_u32(); r.skip(c * sizeof(VkBindImageMemoryInfo));
+        VkDevice dev = d.mapper_.device();
+        r.read_handle(); // device
+        uint32_t count = r.read_u32();
+        std::vector<VkBindImageMemoryInfo> infos(count);
+        for (uint32_t i = 0; i < count; i++) {
+            r.read_raw(&infos[i], sizeof(VkBindImageMemoryInfo));
+            infos[i].pNext = nullptr;
+            infos[i].image = d.mapper_.get_image(handle_to_u64(infos[i].image));
+            infos[i].memory = d.mapper_.get_device_memory(handle_to_u64(infos[i].memory));
+        }
+        if (dev && count > 0) {
+            auto pfnBindImageMemory2 = reinterpret_cast<PFN_vkBindImageMemory2>(
+                vkGetDeviceProcAddr(dev, "vkBindImageMemory2"));
+            if (pfnBindImageMemory2) {
+                pfnBindImageMemory2(dev, count, infos.data());
+            }
+        }
     });
     REGISTER(fbs::FunctionId_vkTrimCommandPool, [](auto& d, auto& r) {
         r.read_handle(); r.read_handle(); r.read_u32();
@@ -1632,15 +1987,27 @@ CommandDispatcher::CommandDispatcher() {
     // --- Draw indirect count (1.2) ---
     REGISTER(fbs::FunctionId_vkCmdDrawIndirectCount, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
-        r.read_handle(); r.read_u64(); r.read_handle(); r.read_u64();
-        r.read_u32(); r.read_u32();
-        if (cb) SPDLOG_DEBUG("  vkCmdDrawIndirectCount -> STUB");
+        VkBuffer buf = d.mapper_.get_buffer(r.read_handle());
+        VkDeviceSize offset = r.read_u64();
+        VkBuffer countBuf = d.mapper_.get_buffer(r.read_handle());
+        VkDeviceSize countOffset = r.read_u64();
+        uint32_t maxDrawCount = r.read_u32();
+        uint32_t stride = r.read_u32();
+        if (cb && buf && countBuf) {
+            vkCmdDrawIndirectCount(cb, buf, offset, countBuf, countOffset, maxDrawCount, stride);
+        }
     });
     REGISTER(fbs::FunctionId_vkCmdDrawIndexedIndirectCount, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
-        r.read_handle(); r.read_u64(); r.read_handle(); r.read_u64();
-        r.read_u32(); r.read_u32();
-        if (cb) SPDLOG_DEBUG("  vkCmdDrawIndexedIndirectCount -> STUB");
+        VkBuffer buf = d.mapper_.get_buffer(r.read_handle());
+        VkDeviceSize offset = r.read_u64();
+        VkBuffer countBuf = d.mapper_.get_buffer(r.read_handle());
+        VkDeviceSize countOffset = r.read_u64();
+        uint32_t maxDrawCount = r.read_u32();
+        uint32_t stride = r.read_u32();
+        if (cb && buf && countBuf) {
+            vkCmdDrawIndexedIndirectCount(cb, buf, offset, countBuf, countOffset, maxDrawCount, stride);
+        }
     });
 
     // --- Render pass 2 (1.2) ---
@@ -1651,9 +2018,14 @@ CommandDispatcher::CommandDispatcher() {
         r.skip(sizeof(VkSubpassBeginInfo));
         if (cb) {
             bi.renderPass = d.mapper_.get_render_pass(handle_to_u64(bi.renderPass));
-            bi.framebuffer = d.mapper_.get_framebuffer(handle_to_u64(bi.framebuffer));
-            if (d.renderTargetImage_ == VK_NULL_HANDLE)
+            uint64_t gFB = handle_to_u64(bi.framebuffer);
+            bi.framebuffer = d.mapper_.get_framebuffer(gFB);
+            auto rtIt = d.framebufferRenderTarget_.find(gFB);
+            if (rtIt != d.framebufferRenderTarget_.end()) {
+                d.renderTargetImage_ = rtIt->second;
+            } else {
                 d.renderTargetImage_ = d.colorImage_;
+            }
             vkCmdBeginRenderPass(cb, &bi, VK_SUBPASS_CONTENTS_INLINE);
         }
         delete[] bi.pClearValues;
@@ -1704,19 +2076,21 @@ CommandDispatcher::CommandDispatcher() {
 
     // --- Reset query pool (1.2) ---
     REGISTER(fbs::FunctionId_vkResetQueryPool, [](auto& d, auto& r) {
-        r.read_handle(); auto qp = r.read_handle(); r.read_u32(); r.read_u32();
+        r.read_handle(); auto qp = r.read_handle();
+        uint32_t firstQuery = r.read_u32(); uint32_t queryCount = r.read_u32();
         auto qph = d.mapper_.get_query_pool(qp);
-        if (qph) vkResetQueryPool(d.mapper_.device(), qph, 0, 0);
+        if (qph) vkResetQueryPool(d.mapper_.device(), qph, firstQuery, queryCount);
     });
 
     // --- Bind vertex buffers 2 (1.3) ---
     REGISTER(fbs::FunctionId_vkCmdBindVertexBuffers2, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint32_t first = r.read_u32(); r.read_u32();
-        auto bufs = r.template read_array<uint64_t>();
-        auto offs = r.template read_array<uint64_t>();
-        auto sizes = r.template read_array<uint64_t>();
-        auto strides = r.template read_array<uint64_t>();
+        uint32_t first = r.read_u32();
+        uint32_t count = r.read_u32();
+        auto bufs = r.template read_array<uint64_t>(count);
+        auto offs = r.template read_array<uint64_t>(count);
+        auto sizes = r.template read_array<uint64_t>(count);
+        auto strides = r.template read_array<uint64_t>(count);
         if (cb && bufs.size() > 0) {
             std::vector<VkBuffer> hbufs;
             for (auto& g : bufs) hbufs.push_back(d.mapper_.get_buffer(g));
@@ -1734,39 +2108,45 @@ CommandDispatcher::CommandDispatcher() {
     });
     REGISTER(fbs::FunctionId_vkCmdSetEvent2, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint64_t evt = r.read_handle(); r.skip(sizeof(VkDependencyInfo));
+        uint64_t evt = r.read_handle();
         auto e = d.mapper_.get_event(evt);
-        if (cb && e) vkCmdSetEvent2(cb, e, nullptr);
+        VkDependencyInfo di{};
+        read_VkDependencyInfo(r, &di);
+        // Remap buffer and image handles
+        for (uint32_t j = 0; j < di.bufferMemoryBarrierCount; j++)
+            const_cast<VkBufferMemoryBarrier2*>(di.pBufferMemoryBarriers)[j].buffer =
+                d.mapper_.get_buffer(handle_to_u64(di.pBufferMemoryBarriers[j].buffer));
+        for (uint32_t j = 0; j < di.imageMemoryBarrierCount; j++)
+            const_cast<VkImageMemoryBarrier2*>(di.pImageMemoryBarriers)[j].image =
+                d.mapper_.get_image(handle_to_u64(di.pImageMemoryBarriers[j].image));
+        if (cb && e) vkCmdSetEvent2(cb, e, &di);
+        free_VkDependencyInfo(&di);
     });
     REGISTER(fbs::FunctionId_vkCmdWaitEvents2, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint32_t ec = r.read_u32();
-        std::vector<uint64_t> events(ec);
-        for (auto& e : events) e = r.read_handle();
-        std::vector<uint64_t> eventHost(ec);
+        std::vector<VkEvent> hostEvents(ec);
         for (uint32_t i = 0; i < ec; i++)
-            eventHost[i] = handle_to_u64(d.mapper_.get_event(events[i]));
+            hostEvents[i] = d.mapper_.get_event(r.read_handle());
 
-        // Serializer writes VkDependencyInfo with counts, then skips individual barriers
-        // For each dependency info:
         std::vector<VkDependencyInfo> depInfos(ec);
         for (uint32_t i = 0; i < ec; i++) {
-            depInfos[i].sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-            depInfos[i].dependencyFlags = static_cast<VkDependencyFlags>(r.read_u32());
-            uint32_t memc = r.read_u32(); r.skip(memc * sizeof(VkMemoryBarrier2));
-            uint32_t bufc = r.read_u32(); r.skip(bufc * sizeof(VkBufferMemoryBarrier2));
-            uint32_t imgc = r.read_u32(); r.skip(imgc * sizeof(VkImageMemoryBarrier2));
+            read_VkDependencyInfo(r, &depInfos[i]);
+            for (uint32_t j = 0; j < depInfos[i].bufferMemoryBarrierCount; j++)
+                const_cast<VkBufferMemoryBarrier2*>(depInfos[i].pBufferMemoryBarriers)[j].buffer =
+                    d.mapper_.get_buffer(handle_to_u64(depInfos[i].pBufferMemoryBarriers[j].buffer));
+            for (uint32_t j = 0; j < depInfos[i].imageMemoryBarrierCount; j++)
+                const_cast<VkImageMemoryBarrier2*>(depInfos[i].pImageMemoryBarriers)[j].image =
+                    d.mapper_.get_image(handle_to_u64(depInfos[i].pImageMemoryBarriers[j].image));
         }
 
         if (cb) {
-            std::vector<VkEvent> hostEvents(ec);
-            for (uint32_t i = 0; i < ec; i++)
-                hostEvents[i] = d.mapper_.get_event(events[i]);
             auto func = reinterpret_cast<PFN_vkCmdWaitEvents2>(
                 vkGetDeviceProcAddr(d.mapper_.device(), "vkCmdWaitEvents2"));
             if (func)
                 func(cb, ec, hostEvents.data(), depInfos.data());
         }
+        for (auto& di : depInfos) free_VkDependencyInfo(&di);
     });
     REGISTER(fbs::FunctionId_vkCmdWriteTimestamp2, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
@@ -1778,29 +2158,34 @@ CommandDispatcher::CommandDispatcher() {
     // --- Blit / Resolve / CopyBufferToImage 2 (1.3) ---
     REGISTER(fbs::FunctionId_vkCmdBlitImage2, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
-        r.skip(4+8); (void)d.mapper_.get_image(r.read_handle()); (void)d.mapper_.get_image(r.read_handle());
-        r.skip(4+4+8); // filter + regionCount + pRegions ptr
-        if (cb) SPDLOG_DEBUG("  vkCmdBlitImage2 (best-effort)");
-    });
-    REGISTER(fbs::FunctionId_vkCmdResolveImage2, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        r.skip(4+8); (void)d.mapper_.get_image(r.read_handle()); (void)d.mapper_.get_image(r.read_handle());
-        r.skip(4+8); // regionCount + pRegions ptr
-        if (cb) SPDLOG_DEBUG("  vkCmdResolveImage2 (best-effort)");
-    });
-    REGISTER(fbs::FunctionId_vkCmdCopyBufferToImage2, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        r.skip(4+8); (void)d.mapper_.get_buffer(r.read_handle()); (void)d.mapper_.get_image(r.read_handle());
-        r.skip(4+4+8); // dstLayout + regionCount + pRegions ptr
-        if (cb) SPDLOG_DEBUG("  vkCmdCopyBufferToImage2 (best-effort)");
-    });
-    REGISTER(fbs::FunctionId_vkCmdCopyImageToBuffer2, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        r.skip(4+8); (void)d.mapper_.get_image(r.read_handle()); (void)d.mapper_.get_buffer(r.read_handle());
-        r.skip(4+4+8); // srcLayout + regionCount + pRegions ptr
-        if (cb) SPDLOG_DEBUG("  vkCmdCopyImageToBuffer2 (best-effort)");
-    });
+        VkImage src = d.mapper_.get_image(r.read_handle());
+        VkImageLayout srcLayout = static_cast<VkImageLayout>(r.read_u32());
+        VkImage dst = d.mapper_.get_image(r.read_handle());
+        VkImageLayout dstLayout = static_cast<VkImageLayout>(r.read_u32());
+        uint32_t regionCount = r.read_u32();
+        std::vector<VkImageBlit2> regions(regionCount);
+        for (uint32_t i = 0; i < regionCount; i++) {
+            r.read_raw(&regions[i], sizeof(VkImageBlit2));
+            regions[i].pNext = nullptr;
+        }
+        VkFilter filter = static_cast<VkFilter>(r.read_u32());
 
+        VkBlitImageInfo2 ci{};
+        ci.sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2;
+        ci.pNext = nullptr;
+        ci.srcImage = src;
+        ci.srcImageLayout = srcLayout;
+        ci.dstImage = dst;
+        ci.dstImageLayout = dstLayout;
+        ci.regionCount = regionCount;
+        ci.pRegions = regions.data();
+        ci.filter = filter;
+        if (cb && src && dst) {
+            auto pfn = reinterpret_cast<PFN_vkCmdBlitImage2>(
+                vkGetDeviceProcAddr(d.mapper_.device(), "vkCmdBlitImage2"));
+            if (pfn) pfn(cb, &ci);
+        }
+    });
     REGISTER(fbs::FunctionId_vkCmdDispatchIndirect, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint64_t buf = r.read_handle(); uint64_t off = r.read_u64();
@@ -1835,6 +2220,7 @@ void CommandDispatcher::set_device(VkPhysicalDevice physDev, VkDevice device,
                                     VkCommandPool cmdPool) {
     mapper_.set_device(device, queue, queueFamily, cmdPool);
     physDev_ = physDev;
+    cache_device_procs(device);
 }
 
 void CommandDispatcher::set_framebuffer_size(uint32_t w, uint32_t h) {
@@ -2016,13 +2402,30 @@ bool CommandDispatcher::setup_framebuffer() {
 void CommandDispatcher::teardown_framebuffer() {
     auto dev = mapper_.device();
     if (dev == VK_NULL_HANDLE) return;
-    if (readbackBuffer_) vkDestroyBuffer(dev, readbackBuffer_, nullptr);
-    if (readbackMemory_) vkFreeMemory(dev, readbackMemory_, nullptr);
-    if (mainFramebuffer_) vkDestroyFramebuffer(dev, mainFramebuffer_, nullptr);
-    if (renderPass_) vkDestroyRenderPass(dev, renderPass_, nullptr);
-    if (colorView_) vkDestroyImageView(dev, colorView_, nullptr);
-    if (colorImage_) vkDestroyImage(dev, colorImage_, nullptr);
-    if (colorMemory_) vkFreeMemory(dev, colorMemory_, nullptr);
+    if (readbackBuffer_) { vkDestroyBuffer(dev, readbackBuffer_, nullptr); readbackBuffer_ = VK_NULL_HANDLE; }
+    if (readbackMemory_) { vkFreeMemory(dev, readbackMemory_, nullptr); readbackMemory_ = VK_NULL_HANDLE; }
+    if (mainFramebuffer_) { vkDestroyFramebuffer(dev, mainFramebuffer_, nullptr); mainFramebuffer_ = VK_NULL_HANDLE; }
+    if (renderPass_) { vkDestroyRenderPass(dev, renderPass_, nullptr); renderPass_ = VK_NULL_HANDLE; }
+    if (colorView_) { vkDestroyImageView(dev, colorView_, nullptr); colorView_ = VK_NULL_HANDLE; }
+    if (colorImage_) { vkDestroyImage(dev, colorImage_, nullptr); colorImage_ = VK_NULL_HANDLE; }
+    if (colorMemory_) { vkFreeMemory(dev, colorMemory_, nullptr); colorMemory_ = VK_NULL_HANDLE; }
+    renderTargetImage_ = VK_NULL_HANDLE;
+}
+
+void CommandDispatcher::cache_device_procs(VkDevice dev) {
+    pfnCmdPipelineBarrier2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkCmdPipelineBarrier2"));
+    pfnCmdCopyBuffer2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkCmdCopyBuffer2"));
+    pfnCmdCopyImage2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkCmdCopyImage2"));
+    pfnCmdCopyBufferToImage2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkCmdCopyBufferToImage2"));
+    pfnCmdCopyImageToBuffer2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkCmdCopyImageToBuffer2"));
+    pfnCmdBlitImage2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkCmdBlitImage2"));
+    pfnCmdResolveImage2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkCmdResolveImage2"));
+    pfnQueueSubmit2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkQueueSubmit2"));
+    pfnCmdWaitEvents2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkCmdWaitEvents2"));
+    pfnCmdSetVertexInputEXT_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkCmdSetVertexInputEXT"));
+    pfnBindBufferMemory2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkBindBufferMemory2"));
+    pfnBindImageMemory2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkBindImageMemory2"));
+    pfnGetSemaphoreCounterValue_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkGetSemaphoreCounterValue"));
 }
 
 void CommandDispatcher::dispatch(fbs::FunctionId func_id,
@@ -2055,9 +2458,9 @@ bool CommandDispatcher::begin_render_pass(VkRenderPass rp, VkFramebuffer fb,
     bi.framebuffer = fb;
     bi.renderArea.extent = {w, h};
     bi.clearValueCount = 1;
-    VkClearColorValue clear = {{0.0f, 0.0f, 0.0f, 1.0f}};
-    VkClearValue cv;
-    cv.color = clear;
+    VkClearValue cv{};
+    cv.color.float32[0] = 0.0f; cv.color.float32[1] = 0.0f;
+    cv.color.float32[2] = 0.0f; cv.color.float32[3] = 1.0f;
     bi.pClearValues = &cv;
 
     vkCmdBeginRenderPass(cb, &bi, VK_SUBPASS_CONTENTS_INLINE);
@@ -2078,8 +2481,23 @@ bool CommandDispatcher::copy_image_to_readback() {
     auto q = mapper_.queue();
     if (!dev || !q) return false;
 
-    VkImage src = renderTargetImage_ != VK_NULL_HANDLE ? renderTargetImage_ : colorImage_;
+    VkImage src = (renderTargetImage_ != VK_NULL_HANDLE) ? renderTargetImage_ : colorImage_;
     if (src == VK_NULL_HANDLE || readbackBuffer_ == VK_NULL_HANDLE) return false;
+
+    // Determine source layout and access masks based on image ownership
+    VkImageLayout srcLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    VkPipelineStageFlags srcStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    VkAccessFlags srcAccess = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    VkAccessFlags dstAccess = VK_ACCESS_TRANSFER_READ_BIT;
+
+    // If this is not our own colorImage_, we don't know its exact layout.
+    // Use GENERAL as a safe universal fallback to avoid invalid transitions.
+    if (src != colorImage_) {
+        srcLayout = VK_IMAGE_LAYOUT_GENERAL;
+        srcStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        srcAccess = VK_ACCESS_MEMORY_WRITE_BIT;
+        dstAccess = VK_ACCESS_TRANSFER_READ_BIT;
+    }
 
     VkCommandBufferAllocateInfo poolAI{};
     poolAI.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -2098,7 +2516,7 @@ bool CommandDispatcher::copy_image_to_readback() {
 
     VkImageMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    barrier.oldLayout = srcLayout;
     barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -2106,11 +2524,10 @@ bool CommandDispatcher::copy_image_to_readback() {
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     barrier.subresourceRange.levelCount = 1;
     barrier.subresourceRange.layerCount = 1;
-    barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    barrier.srcAccessMask = srcAccess;
     barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 
-    vkCmdPipelineBarrier(copyCmd,
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+    vkCmdPipelineBarrier(copyCmd, srcStage,
         VK_PIPELINE_STAGE_TRANSFER_BIT,
         0, 0, nullptr, 0, nullptr, 1, &barrier);
 
@@ -2123,13 +2540,22 @@ bool CommandDispatcher::copy_image_to_readback() {
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         readbackBuffer_, 1, &region);
 
+    VkImageLayout finalLayout = (src != colorImage_)
+        ? VK_IMAGE_LAYOUT_GENERAL
+        : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    VkPipelineStageFlags finalStage = (src != colorImage_)
+        ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT
+        : VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    VkAccessFlags finalAccess = (src != colorImage_)
+        ? VK_ACCESS_MEMORY_READ_BIT
+        : VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    barrier.newLayout = finalLayout;
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    barrier.dstAccessMask = finalAccess;
     vkCmdPipelineBarrier(copyCmd,
         VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        finalStage,
         0, 0, nullptr, 0, nullptr, 1, &barrier);
 
     vkEndCommandBuffer(copyCmd);
@@ -2184,6 +2610,10 @@ bool CommandDispatcher::flush_and_readback(std::vector<uint8_t>& out_pixels) {
     VkDeviceSize size = fbWidth_ * fbHeight_ * 4;
     out_pixels.resize(static_cast<size_t>(size));
 
+    if (readbackMemory_ == VK_NULL_HANDLE) {
+        SPDLOG_ERROR("flush_and_readback: readbackMemory_ not allocated (framebuffer not set up)");
+        return false;
+    }
     void* mapped = nullptr;
     VkResult res = vkMapMemory(dev, readbackMemory_, 0, VK_WHOLE_SIZE, 0, &mapped);
     if (res == VK_SUCCESS && mapped) {

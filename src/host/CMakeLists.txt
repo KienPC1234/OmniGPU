@@ -10,8 +10,6 @@ set(HOST_SOURCES
   jpeg_encoder.cpp
   handshake.cpp
   multi_gpu_compute.cpp
-  multi_gpu_renderer.cpp
-  resource_cache.cpp
   server.cpp
   service_manager.cpp
   video_encoder.cpp
@@ -43,3 +41,34 @@ if(OMNIGPU_BUILD_FFMPEG AND FFMPEG_FOUND)
 else()
   message(STATUS "FFmpeg: disabled for host — will fall back to JPEG encoder")
 endif()
+
+# ---------------------------------------------------------------------------
+# Install rules
+# ---------------------------------------------------------------------------
+install(
+  TARGETS omnigpu_host
+  RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+  COMPONENT "Runtime"
+)
+
+# Deploy FFmpeg shared DLLs alongside the host executable (Windows only)
+if(WIN32 AND OMNIGPU_BUILD_FFMPEG AND DEFINED FFMPEG_BIN_DIR)
+  file(GLOB FFMPEG_DLLS "${FFMPEG_BIN_DIR}/*.dll")
+  if(FFMPEG_DLLS)
+    install(
+      FILES ${FFMPEG_DLLS}
+      DESTINATION "${CMAKE_INSTALL_BINDIR}"
+      COMPONENT "Runtime"
+    )
+    # Also copy to build output dir at build time so the host runs in-place
+    foreach(_dll ${FFMPEG_DLLS})
+      add_custom_command(TARGET omnigpu_host POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+          "${_dll}"
+          "$<TARGET_FILE_DIR:omnigpu_host>"
+        COMMENT "Deploying FFmpeg DLL: ${_dll}"
+      )
+    endforeach()
+  endif()
+endif()
+

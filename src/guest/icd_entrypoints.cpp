@@ -1,5 +1,8 @@
 #include "vk_intercept.h"
 #include "guest_init.h"
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include <spdlog/spdlog.h>
 
 #ifdef _WIN32
@@ -31,7 +34,15 @@
 namespace {
 
 void ensure_initialized() {
-    omnigpu::init::initialize_guest();
+    static bool s_init_attempted = false;
+    static bool s_init_ok = false;
+    if (!s_init_attempted) {
+        s_init_attempted = true;
+        s_init_ok = omnigpu::init::initialize_guest();
+        if (!s_init_ok) {
+            SPDLOG_ERROR("Guest initialization failed — forwarding disabled");
+        }
+    }
 }
 
 } // namespace
@@ -88,6 +99,11 @@ extern "C" VKAPI_ATTR void VKAPI_CALL vkDestroyInstance(
         omnigpu::intercept::get_intercept_proc("vkDestroyInstance"));
     if (func) {
         func(instance, pAllocator);
+    } else {
+        SPDLOG_ERROR("vkDestroyInstance: hook not found, using direct loader call");
+        auto loader_destroy = reinterpret_cast<void (VKAPI_PTR*)(VkInstance, const VkAllocationCallbacks*)>(
+            GetProcAddress(GetModuleHandleA("vulkan-1.dll"), "vkDestroyInstance"));
+        if (loader_destroy) loader_destroy(instance, pAllocator);
     }
 }
 

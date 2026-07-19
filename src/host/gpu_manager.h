@@ -40,7 +40,7 @@ private:
     std::vector<GpuInfo> gpus_;
     mutable std::mutex mutex_;
 
-    int compute_score(const VkPhysicalDeviceProperties& props) const;
+    int compute_score(VkPhysicalDevice physDev) const;
 };
 
 } // namespace omnigpu

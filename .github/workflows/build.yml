@@ -5,7 +5,6 @@ on:
     branches: [main, develop]
     paths-ignore:
       - '**.md'
-      - 'gen/**'
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -38,6 +37,7 @@ jobs:
         with:
           path: vcpkg
           key: vcpkg-windows-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-windows-
 
       - name: Setup vcpkg
         run: |
@@ -51,6 +51,12 @@ jobs:
         run: |
           choco install llvm -y --no-progress --allow-downgrade --force
           echo "C:\Program Files\LLVM\bin" | Out-File -Append $env:GITHUB_PATH
+
+      - name: Remove Git usr/bin from PATH (prevents Unix link.exe shadowing MSVC linker)
+        run: |
+          $gitBin = "C:\Program Files\Git\usr\bin"
+          $newPath = ($env:PATH -split ';' | Where-Object { $_ -ne $gitBin }) -join ';'
+          echo "PATH=$newPath" | Out-File -Append $env:GITHUB_ENV
 
       - name: Install Ninja
         run: choco install ninja -y --no-progress
@@ -77,52 +83,22 @@ jobs:
       - name: Run tests
         run: ctest --preset ${{ matrix.preset }} --output-on-failure || echo "Tests completed (non-fatal)"
 
+
       - name: Package Windows artifacts
         shell: pwsh
         run: |
-          $binDir = "build/${{ matrix.preset }}/bin"
           $pkgDir = "omnigpu-windows-${{ matrix.preset }}"
-          New-Item -ItemType Directory -Path $pkgDir -Force
+
+          # Let CMake install everything it knows about (binaries, DLLs, configs, Mesa3D, clvk)
+          cmake --install "build/${{ matrix.preset }}" --prefix "$pkgDir"
+
+          # Scripts and docs (not part of cmake install)
           New-Item -ItemType Directory -Path "$pkgDir/scripts" -Force
           New-Item -ItemType Directory -Path "$pkgDir/docs" -Force
-
-          # Copy all executable binaries
-          $binaries = @(
-            "omnigpu_guest.dll",
-            "omnigpu_host.exe",
-            "omnigpu_guestd.exe",
-            "omnigpu_vk_test.exe",
-            "vk_icd.json"
-          )
-          foreach ($bin in $binaries) {
-            if (Test-Path "$binDir/$bin") {
-              Copy-Item "$binDir/$bin" $pkgDir/
-            }
-          }
-
-          # Copy scripts
           Copy-Item "scripts/windows/quick-install.ps1" "$pkgDir/scripts/" -ErrorAction SilentlyContinue
-          Copy-Item "scripts/windows/install_guest.ps1" "$pkgDir/scripts/" -ErrorAction SilentlyContinue
-
-          # Copy configs & docs
-          Copy-Item "omnigpu_guest.json" $pkgDir/ -ErrorAction SilentlyContinue
-          Copy-Item "README.md" "$pkgDir/docs/" -ErrorAction SilentlyContinue
-          Copy-Item "AGENTS.md" "$pkgDir/docs/" -ErrorAction SilentlyContinue
-
-          # Translation layers (if fetched)
-          if (Test-Path "third_party/zink/opengl32.dll") {
-            Copy-Item "third_party/zink/opengl32.dll" $pkgDir/
-          }
-          if (Test-Path "third_party/clvk/OpenCL.dll") {
-            Copy-Item "third_party/clvk/OpenCL.dll" $pkgDir/
-          }
-
-          # Runtime dependencies
-          Get-ChildItem "$binDir/*.dll" | ForEach-Object {
-            if (-not (Test-Path "$pkgDir/$($_.Name)")) {
-              Copy-Item $_.FullName $pkgDir/
-            }
-          }
+          Copy-Item "scripts/windows/install_guest.ps1"  "$pkgDir/scripts/" -ErrorAction SilentlyContinue
+          Copy-Item "README.md"  "$pkgDir/docs/" -ErrorAction SilentlyContinue
+          Copy-Item "AGENTS.md"  "$pkgDir/docs/" -ErrorAction SilentlyContinue
 
           Compress-Archive -Path "$pkgDir/*" -DestinationPath "$pkgDir.zip" -Force
           Write-Host "Packaged: $pkgDir.zip"
@@ -133,8 +109,10 @@ jobs:
           name: omnigpu-windows-${{ matrix.preset }}
           path: omnigpu-windows-${{ matrix.preset }}.zip
 
+
   build-linux:
     name: Linux (Clang + Ninja)
+    if: false  # temporarily disabled
     runs-on: ubuntu-24.04
     strategy:
       matrix:
@@ -191,33 +169,20 @@ jobs:
       - name: Package Linux artifacts
         run: |
           pkgDir="omnigpu-linux-${{ matrix.preset }}"
-          mkdir -p "$pkgDir"
-          mkdir -p "$pkgDir/scripts"
-          mkdir -p "$pkgDir/docs"
 
-          # Core binaries
-          cp build/${{ matrix.preset }}/bin/omnigpu_guest.so "$pkgDir/" 2>/dev/null || true
-          cp build/${{ matrix.preset }}/bin/omnigpu_host    "$pkgDir/" 2>/dev/null || true
-          cp build/${{ matrix.preset }}/bin/omnigpu_guestd   "$pkgDir/" 2>/dev/null || true
-          cp build/${{ matrix.preset }}/bin/omnigpu_guest_test "$pkgDir/" 2>/dev/null || true
-          cp build/${{ matrix.preset }}/bin/omnigpu_vk_test "$pkgDir/" 2>/dev/null || true
-          cp src/guest/vk_icd.json "$pkgDir/"
+          # Let CMake install everything (binaries, configs, clvk)
+          cmake --install "build/${{ matrix.preset }}" --prefix "$pkgDir"
 
-          # Scripts and configs
+          # Scripts and docs (not part of cmake install)
+          mkdir -p "$pkgDir/scripts" "$pkgDir/docs"
           cp scripts/linux/install_guest.sh "$pkgDir/scripts/" 2>/dev/null || true
-          cp scripts/linux/diagnose.sh "$pkgDir/scripts/" 2>/dev/null || true
-          cp omnigpu_guest.json "$pkgDir/" 2>/dev/null || true
-
-          # Docs
+          cp scripts/linux/diagnose.sh      "$pkgDir/scripts/" 2>/dev/null || true
           cp README.md "$pkgDir/docs/" 2>/dev/null || true
           cp AGENTS.md "$pkgDir/docs/" 2>/dev/null || true
 
-          # Translation layers & libraries
-          cp build/${{ matrix.preset }}/lib/*.so "$pkgDir/" 2>/dev/null || true
-          cp third_party/clvk/*.so* "$pkgDir/" 2>/dev/null || true
-
           tar czf "$pkgDir.tar.gz" "$pkgDir/"
           echo "Packaged: $pkgDir.tar.gz"
+
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

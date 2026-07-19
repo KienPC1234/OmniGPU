@@ -397,9 +397,8 @@ def get_array_serialize_code(param: dict, all_params: list[dict]) -> str:
 
     if core_type in complex_arrays:
         fn = complex_arrays[core_type]
-        # Find the count parameter
         count_name = find_count_param(name, all_params)
-        return f'{{ ser.write_u32({count_name}); for (uint32_t _i = 0; _i < {count_name}; _i++) {fn}(ser, &{name}[_i]); }}'
+        return f'{{ for (uint32_t _i = 0; _i < {count_name}; _i++) {fn}(ser, &{name}[_i]); }}'
 
     # Find count for regular array
     count_name = find_count_param(name, all_params)
@@ -528,8 +527,21 @@ def generate(
         "vkCreateXlibSurfaceKHR",
         "vkCreateAndroidSurfaceKHR",
         "vkFlushMappedMemoryRanges",
+        "vkInvalidateMappedMemoryRanges",
         "vkQueueSubmit",
         "vkQueueSubmit2",
+        # Synchronization functions that need blocking sync_query
+        "vkWaitForFences",
+        "vkDeviceWaitIdle",
+        "vkQueueWaitIdle",
+        "vkGetSemaphoreCounterValue",
+        # VK 1.3 Copy2 commands (have manual hooks with proper region serialization)
+        "vkCmdCopyBuffer2",
+        "vkCmdCopyImage2",
+        "vkCmdCopyBufferToImage2",
+        "vkCmdCopyImageToBuffer2",
+        "vkCmdResolveImage2",
+        "vkCmdBlitImage2",
     }
     auto_functions = [f for f in functions if f["name"] not in manual_functions]
     for f in auto_functions:

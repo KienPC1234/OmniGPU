@@ -116,6 +116,7 @@ GuestConfig from_json_string(const std::string& json_str) {
         if (j.contains("max_batch_commands")) cfg.max_batch_commands = j["max_batch_commands"].get<uint32_t>();
         if (j.contains("min_batch_bytes")) cfg.min_batch_bytes = j["min_batch_bytes"].get<uint32_t>();
         if (j.contains("max_batch_bytes")) cfg.max_batch_bytes = j["max_batch_bytes"].get<uint32_t>();
+        if (j.contains("auth_token")) cfg.auth_token = j["auth_token"].get<std::string>();
 
         SPDLOG_INFO("Parsed config JSON: host={}:{}, adaptive={}",
                     cfg.host, cfg.port, cfg.adaptive_batching);
@@ -137,6 +138,7 @@ std::string to_json_string(const GuestConfig& cfg) {
     j["max_batch_commands"] = cfg.max_batch_commands;
     j["min_batch_bytes"] = cfg.min_batch_bytes;
     j["max_batch_bytes"] = cfg.max_batch_bytes;
+    j["auth_token"] = cfg.auth_token;
     return j.dump();
 }
 

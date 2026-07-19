@@ -28,6 +28,30 @@
 
 namespace omnigpu::intercept {
 
+// Forward declarations
+extern omnigpu::Client* g_client;
+
+// Global state for memory mapping / flush tracking
+static std::mutex s_map_mutex;
+static std::unordered_map<uint64_t, void*> s_mapped_ptrs;
+static std::unordered_map<uint64_t, VkDeviceSize> s_memory_sizes;
+static std::unordered_map<uint64_t, VkDevice> s_memory_devices;
+static std::unordered_map<uint64_t, VkDeviceSize> s_memory_map_offsets;
+static std::unordered_map<uint64_t, bool> s_memory_dirty;
+static std::unordered_map<uint64_t, bool> s_memory_coherent;
+struct PendingFlush { VkDeviceSize offset; VkDeviceSize size; };
+static std::unordered_map<uint64_t, std::vector<struct PendingFlush>> s_pending_flushes;
+struct QueryResultDest { void* ptr; size_t size; };
+static std::unordered_map<uint64_t, QueryResultDest> s_pending_query_results;
+struct LayoutResultDest { VkSubresourceLayout* ptr; };
+static std::unordered_map<uint64_t, LayoutResultDest> s_pending_layouts;
+static batch::CommandBatch* g_batch = nullptr;
+static std::atomic<uint32_t> g_next_fake_id{0x10000};
+
+uint64_t next_fake_handle() {
+    return g_next_fake_id.fetch_add(1, std::memory_order_relaxed);
+}
+
 // ---------------------------------------------------------------------------
 // Dispatchable handle structures (needed so the Vulkan Loader can write its magic/dispatch table pointer without crashing)
 // ---------------------------------------------------------------------------
@@ -481,9 +505,10 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties_hook(
     pProperties->apiVersion = caps.valid() ? caps.api_version : VK_API_VERSION_1_3;
     pProperties->driverVersion = caps.valid() ? caps.driver_version
                                                : VK_MAKE_API_VERSION(0, 1, 3, 0);
-    pProperties->vendorID = caps.vendor_id;
-    pProperties->deviceID = caps.device_id;
-    pProperties->deviceType = static_cast<VkPhysicalDeviceType>(caps.device_type);
+    pProperties->vendorID = caps.valid() ? caps.vendor_id : 0x10DE;
+    pProperties->deviceID = caps.valid() ? caps.device_id : 0x2684;
+    pProperties->deviceType = static_cast<VkPhysicalDeviceType>(
+        caps.valid() ? caps.device_type : 2);
     std::memcpy(pProperties->pipelineCacheUUID, "\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10", 16);
 
     pProperties->limits.maxImageDimension1D = caps.max_image_dimension_2d;
@@ -971,7 +996,39 @@ void VKAPI_PTR vkGetImageSubresourceLayout_hook(
     VkSubresourceLayout* pLayout)
 {
     SPDLOG_TRACE("Intercepted: vkGetImageSubresourceLayout");
-    if (pLayout) std::memset(pLayout, 0, sizeof(*pLayout));
+    if (!pLayout) return;
+
+    uint64_t image_key = handle_to_u64(image);
+    {
+        std::lock_guard<std::mutex> lock(s_map_mutex);
+        s_pending_layouts[image_key] = { pLayout };
+    }
+
+    serializer::VulkanSerializer ser;
+    ser.write_handle((uint64_t)device);
+    ser.write_handle(image_key);
+    ser.write_raw(pSubresource, sizeof(*pSubresource));
+
+    auto* batch = get_batch();
+    if (batch) {
+        static std::atomic<uint32_t> req_id{0xB2000000};
+        auto builder = protocol::build_command(
+            fbs::FunctionId_vkGetImageSubresourceLayout,
+            req_id.fetch_add(1),
+            ser.data(), ser.size()
+        );
+        batch->append(builder);
+        batch->flush();
+    }
+
+    if (g_client) {
+        g_client->sync_query(0x8c, image_key);
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(s_map_mutex);
+        s_pending_layouts.erase(image_key);
+    }
 }
 
 VkResult VKAPI_PTR vkGetQueryPoolResults_hook(
@@ -985,7 +1042,44 @@ VkResult VKAPI_PTR vkGetQueryPoolResults_hook(
     VkQueryResultFlags flags)
 {
     SPDLOG_TRACE("Intercepted: vkGetQueryPoolResults");
-    if (pData && dataSize > 0) std::memset(pData, 0, dataSize);
+    if (!pData || dataSize == 0) return VK_SUCCESS;
+
+    uint64_t pool_key = handle_to_u64(queryPool);
+    {
+        std::lock_guard<std::mutex> lock(s_map_mutex);
+        s_pending_query_results[pool_key] = { pData, dataSize };
+    }
+
+    serializer::VulkanSerializer ser;
+    ser.write_handle((uint64_t)device);
+    ser.write_handle(pool_key);
+    ser.write_u32(firstQuery);
+    ser.write_u32(queryCount);
+    ser.write_u64(static_cast<uint64_t>(dataSize));
+    ser.write_u64(static_cast<uint64_t>(stride));
+    ser.write_u32(static_cast<uint32_t>(flags));
+
+    auto* batch = get_batch();
+    if (batch) {
+        static std::atomic<uint32_t> req_id{0xB1000000};
+        auto builder = protocol::build_command(
+            fbs::FunctionId_vkGetQueryPoolResults,
+            req_id.fetch_add(1),
+            ser.data(), ser.size()
+        );
+        batch->append(builder);
+        batch->flush();
+    }
+
+    if (g_client) {
+        g_client->sync_query(0x8b, pool_key);
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(s_map_mutex);
+        s_pending_query_results.erase(pool_key);
+    }
+
     return VK_SUCCESS;
 }
 
@@ -1010,6 +1104,14 @@ VkResult VKAPI_PTR vkGetPipelineCacheData_hook(
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkGetFenceStatus_hook(VkDevice device, VkFence fence) {
     SPDLOG_TRACE("Intercepted: vkGetFenceStatus");
+    auto* batch = get_batch();
+    if (batch) {
+        batch->flush();
+    }
+    if (g_client) {
+        uint64_t res = g_client->sync_query(0x87, handle_to_u64(fence));
+        return static_cast<VkResult>(res);
+    }
     return VK_SUCCESS;
 }
 
@@ -1107,7 +1209,21 @@ VkResult VKAPI_PTR vkBeginCommandBuffer_hook(
 
     serializer::VulkanSerializer ser;
     ser.write_handle((uint64_t)(commandBuffer));
-    ser.write_raw(pBeginInfo, sizeof(*pBeginInfo));
+    
+    // Manual serialization of VkCommandBufferBeginInfo
+    ser.write_u32(pBeginInfo->sType);
+    ser.write_u32(pBeginInfo->flags);
+    ser.write_bool(pBeginInfo->pInheritanceInfo != nullptr);
+    if (pBeginInfo->pInheritanceInfo) {
+        const auto* pInherit = pBeginInfo->pInheritanceInfo;
+        ser.write_u32(pInherit->sType);
+        ser.write_handle(handle_to_u64(pInherit->renderPass));
+        ser.write_u32(pInherit->subpass);
+        ser.write_handle(handle_to_u64(pInherit->framebuffer));
+        ser.write_bool(pInherit->occlusionQueryEnable);
+        ser.write_u32(pInherit->queryFlags);
+        ser.write_u32(pInherit->pipelineStatistics);
+    }
 
     auto* batch = intercept::get_batch();
     if (batch) {
@@ -1175,7 +1291,7 @@ static std::unordered_map<uint64_t, std::vector<VkImage>> g_swapchain_images;
 static std::atomic<uint32_t> s_current_image{0};
 
 static uint64_t next_fake_handle_id() {
-    static std::atomic<uint64_t> counter{0x10000};
+    static std::atomic<uint64_t> counter{0x20000000};
     return counter.fetch_add(1, std::memory_order_relaxed);
 }
 
@@ -1279,6 +1395,17 @@ VkResult VKAPI_PTR vkQueuePresentKHR_hook(
         batch->force_flush();
     }
     return VK_SUCCESS;
+}
+
+VkResult VKAPI_PTR vkAcquireNextImage2KHR_hook(
+    VkDevice device, const VkAcquireNextImageInfoKHR* pAcquireInfo, uint32_t* pImageIndex)
+{
+    SPDLOG_TRACE("Intercepted: vkAcquireNextImage2KHR");
+    if (!pAcquireInfo || !pImageIndex) return VK_ERROR_INITIALIZATION_FAILED;
+    return vkAcquireNextImageKHR_hook(device, pAcquireInfo->swapchain,
+                                       pAcquireInfo->timeout,
+                                       pAcquireInfo->semaphore,
+                                       pAcquireInfo->fence, pImageIndex);
 }
 
 VkResult VKAPI_PTR vkGetDeviceGroupPresentCapabilitiesKHR_hook(
@@ -1570,28 +1697,35 @@ VkResult VKAPI_PTR vkGetPhysicalDeviceToolPropertiesEXT_hook(
 // ---------------------------------------------------------------------------
 // vkMapMemory / vkUnmapMemory — allocate host memory for guest writes
 // ---------------------------------------------------------------------------
-static std::mutex s_map_mutex;
-static std::unordered_map<uint64_t, void*> s_mapped_ptrs;
-static std::unordered_map<uint64_t, VkDeviceSize> s_memory_sizes;
-static std::unordered_map<uint64_t, VkDevice> s_memory_devices;
-// Dirty tracking: per-allocation, track if there are pending unsynced writes
-// A memory range is "dirty" after vkFlushMappedMemoryRanges is called
-// (we assume the app wrote to it before flushing)
-static std::unordered_map<uint64_t, bool> s_memory_dirty;
-// Track offset + size of last flush for partial sync optimization
-struct PendingFlush {
-    VkDeviceSize offset;
-    VkDeviceSize size;
-};
-static std::unordered_map<uint64_t, std::vector<PendingFlush>> s_pending_flushes;
+void write_query_results(uint64_t pool_key, const uint8_t* data, size_t size) {
+    std::lock_guard<std::mutex> lock(s_map_mutex);
+    auto it = s_pending_query_results.find(pool_key);
+    if (it != s_pending_query_results.end()) {
+        size_t to_copy = std::min(size, it->second.size);
+        if (it->second.ptr && to_copy > 0) {
+            std::memcpy(it->second.ptr, data, to_copy);
+        }
+    }
+}
+
+void write_layout_result(uint64_t image_key, const uint8_t* data, size_t size) {
+    std::lock_guard<std::mutex> lock(s_map_mutex);
+    auto it = s_pending_layouts.find(image_key);
+    if (it != s_pending_layouts.end()) {
+        if (it->second.ptr && size >= sizeof(VkSubresourceLayout)) {
+            std::memcpy(it->second.ptr, data, sizeof(VkSubresourceLayout));
+        }
+    }
+}
 
 // Called by vkAllocateMemory hook to track allocation sizes
-static void track_memory_allocation(VkDevice device, VkDeviceMemory memory, VkDeviceSize allocSize) {
+static void track_memory_allocation(VkDevice device, VkDeviceMemory memory, VkDeviceSize allocSize, uint32_t memoryTypeIndex) {
     uint64_t mem_key = handle_to_u64(memory);
     std::lock_guard<std::mutex> lock(s_map_mutex);
     s_memory_sizes[mem_key] = allocSize;
     s_memory_devices[mem_key] = device;
     s_memory_dirty[mem_key] = false;
+    s_memory_coherent[mem_key] = (memoryTypeIndex == 1 || memoryTypeIndex == 2);
 }
 static void untrack_memory_allocation(VkDeviceMemory memory) {
     uint64_t mem_key = handle_to_u64(memory);
@@ -1600,6 +1734,7 @@ static void untrack_memory_allocation(VkDeviceMemory memory) {
     s_memory_devices.erase(mem_key);
     s_memory_dirty.erase(mem_key);
     s_pending_flushes.erase(mem_key);
+    s_memory_coherent.erase(mem_key);
 }
 static VkDeviceSize get_memory_size(VkDeviceMemory memory) {
     uint64_t mem_key = handle_to_u64(memory);
@@ -1623,7 +1758,7 @@ VkResult VKAPI_PTR vkAllocateMemory_hook(
         fake_mem = handle_from_u64<VkDeviceMemory>(next_fake_handle());
         *pMemory = fake_mem;
         if (pAllocateInfo) {
-            track_memory_allocation(device, fake_mem, pAllocateInfo->allocationSize);
+            track_memory_allocation(device, fake_mem, pAllocateInfo->allocationSize, pAllocateInfo->memoryTypeIndex);
         }
     }
 
@@ -1705,22 +1840,25 @@ VkResult VKAPI_PTR vkMapMemory_hook(
     VkDeviceSize actual_size = resolve_map_size(memory, size, offset);
     SPDLOG_TRACE("Intercepted: vkMapMemory device={} memory={} size={} actual={}",
                  (void*)device, (void*)memory, size, actual_size);
-    if (actual_size > 0 && ppData) {
-        void* ptr = std::malloc(static_cast<size_t>(actual_size));
-        if (ptr) {
-            std::memset(ptr, 0, static_cast<size_t>(actual_size));
-            *ppData = ptr;
-            uint64_t mem_key = handle_to_u64(memory);
-            {
-                std::lock_guard<std::mutex> lock(s_map_mutex);
-                s_mapped_ptrs[mem_key] = ptr;
-            }
-            SPDLOG_DEBUG("vkMapMemory: allocated {} bytes for mem={:#x}", actual_size, mem_key);
-        } else {
-            SPDLOG_ERROR("vkMapMemory: failed to allocate {} bytes", actual_size);
-            return VK_ERROR_OUT_OF_HOST_MEMORY;
-        }
+    if (actual_size == 0) {
+        SPDLOG_ERROR("vkMapMemory: resolved size is 0 (untracked memory or VK_WHOLE_SIZE on size-0 allocation)");
+        return VK_ERROR_MEMORY_MAP_FAILED;
     }
+    if (!ppData) return VK_ERROR_INITIALIZATION_FAILED;
+    void* ptr = std::malloc(static_cast<size_t>(actual_size));
+    if (!ptr) {
+        SPDLOG_ERROR("vkMapMemory: failed to allocate {} bytes", actual_size);
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
+    std::memset(ptr, 0, static_cast<size_t>(actual_size));
+    *ppData = ptr;
+    uint64_t mem_key = handle_to_u64(memory);
+    {
+        std::lock_guard<std::mutex> lock(s_map_mutex);
+        s_mapped_ptrs[mem_key] = ptr;
+        s_memory_map_offsets[mem_key] = offset;
+    }
+    SPDLOG_DEBUG("vkMapMemory: allocated {} bytes for mem={:#x} (map_offset={})", actual_size, mem_key, offset);
     return VK_SUCCESS;
 }
 
@@ -1734,6 +1872,7 @@ void VKAPI_PTR vkUnmapMemory_hook(VkDevice device, VkDeviceMemory memory)
     if (it != s_mapped_ptrs.end()) {
         std::free(it->second);
         s_mapped_ptrs.erase(it);
+        s_memory_map_offsets.erase(mem_key);
         SPDLOG_DEBUG("vkUnmapMemory: freed mapped memory for mem={:#x}", mem_key);
     }
 }
@@ -1762,8 +1901,9 @@ VkResult VKAPI_PTR vkMapMemory2_hook(
             {
                 std::lock_guard<std::mutex> lock(s_map_mutex);
                 s_mapped_ptrs[mem_key] = ptr;
+                s_memory_map_offsets[mem_key] = pMemoryMapInfo->offset;
             }
-            SPDLOG_DEBUG("vkMapMemory2: allocated {} bytes for mem={:#x}", actual_size, mem_key);
+            SPDLOG_DEBUG("vkMapMemory2: allocated {} bytes for mem={:#x} (map_offset={})", actual_size, mem_key, pMemoryMapInfo->offset);
         } else {
             SPDLOG_ERROR("vkMapMemory2: failed to allocate {} bytes", actual_size);
             return VK_ERROR_OUT_OF_HOST_MEMORY;
@@ -1785,6 +1925,7 @@ void VKAPI_PTR vkUnmapMemory2_hook(
     if (it != s_mapped_ptrs.end()) {
         std::free(it->second);
         s_mapped_ptrs.erase(it);
+        s_memory_map_offsets.erase(mem_key);
         SPDLOG_DEBUG("vkUnmapMemory2: freed mapped memory for mem={:#x}", mem_key);
     }
 }
@@ -1797,26 +1938,54 @@ void sync_all_mapped_memory_to_host() {
     if (!batch) return;
 
     for (const auto& [mem_key, guest_ptr] : s_mapped_ptrs) {
-        // Only sync if there are pending flushes since last sync
-        auto dirty_it = s_memory_dirty.find(mem_key);
-        if (dirty_it == s_memory_dirty.end() || !dirty_it->second) continue;
+        bool is_coherent = false;
+        {
+            auto coh_it = s_memory_coherent.find(mem_key);
+            if (coh_it != s_memory_coherent.end() && coh_it->second) {
+                is_coherent = true;
+            }
+        }
 
-        VkDevice device = s_memory_devices[mem_key];
+        bool is_dirty = false;
+        auto dirty_it = s_memory_dirty.find(mem_key);
+        if (dirty_it != s_memory_dirty.end() && dirty_it->second) {
+            is_dirty = true;
+        }
+
+        if (!is_coherent && !is_dirty) continue;
+
+        VkDevice device = VK_NULL_HANDLE;
+        {
+            auto it = s_memory_devices.find(mem_key);
+            if (it != s_memory_devices.end()) device = it->second;
+        }
         VkDeviceSize total_size = s_memory_sizes[mem_key];
+        VkDeviceSize map_offset = s_memory_map_offsets[mem_key];
         if (total_size == 0 || !guest_ptr) continue;
+
+        // Adjust flush offset by map offset (guest_ptr points to map base, not allocation base)
+        auto adjust_offset = [&](VkDeviceSize raw_off, VkDeviceSize raw_size) {
+            VkDeviceSize adj_off = (raw_off > map_offset) ? (raw_off - map_offset) : 0;
+            VkDeviceSize adj_size = raw_size;
+            if (adj_off + adj_size > total_size)
+                adj_size = (adj_off < total_size) ? (total_size - adj_off) : 0;
+            return std::make_pair(adj_off, adj_size);
+        };
 
         // Check if we have tracked flush ranges — if so, only send those
         auto flush_it = s_pending_flushes.find(mem_key);
         if (flush_it != s_pending_flushes.end() && !flush_it->second.empty()) {
             for (const auto& pf : flush_it->second) {
+                auto [adj_off, adj_size] = adjust_offset(pf.offset, pf.size);
+                if (adj_size == 0) continue;
                 serializer::VulkanSerializer ser;
                 ser.write_handle((uint64_t)(device));
                 ser.write_u32(1);
                 ser.write_handle(mem_key);
                 ser.write_u64(pf.offset);
                 ser.write_u64(pf.size);
-                ser.write_raw(reinterpret_cast<const uint8_t*>(guest_ptr) + pf.offset,
-                              static_cast<size_t>(pf.size));
+                ser.write_raw(reinterpret_cast<const uint8_t*>(guest_ptr) + adj_off,
+                              static_cast<size_t>(adj_size));
 
                 static std::atomic<uint32_t> req_id{0x90000000};
                 auto builder = protocol::build_command(
@@ -1829,14 +1998,20 @@ void sync_all_mapped_memory_to_host() {
             flush_it->second.clear();
         } else {
             // Fallback: send entire range
+            VkDeviceSize adj_off = 0;
+            VkDeviceSize adj_size = total_size;
+            if (map_offset > 0) {
+                adj_off = 0;
+                adj_size = (map_offset < total_size) ? (total_size - map_offset) : 0;
+            }
             serializer::VulkanSerializer ser;
             ser.write_handle((uint64_t)(device));
             ser.write_u32(1);
             ser.write_handle(mem_key);
             ser.write_u64(0);
-            ser.write_u64(total_size);
-            ser.write_raw(reinterpret_cast<const uint8_t*>(guest_ptr),
-                          static_cast<size_t>(total_size));
+            ser.write_u64(adj_size);
+            ser.write_raw(reinterpret_cast<const uint8_t*>(guest_ptr) + adj_off,
+                          static_cast<size_t>(adj_size));
 
             static std::atomic<uint32_t> req_id{0x90000000};
             auto builder = protocol::build_command(
@@ -1847,7 +2022,9 @@ void sync_all_mapped_memory_to_host() {
             batch->append(builder);
         }
 
-        dirty_it->second = false;
+        if (dirty_it != s_memory_dirty.end()) {
+            dirty_it->second = false;
+        }
     }
 }
 
@@ -1856,54 +2033,60 @@ VkResult VKAPI_PTR vkFlushMappedMemoryRanges_hook(
 {
     SPDLOG_TRACE("Intercepted: vkFlushMappedMemoryRanges");
 
+    {
+        std::lock_guard<std::mutex> lock(s_map_mutex);
+        for (uint32_t i = 0; i < memoryRangeCount; i++) {
+            const auto& range = pMemoryRanges[i];
+            uint64_t mem_key = handle_to_u64(range.memory);
+            VkDeviceSize offset = range.offset;
+            VkDeviceSize size = resolve_map_size(range.memory, range.size, range.offset);
+
+            void* guest_ptr = nullptr;
+            auto it = s_mapped_ptrs.find(mem_key);
+            if (it != s_mapped_ptrs.end()) {
+                guest_ptr = it->second;
+            }
+
+            if (guest_ptr && size > 0) {
+                // Mark this range as pending sync
+                s_pending_flushes[mem_key].push_back({offset, size});
+                s_memory_dirty[mem_key] = true;
+            }
+        }
+    }
+
+    return VK_SUCCESS;
+}
+
+VkResult VKAPI_PTR vkInvalidateMappedMemoryRanges_hook(
+    VkDevice device, uint32_t memoryRangeCount, const VkMappedMemoryRange* pMemoryRanges)
+{
+    SPDLOG_TRACE("Intercepted: vkInvalidateMappedMemoryRanges");
     auto* batch = get_batch();
     if (batch) {
         serializer::VulkanSerializer ser;
         ser.write_handle((uint64_t)(device));
         ser.write_u32(memoryRangeCount);
-
-        {
-            std::lock_guard<std::mutex> lock(s_map_mutex);
-            for (uint32_t i = 0; i < memoryRangeCount; i++) {
-                const auto& range = pMemoryRanges[i];
-                uint64_t mem_key = handle_to_u64(range.memory);
-                VkDeviceSize offset = range.offset;
-                VkDeviceSize size = resolve_map_size(range.memory, range.size, range.offset);
-
-                ser.write_handle(mem_key);
-                ser.write_u64(offset);
-                ser.write_u64(size);
-
-                void* guest_ptr = nullptr;
-                auto it = s_mapped_ptrs.find(mem_key);
-                if (it != s_mapped_ptrs.end()) {
-                    guest_ptr = it->second;
-                }
-
-                if (guest_ptr && size > 0) {
-                    ser.write_raw(reinterpret_cast<const uint8_t*>(guest_ptr) + offset, size);
-                    // Mark this range as pending sync
-                    s_pending_flushes[mem_key].push_back({offset, size});
-                    s_memory_dirty[mem_key] = true;
-                } else {
-                    if (size > 0) {
-                        std::vector<uint8_t> dummy(size, 0);
-                        ser.write_raw(dummy.data(), size);
-                    }
-                }
-            }
+        for (uint32_t i = 0; i < memoryRangeCount; i++) {
+            ser.write_handle(handle_to_u64(pMemoryRanges[i].memory));
+            ser.write_u64(pMemoryRanges[i].offset);
+            ser.write_u64(pMemoryRanges[i].size);
         }
-
-        static std::atomic<uint32_t> req_id{0x91000000};
+        static std::atomic<uint32_t> req_id{0x95000000};
         auto builder = protocol::build_command(
-            fbs::FunctionId_vkFlushMappedMemoryRanges,
+            fbs::FunctionId_vkInvalidateMappedMemoryRanges,
             req_id.fetch_add(1, std::memory_order_relaxed),
-            ser.data(),
-            ser.size()
+            ser.data(), ser.size()
         );
         batch->append(builder);
+        batch->flush();
     }
 
+    if (g_client) {
+        for (uint32_t i = 0; i < memoryRangeCount; i++) {
+            g_client->sync_query(0x8d, handle_to_u64(pMemoryRanges[i].memory));
+        }
+    }
     return VK_SUCCESS;
 }
 
@@ -1920,11 +2103,8 @@ VkResult VKAPI_PTR vkQueueSubmit_hook(
         serializer::VulkanSerializer ser;
         ser.write_handle((uint64_t)(queue));
         ser.write_u32(static_cast<uint32_t>(submitCount));
-        {
-            ser.write_u32(submitCount);
-            for (uint32_t i = 0; i < submitCount; i++) {
-                serializer::write_VkSubmitInfo(ser, &pSubmits[i]);
-            }
+        for (uint32_t i = 0; i < submitCount; i++) {
+            serializer::write_VkSubmitInfo(ser, &pSubmits[i]);
         }
         ser.write_handle((uint64_t)(fence));
 
@@ -1958,11 +2138,8 @@ VkResult VKAPI_PTR vkQueueSubmit2_hook(
         serializer::VulkanSerializer ser;
         ser.write_handle((uint64_t)(queue));
         ser.write_u32(static_cast<uint32_t>(submitCount));
-        {
-            ser.write_u32(submitCount);
-            for (uint32_t i = 0; i < submitCount; i++) {
-                serializer::write_VkSubmitInfo2(ser, &pSubmits[i]);
-            }
+        for (uint32_t i = 0; i < submitCount; i++) {
+            serializer::write_VkSubmitInfo2(ser, &pSubmits[i]);
         }
         ser.write_handle((uint64_t)(fence));
 
@@ -1996,6 +2173,219 @@ void update_shadow_buffer(uint64_t mem_key, const uint8_t* data, size_t size, Vk
 // Static initializer: register manual hooks into the hook map
 // Runs during CRT initialization (before DllMain), safe for map insertion.
 namespace {
+using namespace omnigpu;
+using namespace omnigpu::intercept;
+VkResult VKAPI_PTR vkWaitForFences_hook(
+    VkDevice device, uint32_t fenceCount, const VkFence* pFences,
+    VkBool32 waitAll, uint64_t timeout)
+{
+    SPDLOG_TRACE("Intercepted vkWaitForFences: count={}", fenceCount);
+    auto* batch = get_batch();
+    if (batch) {
+        batch->flush();
+    }
+    VkResult final_res = VK_SUCCESS;
+    if (g_client) {
+        for (uint32_t i = 0; i < fenceCount; i++) {
+            uint64_t res = g_client->sync_query(0x85, handle_to_u64(pFences[i]));
+            if (static_cast<VkResult>(res) != VK_SUCCESS) {
+                final_res = static_cast<VkResult>(res);
+            }
+        }
+    }
+    return final_res;
+}
+
+VkResult VKAPI_PTR vkDeviceWaitIdle_hook(VkDevice device) {
+    SPDLOG_TRACE("Intercepted vkDeviceWaitIdle");
+    auto* batch = get_batch();
+    if (batch) {
+        batch->flush();
+    }
+    if (g_client) {
+        uint64_t res = g_client->sync_query(0x88, handle_to_u64(device));
+        return static_cast<VkResult>(res);
+    }
+    return VK_SUCCESS;
+}
+
+VkResult VKAPI_PTR vkQueueWaitIdle_hook(VkQueue queue) {
+    SPDLOG_TRACE("Intercepted vkQueueWaitIdle");
+    auto* batch = get_batch();
+    if (batch) {
+        batch->flush();
+    }
+    if (g_client) {
+        uint64_t res = g_client->sync_query(0x89, handle_to_u64(queue));
+        return static_cast<VkResult>(res);
+    }
+    return VK_SUCCESS;
+}
+
+VkResult VKAPI_PTR vkGetSemaphoreCounterValue_hook(
+    VkDevice device, VkSemaphore semaphore, uint64_t* pValue)
+{
+    SPDLOG_TRACE("Intercepted vkGetSemaphoreCounterValue");
+    auto* batch = get_batch();
+    if (batch) {
+        batch->flush();
+    }
+    if (g_client && pValue) {
+        uint64_t val = g_client->sync_query(0x8a, handle_to_u64(semaphore));
+        *pValue = val;
+        return VK_SUCCESS;
+    }
+    if (pValue) *pValue = 0;
+    return VK_SUCCESS;
+}
+
+void VKAPI_PTR vkCmdCopyBuffer2_hook(VkCommandBuffer commandBuffer, const VkCopyBufferInfo2* pCopyBufferInfo) {
+    SPDLOG_TRACE("Intercepted vkCmdCopyBuffer2");
+    serializer::VulkanSerializer ser;
+    ser.write_handle((uint64_t)commandBuffer);
+    ser.write_handle(handle_to_u64(pCopyBufferInfo->srcBuffer));
+    ser.write_handle(handle_to_u64(pCopyBufferInfo->dstBuffer));
+    ser.write_u32(pCopyBufferInfo->regionCount);
+    for (uint32_t i = 0; i < pCopyBufferInfo->regionCount; i++) {
+        ser.write_raw(&pCopyBufferInfo->pRegions[i], sizeof(VkBufferCopy2));
+    }
+
+    auto* batch = get_batch();
+    if (batch) {
+        static std::atomic<uint32_t> req_id{0xC1000000};
+        auto builder = protocol::build_command(
+            fbs::FunctionId_vkCmdCopyBuffer2,
+            req_id.fetch_add(1),
+            ser.data(), ser.size()
+        );
+        batch->append(builder);
+    }
+}
+
+void VKAPI_PTR vkCmdCopyImage2_hook(VkCommandBuffer commandBuffer, const VkCopyImageInfo2* pCopyImageInfo) {
+    SPDLOG_TRACE("Intercepted vkCmdCopyImage2");
+    serializer::VulkanSerializer ser;
+    ser.write_handle((uint64_t)commandBuffer);
+    ser.write_handle(handle_to_u64(pCopyImageInfo->srcImage));
+    ser.write_u32(static_cast<uint32_t>(pCopyImageInfo->srcImageLayout));
+    ser.write_handle(handle_to_u64(pCopyImageInfo->dstImage));
+    ser.write_u32(static_cast<uint32_t>(pCopyImageInfo->dstImageLayout));
+    ser.write_u32(pCopyImageInfo->regionCount);
+    for (uint32_t i = 0; i < pCopyImageInfo->regionCount; i++) {
+        ser.write_raw(&pCopyImageInfo->pRegions[i], sizeof(VkImageCopy2));
+    }
+
+    auto* batch = get_batch();
+    if (batch) {
+        static std::atomic<uint32_t> req_id{0xC2000000};
+        auto builder = protocol::build_command(
+            fbs::FunctionId_vkCmdCopyImage2,
+            req_id.fetch_add(1),
+            ser.data(), ser.size()
+        );
+        batch->append(builder);
+    }
+}
+
+void VKAPI_PTR vkCmdCopyBufferToImage2_hook(VkCommandBuffer commandBuffer, const VkCopyBufferToImageInfo2* pCopyBufferToImageInfo) {
+    SPDLOG_TRACE("Intercepted vkCmdCopyBufferToImage2");
+    serializer::VulkanSerializer ser;
+    ser.write_handle((uint64_t)commandBuffer);
+    ser.write_handle(handle_to_u64(pCopyBufferToImageInfo->srcBuffer));
+    ser.write_handle(handle_to_u64(pCopyBufferToImageInfo->dstImage));
+    ser.write_u32(static_cast<uint32_t>(pCopyBufferToImageInfo->dstImageLayout));
+    ser.write_u32(pCopyBufferToImageInfo->regionCount);
+    for (uint32_t i = 0; i < pCopyBufferToImageInfo->regionCount; i++) {
+        ser.write_raw(&pCopyBufferToImageInfo->pRegions[i], sizeof(VkBufferImageCopy2));
+    }
+
+    auto* batch = get_batch();
+    if (batch) {
+        static std::atomic<uint32_t> req_id{0xC3000000};
+        auto builder = protocol::build_command(
+            fbs::FunctionId_vkCmdCopyBufferToImage2,
+            req_id.fetch_add(1),
+            ser.data(), ser.size()
+        );
+        batch->append(builder);
+    }
+}
+
+void VKAPI_PTR vkCmdCopyImageToBuffer2_hook(VkCommandBuffer commandBuffer, const VkCopyImageToBufferInfo2* pCopyImageToBufferInfo) {
+    SPDLOG_TRACE("Intercepted vkCmdCopyImageToBuffer2");
+    serializer::VulkanSerializer ser;
+    ser.write_handle((uint64_t)commandBuffer);
+    ser.write_handle(handle_to_u64(pCopyImageToBufferInfo->srcImage));
+    ser.write_u32(static_cast<uint32_t>(pCopyImageToBufferInfo->srcImageLayout));
+    ser.write_handle(handle_to_u64(pCopyImageToBufferInfo->dstBuffer));
+    ser.write_u32(pCopyImageToBufferInfo->regionCount);
+    for (uint32_t i = 0; i < pCopyImageToBufferInfo->regionCount; i++) {
+        ser.write_raw(&pCopyImageToBufferInfo->pRegions[i], sizeof(VkBufferImageCopy2));
+    }
+
+    auto* batch = get_batch();
+    if (batch) {
+        static std::atomic<uint32_t> req_id{0xC4000000};
+        auto builder = protocol::build_command(
+            fbs::FunctionId_vkCmdCopyImageToBuffer2,
+            req_id.fetch_add(1),
+            ser.data(), ser.size()
+        );
+        batch->append(builder);
+    }
+}
+
+void VKAPI_PTR vkCmdResolveImage2_hook(VkCommandBuffer commandBuffer, const VkResolveImageInfo2* pResolveImageInfo) {
+    SPDLOG_TRACE("Intercepted vkCmdResolveImage2");
+    serializer::VulkanSerializer ser;
+    ser.write_handle((uint64_t)commandBuffer);
+    ser.write_handle(handle_to_u64(pResolveImageInfo->srcImage));
+    ser.write_u32(static_cast<uint32_t>(pResolveImageInfo->srcImageLayout));
+    ser.write_handle(handle_to_u64(pResolveImageInfo->dstImage));
+    ser.write_u32(static_cast<uint32_t>(pResolveImageInfo->dstImageLayout));
+    ser.write_u32(pResolveImageInfo->regionCount);
+    for (uint32_t i = 0; i < pResolveImageInfo->regionCount; i++) {
+        ser.write_raw(&pResolveImageInfo->pRegions[i], sizeof(VkImageResolve2));
+    }
+
+    auto* batch = get_batch();
+    if (batch) {
+        static std::atomic<uint32_t> req_id{0xC5000000};
+        auto builder = protocol::build_command(
+            fbs::FunctionId_vkCmdResolveImage2,
+            req_id.fetch_add(1),
+            ser.data(), ser.size()
+        );
+        batch->append(builder);
+    }
+}
+
+void VKAPI_PTR vkCmdBlitImage2_hook(VkCommandBuffer commandBuffer, const VkBlitImageInfo2* pBlitImageInfo) {
+    SPDLOG_TRACE("Intercepted vkCmdBlitImage2");
+    serializer::VulkanSerializer ser;
+    ser.write_handle((uint64_t)commandBuffer);
+    ser.write_handle(handle_to_u64(pBlitImageInfo->srcImage));
+    ser.write_u32(static_cast<uint32_t>(pBlitImageInfo->srcImageLayout));
+    ser.write_handle(handle_to_u64(pBlitImageInfo->dstImage));
+    ser.write_u32(static_cast<uint32_t>(pBlitImageInfo->dstImageLayout));
+    ser.write_u32(pBlitImageInfo->regionCount);
+    for (uint32_t i = 0; i < pBlitImageInfo->regionCount; i++) {
+        ser.write_raw(&pBlitImageInfo->pRegions[i], sizeof(VkImageBlit2));
+    }
+    ser.write_u32(static_cast<uint32_t>(pBlitImageInfo->filter));
+
+    auto* batch = get_batch();
+    if (batch) {
+        static std::atomic<uint32_t> req_id{0xC6000000};
+        auto builder = protocol::build_command(
+            fbs::FunctionId_vkCmdBlitImage2,
+            req_id.fetch_add(1),
+            ser.data(), ser.size()
+        );
+        batch->append(builder);
+    }
+}
+
 struct ManualHookRegistrar {
     ManualHookRegistrar() {
         using namespace omnigpu::intercept;
@@ -2101,6 +2491,7 @@ struct ManualHookRegistrar {
         register_manual_hook("vkDestroySwapchainKHR", reinterpret_cast<void*>(vkDestroySwapchainKHR_hook));
         register_manual_hook("vkGetSwapchainImagesKHR", reinterpret_cast<void*>(vkGetSwapchainImagesKHR_hook));
         register_manual_hook("vkAcquireNextImageKHR", reinterpret_cast<void*>(vkAcquireNextImageKHR_hook));
+        register_manual_hook("vkAcquireNextImage2KHR", reinterpret_cast<void*>(vkAcquireNextImage2KHR_hook));
         register_manual_hook("vkQueuePresentKHR", reinterpret_cast<void*>(vkQueuePresentKHR_hook));
         register_manual_hook("vkGetDeviceGroupPresentCapabilitiesKHR", reinterpret_cast<void*>(vkGetDeviceGroupPresentCapabilitiesKHR_hook));
 
@@ -2128,6 +2519,24 @@ struct ManualHookRegistrar {
         register_manual_hook("vkQueueSubmit2", reinterpret_cast<void*>(vkQueueSubmit2_hook));
         register_manual_hook("vkQueueSubmit2KHR", reinterpret_cast<void*>(vkQueueSubmit2_hook));
         register_manual_hook("vkFlushMappedMemoryRanges", reinterpret_cast<void*>(vkFlushMappedMemoryRanges_hook));
+        register_manual_hook("vkInvalidateMappedMemoryRanges", reinterpret_cast<void*>(vkInvalidateMappedMemoryRanges_hook));
+
+        register_manual_hook("vkWaitForFences", reinterpret_cast<void*>(vkWaitForFences_hook));
+        register_manual_hook("vkDeviceWaitIdle", reinterpret_cast<void*>(vkDeviceWaitIdle_hook));
+        register_manual_hook("vkQueueWaitIdle", reinterpret_cast<void*>(vkQueueWaitIdle_hook));
+        register_manual_hook("vkGetSemaphoreCounterValue", reinterpret_cast<void*>(vkGetSemaphoreCounterValue_hook));
+        register_manual_hook("vkCmdCopyBuffer2", reinterpret_cast<void*>(vkCmdCopyBuffer2_hook));
+        register_manual_hook("vkCmdCopyImage2", reinterpret_cast<void*>(vkCmdCopyImage2_hook));
+        register_manual_hook("vkCmdCopyBufferToImage2", reinterpret_cast<void*>(vkCmdCopyBufferToImage2_hook));
+        register_manual_hook("vkCmdCopyImageToBuffer2", reinterpret_cast<void*>(vkCmdCopyImageToBuffer2_hook));
+        register_manual_hook("vkCmdResolveImage2", reinterpret_cast<void*>(vkCmdResolveImage2_hook));
+        register_manual_hook("vkCmdBlitImage2", reinterpret_cast<void*>(vkCmdBlitImage2_hook));
+        register_manual_hook("vkCmdBlitImage2KHR", reinterpret_cast<void*>(vkCmdBlitImage2_hook));
+        register_manual_hook("vkCmdCopyBuffer2KHR", reinterpret_cast<void*>(vkCmdCopyBuffer2_hook));
+        register_manual_hook("vkCmdCopyImage2KHR", reinterpret_cast<void*>(vkCmdCopyImage2_hook));
+        register_manual_hook("vkCmdCopyBufferToImage2KHR", reinterpret_cast<void*>(vkCmdCopyBufferToImage2_hook));
+        register_manual_hook("vkCmdCopyImageToBuffer2KHR", reinterpret_cast<void*>(vkCmdCopyImageToBuffer2_hook));
+        register_manual_hook("vkCmdResolveImage2KHR", reinterpret_cast<void*>(vkCmdResolveImage2_hook));
     }
 } s_manual_registrar;
 }

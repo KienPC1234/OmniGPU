@@ -30,7 +30,7 @@ std::atomic<bool> g_running{false};
 std::once_flag g_init_flag;
 bool g_init_result = false;
 
-bool do_handshake(Client& client) {
+bool do_handshake(Client& client, const std::string& auth_token) {
     caps::GpuCapabilities cached_caps;
     cache::CacheManager cache(client.host(), client.port());
     bool is_cached = cache.load(cached_caps);
@@ -56,7 +56,11 @@ bool do_handshake(Client& client) {
     }
 #endif
 
-    auto req = fbs::CreateCapabilitiesRequest(builder, 1, pref_w, pref_h);
+    flatbuffers::Offset<flatbuffers::String> token_str;
+    if (!auth_token.empty())
+        token_str = builder.CreateString(auth_token);
+    auto req = fbs::CreateCapabilitiesRequest(builder, 1, pref_w, pref_h,
+        auth_token.empty() ? 0 : token_str);
     auto msg = fbs::CreateMessage(
         builder, fbs::MessagePayload_CapabilitiesRequest, req.Union());
     builder.Finish(msg);
@@ -222,7 +226,7 @@ bool connect_to_host() {
             return;
         }
 
-        if (!do_handshake(*g_client)) {
+        if (!do_handshake(*g_client, cfg.auth_token)) {
             SPDLOG_WARN("Handshake failed, continuing with defaults");
         }
 
@@ -269,19 +273,7 @@ bool connect_to_host() {
                 }
                 auto* msg = protocol::verify_root(buf.data(), buf.size());
                 if (!msg) continue;
-                if (msg->payload_type() == fbs::MessagePayload_VideoFrame) {
-                    auto* vf = msg->payload_as_VideoFrame();
-                    if (vf && g_decoder) {
-                        auto* payload = vf->data();
-                        g_decoder->decode(
-                            static_cast<video::Codec>(vf->codec()),
-                            vf->is_keyframe(),
-                            payload ? payload->data() : nullptr,
-                            payload ? payload->size() : 0,
-                            vf->frame_id(), vf->timestamp_ms(),
-                            vf->width(), vf->height());
-                    }
-                } else if (msg->payload_type() == fbs::MessagePayload_DataMessage) {
+                if (msg->payload_type() == fbs::MessagePayload_DataMessage) {
                     auto* dm = msg->payload_as_DataMessage();
                     if (!dm || !dm->payload()) continue;
 
@@ -293,12 +285,29 @@ bool connect_to_host() {
                             mem_key,
                             payload ? payload->data() : nullptr,
                             payload ? payload->size() : 0,
-                            0);
-                    } else if (dm->payload()->size() >= 8) {
-                        // Legacy sync response
-                        uint64_t result = 0;
-                        std::memcpy(&result, dm->payload()->data(), 8);
-                        g_client->set_sync_response(result);
+                            dm->offset());
+                    } else if (dm->data_type() == fbs::DataType_Unknown) {
+                        uint64_t key = dm->data_id();
+                        auto* payload = dm->payload();
+                        if (payload) {
+                            if (payload->size() == sizeof(VkSubresourceLayout)) {
+                                intercept::write_layout_result(key, payload->data(), payload->size());
+                            } else {
+                                intercept::write_query_results(key, payload->data(), payload->size());
+                            }
+                        }
+                    }
+                } else if (msg->payload_type() == fbs::MessagePayload_VideoFrame) {
+                    auto* vf = msg->payload_as_VideoFrame();
+                    if (vf && g_decoder) {
+                        auto* payload = vf->data();
+                        g_decoder->decode(
+                            static_cast<video::Codec>(vf->codec()),
+                            vf->is_keyframe(),
+                            payload ? payload->data() : nullptr,
+                            payload ? payload->size() : 0,
+                            vf->frame_id(), vf->timestamp_ms(),
+                            vf->width(), vf->height());
                     }
                 }
             }

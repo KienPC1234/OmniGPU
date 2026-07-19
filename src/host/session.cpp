@@ -84,10 +84,21 @@ SessionSummary Session::summary() const {
     return s;
 }
 
-bool Session::recv_message(std::vector<uint8_t>& buffer) {
+bool Session::recv_message(std::vector<uint8_t>& buffer, bool is_first) {
     SPDLOG_INFO("Session::recv_message starting, clientFd={}", (int)clientFd_);
+    // Set receive timeout for first message to avoid deadlock on lost handshake
+    if (is_first) {
+        struct timeval tv;
+        tv.tv_sec = 30;
+        tv.tv_usec = 0;
+        setsockopt(clientFd_, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+    }
     uint32_t msgSize = 0;
     if (!tcp::recv_all(clientFd_, reinterpret_cast<uint8_t*>(&msgSize), sizeof(msgSize))) {
+        int err = WSAGetLastError();
+        if (is_first && (err == WSAETIMEDOUT || err == WSAEWOULDBLOCK)) {
+            SPDLOG_ERROR("Session #{}: timed out waiting for first command (handshake lost?)", sessionId_);
+        }
         SPDLOG_INFO("Session::recv_message failed to read message size");
         return false;
     }
@@ -109,9 +120,9 @@ bool Session::recv_message(std::vector<uint8_t>& buffer) {
     return res;
 }
 
-bool Session::send_data_message(uint64_t data_id, const uint8_t* payload, size_t payload_size) {
+bool Session::send_data_message(uint64_t data_id, const uint8_t* payload, size_t payload_size, VkDeviceSize offset) {
     auto builder = protocol::build_data(
-        fbs::DataType_StorageBuffer, data_id, payload, payload_size);
+        fbs::DataType_StorageBuffer, data_id, payload, payload_size, offset);
 
     auto span = builder.GetBufferSpan();
     uint32_t totalSize = htonl(static_cast<uint32_t>(span.size()));
@@ -214,37 +225,33 @@ void Session::handle_client() {
                     sessionId_, primary.dedicatedMemory / (1024 * 1024));
     }
 
-    if (!multiRenderer_.init(gpuMgr_, gpuIndices_, rw, rh)) {
-        SPDLOG_WARN("Session #{}: Failed to initialize multi-GPU renderer (compute-only mode)", sessionId_);
-        // Continue without renderer — compute-only is fine
-    } else {
-        // Initialize command dispatcher with the host Vulkan device
-        const auto& primary = computeEngine_.primary();
-        commandDispatcher_.set_device(
-            primary.physDevice,
-            primary.device,
-            primary.queue,
-            primary.queueFamily,
-            primary.cmdPool);
-        commandDispatcher_.set_framebuffer_size(rw, rh);
-        commandDispatcher_.setup_framebuffer();
-        commandDispatcher_.set_vram_budget(config_.per_session_memory_budget);
-    }
+    // Initialize command dispatcher with the host Vulkan device
+    const auto& primary = computeEngine_.primary();
+    commandDispatcher_.set_device(
+        primary.physDevice,
+        primary.device,
+        primary.queue,
+        primary.queueFamily,
+        primary.cmdPool);
+    commandDispatcher_.set_framebuffer_size(rw, rh);
+    commandDispatcher_.setup_framebuffer();
+    commandDispatcher_.set_vram_budget(config_.per_session_memory_budget);
 
     // Wire up readback callback: when guest invalidates memory, send data back
     commandDispatcher_.set_send_data_callback(
-        [this](uint64_t buffer_id, const uint8_t* data, size_t size) -> bool {
-            return send_data_message(buffer_id, data, size);
+        [this](uint64_t buffer_id, const uint8_t* data, size_t size, VkDeviceSize offset) -> bool {
+            return send_data_message(buffer_id, data, size, offset);
         });
 
     SPDLOG_INFO("Session #{} entering main loop", sessionId_);
+    bool firstMsg = true;
     while (running_) {
         std::vector<uint8_t> msgBuffer;
         SPDLOG_INFO("Session #{}: calling recv_message", sessionId_);
-        if (!recv_message(msgBuffer)) {
-            SPDLOG_INFO("Session #{}: Client disconnected or error receiving", sessionId_);
+        if (!recv_message(msgBuffer, firstMsg)) {
             break;
         }
+        firstMsg = false;
         SPDLOG_INFO("Session #{}: message received, size={}", sessionId_, msgBuffer.size());
 
         // Check for synchronous query (16-byte non-FlatBuffer messages)
@@ -262,8 +269,9 @@ void Session::handle_client() {
                 auto span = builder.GetBufferSpan();
                 uint32_t totalSize = htonl(static_cast<uint32_t>(span.size()));
 
-                if (tcp::send_all(clientFd_, reinterpret_cast<const uint8_t*>(&totalSize), sizeof(totalSize))) {
-                    tcp::send_all(clientFd_, span.data(), span.size());
+                if (!tcp::send_all(clientFd_, reinterpret_cast<const uint8_t*>(&totalSize), sizeof(totalSize)) ||
+                    !tcp::send_all(clientFd_, span.data(), span.size())) {
+                    SPDLOG_WARN("Session: respond send failed for query type {}", query_type);
                 }
             };
 
@@ -321,8 +329,64 @@ void Session::handle_client() {
                 } else { respond(0); }
                 continue;
             }
+            case 0x85: { // WAIT_FOR_FENCE_QUERY
+                VkFence fence = commandDispatcher_.mapper().get_fence(query_arg);
+                if (fence) {
+                    VkResult res = vkWaitForFences(
+                        commandDispatcher_.mapper().device(), 1, &fence, VK_TRUE, 5000000000ULL);
+                    respond(static_cast<uint64_t>(res));
+                } else { respond(static_cast<uint64_t>(VK_SUCCESS)); }
+                continue;
+            }
+            case 0x87: { // GET_FENCE_STATUS_QUERY
+                VkFence fence = commandDispatcher_.mapper().get_fence(query_arg);
+                if (fence) {
+                    VkResult res = vkGetFenceStatus(
+                        commandDispatcher_.mapper().device(), fence);
+                    respond(static_cast<uint64_t>(res));
+                } else { respond(static_cast<uint64_t>(VK_SUCCESS)); }
+                continue;
+            }
+            case 0x88: { // DEVICE_WAIT_IDLE_QUERY
+                VkResult res = vkDeviceWaitIdle(commandDispatcher_.mapper().device());
+                respond(static_cast<uint64_t>(res));
+                continue;
+            }
+            case 0x89: { // QUEUE_WAIT_IDLE_QUERY
+                VkQueue queue = commandDispatcher_.mapper().get_queue(query_arg);
+                if (queue) {
+                    VkResult res = vkQueueWaitIdle(queue);
+                    respond(static_cast<uint64_t>(res));
+                } else { respond(static_cast<uint64_t>(VK_SUCCESS)); }
+                continue;
+            }
+            case 0x8a: { // GET_SEMAPHORE_COUNTER_VALUE_QUERY
+                VkSemaphore semaphore = commandDispatcher_.mapper().get_semaphore(query_arg);
+                if (semaphore) {
+                    uint64_t val = 0;
+                    auto pfnGetSemaphoreCounterValue = reinterpret_cast<PFN_vkGetSemaphoreCounterValue>(
+                        vkGetDeviceProcAddr(commandDispatcher_.mapper().device(), "vkGetSemaphoreCounterValue"));
+                    if (pfnGetSemaphoreCounterValue) {
+                        pfnGetSemaphoreCounterValue(commandDispatcher_.mapper().device(), semaphore, &val);
+                    }
+                    respond(val);
+                } else { respond(0); }
+                continue;
+            }
+            case 0x8b: { // GET_QUERY_POOL_RESULTS_QUERY
+                respond(static_cast<uint64_t>(VK_SUCCESS));
+                continue;
+            }
+            case 0x8c: { // GET_IMAGE_SUBRESOURCE_LAYOUT_QUERY
+                respond(static_cast<uint64_t>(VK_SUCCESS));
+                continue;
+            }
+            case 0x8d: { // INVALIDATE_MEMORY_RANGES_QUERY
+                respond(static_cast<uint64_t>(VK_SUCCESS));
+                continue;
+            }
             default:
-                break;
+                continue;
             }
         }
 
@@ -350,8 +414,9 @@ void Session::handle_client() {
                 commandDispatcher_.dispatch(func_id, args->data(), args_size);
             }
 
-            // On vkQueueSubmit / vkQueuePresentKHR: flush and readback
+            // On vkQueueSubmit / vkQueueSubmit2 / vkQueuePresentKHR: flush and readback
             if (func_id == fbs::FunctionId_vkQueueSubmit ||
+                func_id == fbs::FunctionId_vkQueueSubmit2 ||
                 func_id == fbs::FunctionId_vkQueuePresentKHR) {
 
                 std::vector<uint8_t> pixels;
@@ -423,45 +488,19 @@ void Session::handle_client() {
             SPDLOG_DEBUG("Received data: type={}, id={}, size={}",
                          static_cast<int>(data->data_type()),
                          data->data_id(),
-                         payload ? payload->size() : 0);
+                         data->payload() ? data->payload()->size() : 0);
             break;
         }
-        case fbs::MessagePayload_ResourceCacheUpload: {
-            auto* upload = msg->payload_as_ResourceCacheUpload();
-            if (!upload) break;
-
-            auto payload = upload->data();
-            if (payload) {
-                resourceCache_.upload(upload->resource_id(),
-                                      static_cast<uint32_t>(upload->resource_type()),
-                                      payload->data(), payload->size());
-            }
+        case fbs::MessagePayload_ResourceCacheUpload:
+        case fbs::MessagePayload_ResourceCacheEvictRequest:
+            // Resource cache is not used by any guest hook (dead code path)
             break;
-        }
-        case fbs::MessagePayload_ResourceCacheEvictRequest: {
-            auto* evict = msg->payload_as_ResourceCacheEvictRequest();
-            if (!evict) break;
-
-            bool ok = resourceCache_.evict(evict->resource_id());
-
-            flatbuffers::FlatBufferBuilder fbb;
-            auto resp = fbs::CreateResourceCacheEvictResponse(fbb, evict->resource_id(), ok);
-            auto rmsg = fbs::CreateMessage(fbb, fbs::MessagePayload_ResourceCacheEvictResponse, resp.Union());
-            fbb.Finish(rmsg);
-
-            auto span = fbb.GetBufferSpan();
-            uint32_t netSize = htonl(static_cast<uint32_t>(span.size()));
-            tcp::send_all(clientFd_, reinterpret_cast<const uint8_t*>(&netSize), sizeof(netSize));
-            tcp::send_all(clientFd_, span.data(), span.size());
-            break;
-        }
         default:
             break;
         }
     }
 
     commandDispatcher_.cleanup();
-    multiRenderer_.shutdown();
     bufferMgr_.cleanup();
     computeEngine_.shutdown();
     tcp::close_socket(clientFd_);

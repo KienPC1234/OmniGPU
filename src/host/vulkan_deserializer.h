@@ -28,10 +28,9 @@ public:
     // Read a size-prefixed string
     std::string read_string();
 
-    // Read a size-prefixed array into a vector
+    // Read an array into a vector with a known count
     template<typename T>
-    std::vector<T> read_array() {
-        uint32_t count = read_u32();
+    std::vector<T> read_array(uint32_t count) {
         std::vector<T> vec(count);
         if (count > 0) {
             read_raw(vec.data(), count * sizeof(T));

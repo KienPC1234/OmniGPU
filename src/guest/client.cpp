@@ -67,7 +67,7 @@ bool Client::receive_data(uint8_t* buffer, size_t size) {
 }
 
 uint64_t Client::sync_query(uint64_t func_id, uint64_t arg) {
-    std::lock_guard<std::recursive_mutex> lock(recv_mutex_);
+    std::lock_guard<std::mutex> send_lock(send_mutex_);
 
     {
         std::lock_guard<std::mutex> slock(sync_mutex_);

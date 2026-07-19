@@ -59,6 +59,7 @@ struct GpuCapabilities {
     uint32_t max_cull_distances = 8;
     uint32_t max_combined_clip_and_cull_distances = 8;
     uint32_t sample_counts = 15;
+    uint32_t max_samples = 1;
     uint32_t max_tessellation_factor = 64;
     uint32_t framebuffer_color_sample_counts = 15;
 

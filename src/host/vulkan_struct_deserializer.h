@@ -24,6 +24,7 @@ bool read_VkGraphicsPipelineCreateInfo(VulkanDeserializer& d, VkGraphicsPipeline
 void free_VkGraphicsPipelineCreateInfo(VkGraphicsPipelineCreateInfo* info);
 
 bool read_VkComputePipelineCreateInfo(VulkanDeserializer& d, VkComputePipelineCreateInfo* out);
+void free_VkComputePipelineCreateInfo(VkComputePipelineCreateInfo* info);
 
 bool read_VkWriteDescriptorSet(VulkanDeserializer& d, VkWriteDescriptorSet* out,
                                 VkDescriptorImageInfo** outImg, VkDescriptorBufferInfo** outBuf,
@@ -64,5 +65,8 @@ void free_VkSubmitInfo2(VkSubmitInfo2* info);
 bool read_VkSemaphoreWaitInfo(VulkanDeserializer& d, VkSemaphoreWaitInfo* out);
 void free_VkSemaphoreWaitInfo(VkSemaphoreWaitInfo* info);
 bool read_VkSemaphoreSignalInfo(VulkanDeserializer& d, VkSemaphoreSignalInfo* out);
+
+bool read_VkDependencyInfo(VulkanDeserializer& d, VkDependencyInfo* out);
+void free_VkDependencyInfo(VkDependencyInfo* info);
 
 } // namespace omnigpu::host

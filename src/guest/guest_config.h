@@ -10,6 +10,8 @@ struct GuestConfig {
     uint16_t port = 9443;
     uint64_t cache_ttl_seconds = 86400;
 
+    std::string auth_token = "";
+
     // Adaptive batching
     bool adaptive_batching = true;
     uint32_t max_batch_interval_ms = 16;
