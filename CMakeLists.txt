@@ -43,6 +43,11 @@ else()
   add_compile_options(-Wall -Wextra)
 endif()
 
+# Enable exception handling for Clang/clang-cl to satisfy clang-tidy
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-fexceptions)
+endif()
+
 option(OMNIGPU_BUILD_TESTS "Build tests" ON)
 option(OMNIGPU_BUILD_HOST "Build host server" ON)
 option(OMNIGPU_BUILD_GUEST "Build guest client" ON)
