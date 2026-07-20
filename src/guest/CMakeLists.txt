@@ -59,6 +59,7 @@ add_executable(omnigpu_guest_test
   cache_manager.cpp
   guest_config.cpp
   guest_init.cpp
+  icd_entrypoints.cpp
   icd_registry.cpp
   video_decoder.cpp
   client.cpp
