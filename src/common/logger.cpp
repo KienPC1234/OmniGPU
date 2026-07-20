@@ -4,6 +4,16 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <memory>
 #include <vector>
+#include <array>
+#include <cstring>
+
+#if defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+#define OMNIGPU_TRY try
+#define OMNIGPU_CATCH_ALL catch (...)
+#else
+#define OMNIGPU_TRY if (true)
+#define OMNIGPU_CATCH_ALL else if (false)
+#endif
 
 #ifdef _WIN32
 #include <windows.h>
@@ -34,16 +44,16 @@ void init_logger(const char* log_name, bool debug) {
 
 #ifdef _WIN32
     if (std::strcmp(log_name, "omnigpu_guest.log") == 0) {
-        char exe_path[MAX_PATH] = {};
+        std::array<char, MAX_PATH> exe_path = {};
         bool app_dir_ok = false;
-        if (GetModuleFileNameA(nullptr, exe_path, MAX_PATH)) {
-            std::string path_str(exe_path);
+        if (GetModuleFileNameA(nullptr, exe_path.data(), MAX_PATH) != 0) {
+            std::string path_str(exe_path.data());
             size_t pos = path_str.find_last_of("\\/");
             if (pos != std::string::npos) {
                 std::string app_dir_log = path_str.substr(0, pos + 1) + log_name;
                 FILE* f = nullptr;
                 fopen_s(&f, app_dir_log.c_str(), "a");
-                if (f) {
+                if (f != nullptr) {
                     fclose(f);
                     log_path = app_dir_log;
                     app_dir_ok = true;
@@ -51,16 +61,16 @@ void init_logger(const char* log_name, bool debug) {
             }
         }
         if (!app_dir_ok) {
-            char temp_path[MAX_PATH] = {};
-            if (GetTempPathA(sizeof(temp_path), temp_path)) {
-                log_path = std::string(temp_path) + log_name;
+            std::array<char, MAX_PATH> temp_path = {};
+            if (GetTempPathA(static_cast<DWORD>(temp_path.size()), temp_path.data()) != 0) {
+                log_path = std::string(temp_path.data()) + log_name;
             }
         }
     } else {
         if (log_path.find('\\') == std::string::npos && log_path.find('/') == std::string::npos) {
-            char temp_path[MAX_PATH] = {};
-            if (GetTempPathA(sizeof(temp_path), temp_path)) {
-                log_path = std::string(temp_path) + log_path;
+            std::array<char, MAX_PATH> temp_path = {};
+            if (GetTempPathA(static_cast<DWORD>(temp_path.size()), temp_path.data()) != 0) {
+                log_path = std::string(temp_path.data()) + log_path;
             }
         }
     }
@@ -68,47 +78,69 @@ void init_logger(const char* log_name, bool debug) {
 
     // Primary: try to create log file alongside the executable or in temp
     bool file_sink_ok = false;
-    try {
-        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
-            log_path, false);
-        file_sink->set_level(spdlog::level::trace);
-        sinks.push_back(file_sink);
-        file_sink_ok = true;
-    } catch (...) {}
+    bool is_writable = false;
+    {
+        FILE* f = nullptr;
+        fopen_s(&f, log_path.c_str(), "a");
+        if (f != nullptr) {
+            fclose(f);
+            is_writable = true;
+        }
+    }
+    if (is_writable) {
+        OMNIGPU_TRY {
+            auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
+                log_path, false);
+            file_sink->set_level(spdlog::level::trace);
+            sinks.push_back(file_sink);
+            file_sink_ok = true;
+        } OMNIGPU_CATCH_ALL {}
+    }
     // Fallback: always try %TEMP% as well (works even in locked-down dirs)
     if (!file_sink_ok) {
-        try {
-            char temp_path[MAX_PATH] = {};
-            if (GetTempPathA(sizeof(temp_path), temp_path)) {
-                std::string fallback = std::string(temp_path) + log_name;
-                auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
-                    fallback, false);
-                file_sink->set_level(spdlog::level::trace);
-                sinks.push_back(file_sink);
+        std::array<char, MAX_PATH> temp_path = {};
+        if (GetTempPathA(static_cast<DWORD>(temp_path.size()), temp_path.data()) != 0) {
+            std::string fallback = std::string(temp_path.data()) + log_name;
+            bool fallback_writable = false;
+            {
+                FILE* f = nullptr;
+                fopen_s(&f, fallback.c_str(), "a");
+                if (f != nullptr) {
+                    fclose(f);
+                    fallback_writable = true;
+                }
             }
-        } catch (...) {}
+            if (fallback_writable) {
+                OMNIGPU_TRY {
+                    auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
+                        fallback, false);
+                    file_sink->set_level(spdlog::level::trace);
+                    sinks.push_back(file_sink);
+                } OMNIGPU_CATCH_ALL {}
+            }
+        }
     }
 
     spdlog::level::level_enum console_level = debug ? spdlog::level::trace : spdlog::level::info;
 
     if (has_real_console()) {
-        try {
+        OMNIGPU_TRY {
             auto color_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
             color_sink->set_level(console_level);
             sinks.push_back(color_sink);
-        } catch (...) {
-            try {
+        } OMNIGPU_CATCH_ALL {
+            OMNIGPU_TRY {
                 auto plain_sink = std::make_shared<spdlog::sinks::stdout_sink_mt>();
                 plain_sink->set_level(console_level);
                 sinks.push_back(plain_sink);
-            } catch (...) {}
+            } OMNIGPU_CATCH_ALL {}
         }
     } else {
-        try {
+        OMNIGPU_TRY {
             auto plain_sink = std::make_shared<spdlog::sinks::stdout_sink_mt>();
             plain_sink->set_level(console_level);
             sinks.push_back(plain_sink);
-        } catch (...) {}
+        } OMNIGPU_CATCH_ALL {}
     }
 
     if (sinks.empty()) {
