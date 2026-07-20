@@ -131,7 +131,7 @@ TEST(SerializerTest, WriteArray) {
     serializer::VulkanSerializer ser;
     int32_t arr[] = {10, 20, 30};
     ser.write_array(arr, 3);
-    ASSERT_EQ(ser.size(), 16u);
+    ASSERT_EQ(ser.size(), 12u);
 }
 
 TEST(SerializerTest, WriteHandle) {

@@ -286,13 +286,23 @@ VkDeviceMemory BufferManager::get_memory(uint64_t bufferId) const {
 bool BufferManager::destroy_buffer(uint64_t bufferId) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = buffers_.find(bufferId);
-    if (it == buffers_.end()) return false;
+    if (it == buffers_.end()) {
+        return false;
+    }
 
     auto& buf = it->second;
-    if (buf.stagingBuffer) vkDestroyBuffer(device_, buf.stagingBuffer, nullptr);
-    if (buf.stagingMemory) vkFreeMemory(device_, buf.stagingMemory, nullptr);
-    if (buf.buffer) vkDestroyBuffer(device_, buf.buffer, nullptr);
-    if (buf.memory) vkFreeMemory(device_, buf.memory, nullptr);
+    if (buf.stagingBuffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device_, buf.stagingBuffer, nullptr);
+    }
+    if (buf.stagingMemory != VK_NULL_HANDLE) {
+        vkFreeMemory(device_, buf.stagingMemory, nullptr);
+    }
+    if (buf.buffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(device_, buf.buffer, nullptr);
+    }
+    if (buf.memory != VK_NULL_HANDLE) {
+        vkFreeMemory(device_, buf.memory, nullptr);
+    }
 
     totalVramUsed_ -= buf.size;
     buffers_.erase(it);
@@ -304,21 +314,35 @@ uint64_t BufferManager::evict_lru(VkDeviceSize neededBytes) {
     uint64_t freed = 0;
 
     std::vector<std::pair<uint64_t, uint64_t>> sorted;
-    for (const auto& [id, buf] : buffers_)
-        sorted.push_back({buf.lastAccess, id});
-    std::sort(sorted.begin(), sorted.end());
+    sorted.reserve(buffers_.size());
+    for (const auto& [id, buf] : buffers_) {
+        sorted.emplace_back(buf.lastAccess, id);
+    }
+    std::ranges::sort(sorted);
 
     for (auto& [time, id] : sorted) {
-        if (freed >= neededBytes) break;
+        if (freed >= neededBytes) {
+            break;
+        }
         auto it = buffers_.find(id);
-        if (it == buffers_.end()) continue;
+        if (it == buffers_.end()) {
+            continue;
+        }
         if (!it->second.persistent) {
             freed += it->second.size;
             auto& buf = it->second;
-            if (buf.stagingBuffer) vkDestroyBuffer(device_, buf.stagingBuffer, nullptr);
-            if (buf.stagingMemory) vkFreeMemory(device_, buf.stagingMemory, nullptr);
-            if (buf.buffer) vkDestroyBuffer(device_, buf.buffer, nullptr);
-            if (buf.memory) vkFreeMemory(device_, buf.memory, nullptr);
+            if (buf.stagingBuffer != VK_NULL_HANDLE) {
+                vkDestroyBuffer(device_, buf.stagingBuffer, nullptr);
+            }
+            if (buf.stagingMemory != VK_NULL_HANDLE) {
+                vkFreeMemory(device_, buf.stagingMemory, nullptr);
+            }
+            if (buf.buffer != VK_NULL_HANDLE) {
+                vkDestroyBuffer(device_, buf.buffer, nullptr);
+            }
+            if (buf.memory != VK_NULL_HANDLE) {
+                vkFreeMemory(device_, buf.memory, nullptr);
+            }
             totalVramUsed_ -= buf.size;
             buffers_.erase(it);
         }
@@ -328,7 +352,7 @@ uint64_t BufferManager::evict_lru(VkDeviceSize neededBytes) {
 
 std::string BufferManager::stats() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return fmt::format("{} buffers, {} MB VRAM used", buffers_.size(), totalVramUsed_ / (1024 * 1024));
+    return fmt::format("{} buffers, {} MB VRAM used", buffers_.size(), totalVramUsed_ / (1024ULL * 1024ULL));
 }
 
 void BufferManager::cleanup() {

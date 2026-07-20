@@ -50,6 +50,20 @@
       }
     },
     {
+      "name": "msvc-debug",
+      "displayName": "MSVC + Ninja (Debug)",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "cl.exe",
+        "CMAKE_CXX_COMPILER": "cl.exe",
+        "CMAKE_CXX_FLAGS": "/EHsc",
+        "CMAKE_C_FLAGS": "",
+        "CMAKE_AR": "lib.exe",
+        "CMAKE_RANLIB": ""
+      }
+    },
+    {
       "name": "linux",
       "displayName": "Clang + Ninja (Linux)",
       "generator": "Ninja",
@@ -78,6 +92,10 @@
       "configurePreset": "debug"
     },
     {
+      "name": "msvc-debug",
+      "configurePreset": "msvc-debug"
+    },
+    {
       "name": "release-x86",
       "configurePreset": "release-x86"
     },
@@ -95,6 +113,11 @@
     {
       "name": "debug",
       "configurePreset": "debug",
+      "output": {"outputOnFailure": true}
+    },
+    {
+      "name": "msvc-debug",
+      "configurePreset": "msvc-debug",
       "output": {"outputOnFailure": true}
     },
     {
