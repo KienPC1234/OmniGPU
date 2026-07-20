@@ -24,6 +24,9 @@ jobs:
         with:
           submodules: 'recursive'
 
+      - name: Set up MSVC Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
