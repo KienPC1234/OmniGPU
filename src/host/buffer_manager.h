@@ -83,7 +83,7 @@ private:
     VkDeviceSize totalVramUsed_ = 0;
     uint64_t nextId_ = 0x100000000; // high IDs to avoid collision with guest handles
 
-    uint64_t now_ms() const;
+    static uint64_t now_ms();
     uint32_t find_memory_type(uint32_t typeBits, VkMemoryPropertyFlags props) const;
     bool create_staging(GpuBuffer& buf);
 };

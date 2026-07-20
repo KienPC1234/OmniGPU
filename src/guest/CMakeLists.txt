@@ -63,6 +63,7 @@ add_executable(omnigpu_guest_test
   video_decoder.cpp
   client.cpp
   command_batch.cpp
+  vk_intercept.cpp
   vk_intercept_gen.cpp
   vulkan_serializer.cpp
   vulkan_struct_serializer.cpp

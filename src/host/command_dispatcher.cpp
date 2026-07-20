@@ -2525,7 +2525,7 @@ bool CommandDispatcher::copy_image_to_readback() {
     barrier.subresourceRange.levelCount = 1;
     barrier.subresourceRange.layerCount = 1;
     barrier.srcAccessMask = srcAccess;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    barrier.dstAccessMask = dstAccess;
 
     vkCmdPipelineBarrier(copyCmd, srcStage,
         VK_PIPELINE_STAGE_TRANSFER_BIT,

@@ -8,7 +8,7 @@ namespace omnigpu::host {
 
 BufferManager::~BufferManager() { cleanup(); }
 
-uint64_t BufferManager::now_ms() const {
+uint64_t BufferManager::now_ms() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
 }
@@ -16,21 +16,26 @@ uint64_t BufferManager::now_ms() const {
 uint32_t BufferManager::find_memory_type(uint32_t typeBits, VkMemoryPropertyFlags props) const {
     if (physDevice_ == VK_NULL_HANDLE) {
         // No physical device set — return first compatible type from bits
-        for (uint32_t i = 0; i < 32; i++)
-            if (typeBits & (1 << i)) return i;
+        for (uint32_t i = 0; i < 32; i++) {
+            if ((typeBits & (1U << i)) != 0U) {
+                return i;
+            }
+        }
         return 0;
     }
     VkPhysicalDeviceMemoryProperties mp;
     vkGetPhysicalDeviceMemoryProperties(physDevice_, &mp);
     for (uint32_t i = 0; i < mp.memoryTypeCount; i++) {
-        if ((typeBits & (1 << i)) &&
+        if (((typeBits & (1U << i)) != 0U) &&
             (mp.memoryTypes[i].propertyFlags & props) == props) {
             return i;
         }
     }
     // Fallback: first compatible type
     for (uint32_t i = 0; i < mp.memoryTypeCount; i++) {
-        if (typeBits & (1 << i)) return i;
+        if ((typeBits & (1U << i)) != 0U) {
+            return i;
+        }
     }
     SPDLOG_WARN("BufferManager: no memory type found for typeBits={:#x}, props={:#x}",
                 typeBits, props);

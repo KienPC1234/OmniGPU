@@ -53,7 +53,7 @@ std::vector<uint8_t> to_vector(Builder& builder) {
 }
 
 const fbs::Message* verify_root(const uint8_t* data, size_t size) {
-    if (!data || size == 0) {
+    if (data == nullptr || size == 0) {
         SPDLOG_ERROR("verify_root: null data or zero size");
         return nullptr;
     }
