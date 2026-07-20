@@ -1,0 +1,7 @@
+{
+    "file_format_version": "1.0.1",
+    "ICD": {
+        "api_version": "1.3.0",
+        "library_path": "@OMNIGPU_ICD_LIBRARY_PATH@"
+    }
+}

@@ -1,9 +1,14 @@
 #include "network_utils.h"
-#ifdef _WIN32
-#include <winsock2.h>
-#endif
+
+#include <algorithm>
+#include <cerrno>
 #include <cstring>
+#include <limits>
 #include <spdlog/spdlog.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace omnigpu::tcp {
 
@@ -19,10 +24,16 @@ bool init() {
 
 void cleanup() { WSACleanup(); }
 
-void close_socket(SOCKET fd) { closesocket(fd); }
+void shutdown_socket(SOCKET fd) {
+    if (fd != INVALID_SOCKET) ::shutdown(fd, SD_BOTH);
+}
+
+void close_socket(SOCKET fd) {
+    if (fd != INVALID_SOCKET) closesocket(fd);
+}
 
 std::string last_error() {
-    int err = WSAGetLastError();
+    const int err = WSAGetLastError();
     char buf[256] = {};
     FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
                    nullptr, err, 0, buf, sizeof(buf), nullptr);
@@ -33,7 +44,15 @@ bool init() { return true; }
 
 void cleanup() {}
 
-void close_socket(SOCKET fd) { ::close(fd); }
+void shutdown_socket(SOCKET fd) {
+    if (fd == INVALID_SOCKET) return;
+    while (::shutdown(fd, SHUT_RDWR) != 0 && errno == EINTR) {
+    }
+}
+
+void close_socket(SOCKET fd) {
+    if (fd != INVALID_SOCKET) ::close(fd);
+}
 
 std::string last_error() { return std::string(std::strerror(errno)); }
 #endif
@@ -49,12 +68,26 @@ bool set_tcp_nodelay(SOCKET fd) {
 }
 
 bool send_all(SOCKET fd, const uint8_t* data, size_t size) {
+    if (size != 0 && data == nullptr) {
+        SPDLOG_ERROR("send_all called with null data and non-zero size");
+        return false;
+    }
     while (size > 0) {
 #ifdef _WIN32
-        int sent = ::send(fd, reinterpret_cast<const char*>(data),
-                          static_cast<int>(size), 0);
+        const auto chunk = static_cast<int>(std::min<size_t>(
+            size, static_cast<size_t>(std::numeric_limits<int>::max())));
+        const int sent = ::send(fd, reinterpret_cast<const char*>(data), chunk, 0);
+        if (sent == SOCKET_ERROR && WSAGetLastError() == WSAEINTR) continue;
 #else
-        auto sent = ::send(fd, data, size, 0);
+        const auto max_chunk = static_cast<size_t>(
+            std::numeric_limits<ssize_t>::max());
+        const size_t chunk = std::min(size, max_chunk);
+        int flags = 0;
+#ifdef MSG_NOSIGNAL
+        flags |= MSG_NOSIGNAL;
+#endif
+        const ssize_t sent = ::send(fd, data, chunk, flags);
+        if (sent < 0 && errno == EINTR) continue;
 #endif
         if (sent <= 0) {
             SPDLOG_ERROR("send failed: {}", last_error());
@@ -67,16 +100,26 @@ bool send_all(SOCKET fd, const uint8_t* data, size_t size) {
 }
 
 bool recv_all(SOCKET fd, uint8_t* buffer, size_t size) {
+    if (size != 0 && buffer == nullptr) {
+        SPDLOG_ERROR("recv_all called with null buffer and non-zero size");
+        return false;
+    }
     while (size > 0) {
 #ifdef _WIN32
-        int received = ::recv(fd, reinterpret_cast<char*>(buffer),
-                              static_cast<int>(size), 0);
+        const auto chunk = static_cast<int>(std::min<size_t>(
+            size, static_cast<size_t>(std::numeric_limits<int>::max())));
+        const int received = ::recv(fd, reinterpret_cast<char*>(buffer), chunk, 0);
+        if (received == SOCKET_ERROR && WSAGetLastError() == WSAEINTR) continue;
 #else
-        auto received = ::recv(fd, buffer, size, 0);
+        const auto max_chunk = static_cast<size_t>(
+            std::numeric_limits<ssize_t>::max());
+        const size_t chunk = std::min(size, max_chunk);
+        const ssize_t received = ::recv(fd, buffer, chunk, 0);
+        if (received < 0 && errno == EINTR) continue;
 #endif
         if (received <= 0) {
             if (received == 0) {
-                SPDLOG_ERROR("recv: connection closed by peer");
+                SPDLOG_DEBUG("recv: connection closed by peer");
             } else {
                 SPDLOG_ERROR("recv failed: {}", last_error());
             }
@@ -89,24 +132,33 @@ bool recv_all(SOCKET fd, uint8_t* buffer, size_t size) {
 }
 
 bool set_tcp_timeout(SOCKET fd, uint32_t timeout_s) {
-    if (timeout_s == 0) return true;
 #ifdef _WIN32
-    DWORD tv = timeout_s * 1000;
-    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO,
-                   reinterpret_cast<const char*>(&tv), sizeof(tv)) != 0) {
-        SPDLOG_ERROR("SO_RCVTIMEO failed: {}", last_error());
-        return false;
-    }
+    const uint64_t requested_ms = static_cast<uint64_t>(timeout_s) * 1000ULL;
+    const DWORD timeout_ms = requested_ms > std::numeric_limits<DWORD>::max()
+        ? std::numeric_limits<DWORD>::max()
+        : static_cast<DWORD>(requested_ms);
+    const char* value = reinterpret_cast<const char*>(&timeout_ms);
+    const int value_size = sizeof(timeout_ms);
 #else
-    struct timeval tv;
-    tv.tv_sec = timeout_s;
-    tv.tv_usec = 0;
-    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) != 0) {
-        SPDLOG_ERROR("SO_RCVTIMEO failed: {}", last_error());
-        return false;
-    }
+    timeval timeout{};
+    timeout.tv_sec = static_cast<time_t>(timeout_s);
+    timeout.tv_usec = 0;
+    const void* value = &timeout;
+    const socklen_t value_size = sizeof(timeout);
 #endif
-    return true;
+
+    bool ok = true;
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO,
+                   reinterpret_cast<const char*>(value), value_size) != 0) {
+        SPDLOG_ERROR("SO_RCVTIMEO failed: {}", last_error());
+        ok = false;
+    }
+    if (setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO,
+                   reinterpret_cast<const char*>(value), value_size) != 0) {
+        SPDLOG_ERROR("SO_SNDTIMEO failed: {}", last_error());
+        ok = false;
+    }
+    return ok;
 }
 
 } // namespace omnigpu::tcp

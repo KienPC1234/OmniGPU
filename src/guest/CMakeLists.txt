@@ -15,6 +15,7 @@ set(GUEST_SOURCES
 )
 
 add_library(omnigpu_guest SHARED ${GUEST_SOURCES})
+set_target_properties(omnigpu_guest PROPERTIES OUTPUT_NAME "omnigpu_guest")
 
 # Copy full Mesa3D directory to output (when available)
 if(EXISTS "${MESA3D_OUTPUT_DIR}")
@@ -45,9 +46,14 @@ endif()
 if(OMNIGPU_GUEST_USE_FFMPEG AND FFMPEG_FOUND)
   target_compile_definitions(omnigpu_guest PRIVATE OMNIGPU_USE_FFMPEG=1)
   target_sources(omnigpu_guest PRIVATE ffmpeg_decoder.cpp)
-  target_include_directories(omnigpu_guest PRIVATE ${FFMPEG_INC_DIR})
-  target_link_directories(omnigpu_guest PRIVATE ${FFMPEG_LIB_DIR})
-  target_link_libraries(omnigpu_guest PRIVATE avcodec.lib swscale.lib avutil.lib)
+  if(WIN32)
+    target_include_directories(omnigpu_guest PRIVATE ${FFMPEG_INC_DIR})
+    target_link_directories(omnigpu_guest PRIVATE ${FFMPEG_LIB_DIR})
+    target_link_libraries(omnigpu_guest PRIVATE avcodec.lib swscale.lib avutil.lib)
+  else()
+    target_link_libraries(omnigpu_guest PRIVATE
+      PkgConfig::AVCODEC PkgConfig::SWSCALE PkgConfig::AVUTIL)
+  endif()
   message(STATUS "FFmpeg: enabled for guest decoder")
 else()
   message(STATUS "FFmpeg: disabled for guest — will fall back to built-in decoders")
@@ -77,14 +83,19 @@ endif()
 if(OMNIGPU_GUEST_USE_FFMPEG AND FFMPEG_FOUND)
   target_compile_definitions(omnigpu_guest_test PRIVATE OMNIGPU_USE_FFMPEG=1)
   target_sources(omnigpu_guest_test PRIVATE ffmpeg_decoder.cpp)
-  target_include_directories(omnigpu_guest_test PRIVATE ${FFMPEG_INC_DIR})
-  target_link_directories(omnigpu_guest_test PRIVATE ${FFMPEG_LIB_DIR})
-  target_link_libraries(omnigpu_guest_test PRIVATE avcodec.lib swscale.lib avutil.lib)
+  if(WIN32)
+    target_include_directories(omnigpu_guest_test PRIVATE ${FFMPEG_INC_DIR})
+    target_link_directories(omnigpu_guest_test PRIVATE ${FFMPEG_LIB_DIR})
+    target_link_libraries(omnigpu_guest_test PRIVATE avcodec.lib swscale.lib avutil.lib)
+  else()
+    target_link_libraries(omnigpu_guest_test PRIVATE
+      PkgConfig::AVCODEC PkgConfig::SWSCALE PkgConfig::AVUTIL)
+  endif()
 endif()
 
 
 # Enable C++ exceptions for cache_manager.cpp (uses nlohmann-json try/catch)
-if(MSVC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+if(MSVC)
   target_compile_options(omnigpu_guest PRIVATE /EHsc)
   target_compile_options(omnigpu_guest_test PRIVATE /EHsc)
 endif()
@@ -92,17 +103,36 @@ endif()
 # ---------------------------------------------------------------------------
 # Deploy Vulkan ICD manifest alongside the guest DLL
 # ---------------------------------------------------------------------------
-set(ICD_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/vk_icd.json")
+set(ICD_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/vk_icd.json.in")
+if(WIN32)
+  set(OMNIGPU_ICD_LIBRARY_PATH ".\\\\omnigpu_guest.dll")
+  set(OMNIGPU_INSTALL_ICD_LIBRARY_PATH ".\\\\omnigpu_guest.dll")
+else()
+  # Build-tree manifest for direct VK_DRIVER_FILES testing.
+  set(OMNIGPU_ICD_LIBRARY_PATH
+      "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/libomnigpu_guest.so")
+  # Keep the installed manifest relocatable, including cmake --install
+  # --prefix and DESTDIR/package staging. The manifest is installed under
+  # <prefix>/share/vulkan/icd.d and resolves back to <prefix>/<libdir>.
+  if(IS_ABSOLUTE "${CMAKE_INSTALL_LIBDIR}")
+    set(OMNIGPU_INSTALL_ICD_LIBRARY_PATH
+        "${CMAKE_INSTALL_LIBDIR}/libomnigpu_guest.so")
+  else()
+    set(OMNIGPU_INSTALL_ICD_LIBRARY_PATH
+        "../../../${CMAKE_INSTALL_LIBDIR}/libomnigpu_guest.so")
+  endif()
+endif()
 
 configure_file(
   "${ICD_MANIFEST}"
   "${CMAKE_CURRENT_BINARY_DIR}/vk_icd.json"
-  COPYONLY
+  @ONLY
 )
-
-install(
-  FILES "${CMAKE_CURRENT_BINARY_DIR}/vk_icd.json"
-  DESTINATION "${CMAKE_INSTALL_BINDIR}"
+set(OMNIGPU_ICD_LIBRARY_PATH "${OMNIGPU_INSTALL_ICD_LIBRARY_PATH}")
+configure_file(
+  "${ICD_MANIFEST}"
+  "${CMAKE_CURRENT_BINARY_DIR}/vk_icd_install.json"
+  @ONLY
 )
 
 # ---------------------------------------------------------------------------
@@ -154,7 +184,7 @@ else()
 endif()
 
 install(
-  FILES "${CMAKE_CURRENT_BINARY_DIR}/vk_icd.json"
+  FILES "${CMAKE_CURRENT_BINARY_DIR}/vk_icd_install.json"
   DESTINATION "${ICD_DEST}"
   COMPONENT "ICD"
   RENAME "omnigpu_guest.json"

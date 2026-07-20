@@ -9,6 +9,8 @@
 #endif
 
 #include <chrono>
+#include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
 
@@ -23,15 +25,27 @@ CacheManager::CacheManager(const std::string& host, uint16_t port)
 std::string CacheManager::get_cache_path() const {
 #ifdef _WIN32
     char path[MAX_PATH];
-    if (GetEnvironmentVariableA("APPDATA", path, sizeof(path))) {
-        return std::string(path) + "\\omnigpu\\" + kCacheFileName;
+    if (GetEnvironmentVariableA("LOCALAPPDATA", path, sizeof(path)) ||
+        GetEnvironmentVariableA("APPDATA", path, sizeof(path))) {
+        return (std::filesystem::path(path) / "OmniGPU" / kCacheFileName).string();
     }
     return kCacheFileName;
 #else
-    const char* home = getenv("HOME");
-    if (home) {
-        return std::string(home) + "/.config/omnigpu/" + kCacheFileName;
+    if (const char* xdg_cache = std::getenv("XDG_CACHE_HOME")) {
+        if (xdg_cache[0] != '\0') {
+            return (std::filesystem::path(xdg_cache) / "omnigpu" /
+                    kCacheFileName).string();
+        }
     }
+    if (const char* home = std::getenv("HOME")) {
+        if (home[0] != '\0') {
+            return (std::filesystem::path(home) / ".cache" / "omnigpu" /
+                    kCacheFileName).string();
+        }
+    }
+    // Do not use a predictable shared /tmp cache path. If no private XDG or
+    // home directory exists, use the process working directory; save() will
+    // simply disable caching if that location is not writable.
     return kCacheFileName;
 #endif
 }
@@ -115,14 +129,16 @@ bool CacheManager::load(caps::GpuCapabilities& caps) const {
 
 bool CacheManager::save(const caps::GpuCapabilities& caps) {
     try {
-        // Ensure directory exists
-        auto dir = cache_path_.substr(0, cache_path_.find_last_of("/\\"));
-        if (!dir.empty()) {
-#ifdef _WIN32
-            CreateDirectoryA(dir.c_str(), nullptr);
-#else
-            mkdir(dir.c_str(), 0755);
-#endif
+        // Ensure the complete cache directory hierarchy exists.
+        const auto parent = std::filesystem::path(cache_path_).parent_path();
+        if (!parent.empty()) {
+            std::error_code error;
+            std::filesystem::create_directories(parent, error);
+            if (error) {
+                SPDLOG_WARN("Failed to create cache directory {}: {}",
+                            parent.string(), error.message());
+                return false;
+            }
         }
 
         json j;

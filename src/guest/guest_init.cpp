@@ -336,9 +336,9 @@ Client* get_client() {
 void shutdown_guest() {
     g_running = false;
 
-    // Close socket first to unblock recv() in the receive thread
+    // Shutdown first to unblock recv(); Client owns the final close.
     if (g_client) {
-        tcp::close_socket(g_client->socket());
+        g_client->interrupt();
     }
 
     if (g_recv_thread) {

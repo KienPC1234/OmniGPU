@@ -48,6 +48,14 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-fexceptions)
 endif()
 
+# Legacy sources still contain a small number of Microsoft secure-CRT calls.
+# Force-include a bounded compatibility bridge for non-Windows C++ builds.
+if(NOT WIN32)
+  add_compile_options(
+    "$<$<COMPILE_LANGUAGE:CXX>:-include${CMAKE_CURRENT_SOURCE_DIR}/src/common/platform_compat.h>"
+  )
+endif()
+
 option(OMNIGPU_BUILD_TESTS "Build tests" ON)
 option(OMNIGPU_BUILD_HOST "Build host server" ON)
 option(OMNIGPU_BUILD_GUEST "Build guest client" ON)
@@ -154,10 +162,15 @@ install(
 )
 
 # Config files
+if(WIN32)
+  set(OMNIGPU_CONFIG_DEST "${CMAKE_INSTALL_BINDIR}")
+else()
+  set(OMNIGPU_CONFIG_DEST "${CMAKE_INSTALL_SYSCONFDIR}/omnigpu")
+endif()
+
 install(
-  FILES
-    "${CMAKE_CURRENT_SOURCE_DIR}/omnigpu_guest.json"
-  DESTINATION "${CMAKE_INSTALL_BINDIR}"
+  FILES "${CMAKE_CURRENT_SOURCE_DIR}/omnigpu_guest.json"
+  DESTINATION "${OMNIGPU_CONFIG_DEST}"
   COMPONENT "Config"
   OPTIONAL
 )
@@ -165,9 +178,29 @@ install(
 if(OMNIGPU_BUILD_HOST)
   install(
     FILES "${CMAKE_CURRENT_SOURCE_DIR}/omnigpu_host.json"
-    DESTINATION "${CMAKE_INSTALL_BINDIR}"
+    DESTINATION "${OMNIGPU_CONFIG_DEST}"
     COMPONENT "Config"
     OPTIONAL
+  )
+endif()
+
+if(UNIX AND NOT APPLE AND OMNIGPU_BUILD_HOST)
+  # A service unit cannot be configured correctly at build time when users or
+  # packagers later override the install prefix. Install the template and the
+  # idempotent installer together; install_host.sh renders runtime paths from
+  # its explicit --prefix at installation time.
+  install(
+    PROGRAMS
+      "${CMAKE_CURRENT_SOURCE_DIR}/scripts/linux/diagnose.sh"
+      "${CMAKE_CURRENT_SOURCE_DIR}/scripts/linux/install_host.sh"
+      "${CMAKE_CURRENT_SOURCE_DIR}/scripts/install_guest_linux.sh"
+    DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/omnigpu"
+    COMPONENT "Tools"
+  )
+  install(
+    FILES "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/omnigpu-host.service.in"
+    DESTINATION "${CMAKE_INSTALL_LIBEXECDIR}/omnigpu"
+    COMPONENT "Tools"
   )
 endif()
 
@@ -183,9 +216,14 @@ endif()
 
 # clvk OpenCL translation layer
 if(OMNIGPU_BUILD_GUEST AND DEFINED CLVK_DLL AND EXISTS "${CLVK_DLL}")
+  if(WIN32)
+    set(CLVK_INSTALL_DEST "${CMAKE_INSTALL_BINDIR}")
+  else()
+    set(CLVK_INSTALL_DEST "${CMAKE_INSTALL_LIBDIR}")
+  endif()
   install(
     FILES "${CLVK_DLL}"
-    DESTINATION "${CMAKE_INSTALL_BINDIR}"
+    DESTINATION "${CLVK_INSTALL_DEST}"
     COMPONENT "ThirdParty"
   )
   set(CLVK_BIN_DIR "${CMAKE_SOURCE_DIR}/third_party/clvk-bin")

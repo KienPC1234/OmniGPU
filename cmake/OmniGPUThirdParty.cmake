@@ -6,7 +6,7 @@
 # ---------------------------------------------------------------------------
 # Mesa3D — OpenGL → Vulkan via Mesa
 # ---------------------------------------------------------------------------
-if(OMNIGPU_FETCH_MESA3D AND OMNIGPU_BUILD_GUEST)
+if(WIN32 AND OMNIGPU_FETCH_MESA3D AND OMNIGPU_BUILD_GUEST)
     set(MESA3D_OUTPUT_DIR "${CMAKE_SOURCE_DIR}/third_party/mesa3d")
 
     if(CMAKE_SIZEOF_VOID_P EQUAL 4)
@@ -47,6 +47,10 @@ if(OMNIGPU_FETCH_MESA3D AND OMNIGPU_BUILD_GUEST)
 
         message(STATUS "Mesa3D: not found — will fetch automatically during build")
     endif()
+endif()
+
+if(NOT WIN32 AND OMNIGPU_FETCH_MESA3D AND OMNIGPU_BUILD_GUEST)
+    message(STATUS "Mesa/Zink: using the Linux system Mesa installation")
 endif()
 
 # ---------------------------------------------------------------------------
@@ -103,9 +107,9 @@ if(OMNIGPU_BUILD_FFMPEG)
         # Linux: use system FFmpeg (pkg-config)
         find_package(PkgConfig QUIET)
         if(PkgConfig_FOUND)
-            pkg_check_modules(AVCODEC libavcodec)
-            pkg_check_modules(SWSCALE libswscale)
-            pkg_check_modules(AVUTIL libavutil)
+            pkg_check_modules(AVCODEC QUIET IMPORTED_TARGET libavcodec)
+            pkg_check_modules(SWSCALE QUIET IMPORTED_TARGET libswscale)
+            pkg_check_modules(AVUTIL QUIET IMPORTED_TARGET libavutil)
         endif()
         if(AVCODEC_FOUND AND SWSCALE_FOUND AND AVUTIL_FOUND)
             set(FFMPEG_FOUND TRUE)
@@ -117,7 +121,7 @@ if(OMNIGPU_BUILD_FFMPEG)
         message(STATUS "FFmpeg: enabled (pre-built, HW accel via FFmpeg)")
     else()
         set(OMNIGPU_USE_FFMPEG 0)
-        message(STATUS "FFmpeg: not yet downloaded — run build to fetch")
+        message(STATUS "FFmpeg: unavailable — install FFmpeg development packages or disable OMNIGPU_BUILD_FFMPEG")
     endif()
 else()
     set(OMNIGPU_USE_FFMPEG 0)

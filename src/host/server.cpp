@@ -1,6 +1,7 @@
 #include "server.h"
 #include "session.h"
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <spdlog/spdlog.h>
 
@@ -75,6 +76,9 @@ void Server::run() {
                            nullptr, nullptr, &timeout);
 
         if (ret == SOCKET_ERROR) {
+#ifndef _WIN32
+            if (errno == EINTR) continue;
+#endif
             if (running_) {
                 SPDLOG_ERROR("select failed: {}", tcp::last_error());
             }

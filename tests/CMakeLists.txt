@@ -24,9 +24,9 @@ if(WIN32)
   target_link_libraries(omnigpu_tests PRIVATE ws2_32)
 endif()
 
-if(MSVC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+if(MSVC)
   target_compile_options(omnigpu_tests PRIVATE /EHsc)
 endif()
 
 include(GoogleTest)
-gtest_discover_tests(omnigpu_tests)
+gtest_discover_tests(omnigpu_tests PROPERTIES TIMEOUT 20)

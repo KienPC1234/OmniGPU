@@ -121,10 +121,35 @@ cmake --build --preset release
 
 ### Linux
 
+Install the compiler and runtime development dependencies (Ubuntu 24.04 example):
+
 ```bash
+sudo apt install clang-19 ninja-build pkg-config libvulkan-dev vulkan-tools \
+  glslang-tools libavcodec-dev libavutil-dev libswscale-dev \
+  libturbojpeg0-dev liblz4-dev
+
 cmake --preset linux
 cmake --build --preset linux
+ctest --preset linux --output-on-failure
 ```
+
+Install the host and guest paths:
+
+```bash
+sudo ./scripts/linux/install_host.sh --build-dir build/linux --start
+sudo ./scripts/install_guest_linux.sh --build-dir build/linux
+./scripts/linux/diagnose.sh
+```
+
+The Linux guest reads configuration in this order: `OMNIGPU_CONFIG`,
+`$XDG_CONFIG_HOME/omnigpu/omnigpu_guest.json`,
+`~/.config/omnigpu/omnigpu_guest.json`, then
+`/etc/omnigpu/omnigpu_guest.json`. `OMNIGPU_HOST`, `OMNIGPU_PORT`, and
+`OMNIGPU_AUTH_TOKEN` override file values.
+
+Linux support is compute-first. The Linux ICD intentionally does not advertise
+Windows swapchain/WSI extensions; native XCB/Wayland presentation remains a
+separate rendering milestone.
 
 ### Package contents (post-build)
 

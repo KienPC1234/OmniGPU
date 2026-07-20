@@ -50,18 +50,17 @@ jobs:
           .\vcpkg\bootstrap-vcpkg.bat -disableMetrics
           echo "VCPKG_ROOT=${{ github.workspace }}\vcpkg" | Out-File -Append $env:GITHUB_ENV
 
-      - name: Add LLVM to PATH (pre-installed on windows-2025)
+      - name: Add LLVM to PATH
         run: echo "C:\Program Files\LLVM\bin" | Out-File -Append $env:GITHUB_PATH
 
-      - name: Remove Git usr/bin from PATH (prevents Unix link.exe shadowing MSVC linker)
+      - name: Remove Git usr/bin from PATH
         run: |
           $gitBin = "C:\Program Files\Git\usr\bin"
           $newPath = ($env:PATH -split ';' | Where-Object { $_ -ne $gitBin }) -join ';'
           echo "PATH=$newPath" | Out-File -Append $env:GITHUB_ENV
 
       - name: Fetch translation layers (Mesa3D)
-        run: |
-          python third_party/fetch_mesa3d.py --output-dir third_party/mesa3d || echo "Mesa3D fetch skipped"
+        run: python third_party/fetch_mesa3d.py --output-dir third_party/mesa3d || echo "Mesa3D fetch skipped"
 
       - name: Generate intercept stubs
         run: python gen/generate.py --manifest gen/vulkan_api.json --output src/guest/vk_intercept_gen.cpp
@@ -81,25 +80,18 @@ jobs:
       - name: Run tests
         run: ctest --preset ${{ matrix.preset }} --output-on-failure || echo "Tests completed (non-fatal)"
 
-
       - name: Package Windows artifacts
         shell: pwsh
         run: |
           $pkgDir = "omnigpu-windows-${{ matrix.preset }}"
-
-          # Let CMake install everything it knows about (binaries, DLLs, configs, Mesa3D, clvk)
           cmake --install "build/${{ matrix.preset }}" --prefix "$pkgDir"
-
-          # Scripts and docs (not part of cmake install)
           New-Item -ItemType Directory -Path "$pkgDir/scripts" -Force
           New-Item -ItemType Directory -Path "$pkgDir/docs" -Force
           Copy-Item "scripts/windows/quick-install.ps1" "$pkgDir/scripts/" -ErrorAction SilentlyContinue
-          Copy-Item "scripts/windows/install_guest.ps1"  "$pkgDir/scripts/" -ErrorAction SilentlyContinue
-          Copy-Item "README.md"  "$pkgDir/docs/" -ErrorAction SilentlyContinue
-          Copy-Item "AGENTS.md"  "$pkgDir/docs/" -ErrorAction SilentlyContinue
-
+          Copy-Item "scripts/windows/install_guest.ps1" "$pkgDir/scripts/" -ErrorAction SilentlyContinue
+          Copy-Item "README.md" "$pkgDir/docs/" -ErrorAction SilentlyContinue
+          Copy-Item "AGENTS.md" "$pkgDir/docs/" -ErrorAction SilentlyContinue
           Compress-Archive -Path "$pkgDir/*" -DestinationPath "$pkgDir.zip" -Force
-          Write-Host "Packaged: $pkgDir.zip"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -107,15 +99,10 @@ jobs:
           name: omnigpu-windows-${{ matrix.preset }}
           path: omnigpu-windows-${{ matrix.preset }}.zip
 
-
   build-linux:
-    name: Linux (Clang + Ninja)
-    if: false  # temporarily disabled
+    name: Linux (Clang 19 + Ninja)
     runs-on: ubuntu-24.04
-    strategy:
-      matrix:
-        preset: [linux]
-      fail-fast: false
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -123,12 +110,16 @@ jobs:
         with:
           submodules: 'recursive'
 
-      - name: Install Clang 19
+      - name: Install Linux build/runtime dependencies
         run: |
-          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/llvm.asc
-          sudo add-apt-repository -y 'deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main'
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/llvm.asc >/dev/null
+          sudo add-apt-repository -y 'deb https://apt.llvm.org/noble/ llvm-toolchain-noble-19 main'
           sudo apt-get update
-          sudo apt-get install -y clang-19 clang++-19 lldb-19 ninja-build mesa-utils
+          sudo apt-get install -y --no-install-recommends \
+            clang-19 ninja-build pkg-config python3-pip \
+            libvulkan-dev vulkan-tools glslang-tools mesa-vulkan-drivers \
+            libavcodec-dev libavutil-dev libswscale-dev \
+            libturbojpeg0-dev liblz4-dev
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -143,47 +134,102 @@ jobs:
         with:
           path: vcpkg
           key: vcpkg-linux-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-linux-
 
       - name: Setup vcpkg
         run: |
-          if [ ! -d "vcpkg" ]; then
-            git clone --depth=1 https://github.com/Microsoft/vcpkg.git
+          if [ ! -d vcpkg ]; then
+            git clone --depth=1 https://github.com/Microsoft/vcpkg.git vcpkg
           fi
           ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
-          echo "VCPKG_ROOT=$(pwd)/vcpkg" >> $GITHUB_ENV
+          echo "VCPKG_ROOT=$PWD/vcpkg" >> "$GITHUB_ENV"
 
       - name: Generate intercept stubs
         run: python gen/generate.py --manifest gen/vulkan_api.json --output src/guest/vk_intercept_gen.cpp
 
-      - name: Configure CMake (${{ matrix.preset }})
-        run: cmake --preset ${{ matrix.preset }} -DOMNIGPU_FETCH_MESA3D=OFF
+      - name: Verify tools
+        run: |
+          clang++-19 --version
+          ninja --version
+          cmake --version
+          pkg-config --modversion libavcodec libavutil libswscale
+
+      - name: Configure CMake
+        run: >-
+          cmake --preset linux
+          -DOMNIGPU_FETCH_MESA3D=OFF
+          -DOMNIGPU_BUILD_FFMPEG=ON
 
       - name: Build
-        run: cmake --build --preset ${{ matrix.preset }}
+        run: cmake --build --preset linux --parallel 2
 
       - name: Run tests
-        run: ctest --preset ${{ matrix.preset }} --output-on-failure || echo "Tests completed (non-fatal)"
+        run: ctest --preset linux --output-on-failure --timeout 30
+
+      - name: Linux artifact smoke checks
+        run: |
+          test -x build/linux/bin/omnigpu_host
+          test -f build/linux/lib/libomnigpu_guest.so
+          test -f build/linux/src/guest/vk_icd.json
+          grep -q 'libomnigpu_guest.so' build/linux/src/guest/vk_icd.json
+          if ldd build/linux/lib/libomnigpu_guest.so | grep -q 'not found'; then
+            ldd build/linux/lib/libomnigpu_guest.so
+            exit 1
+          fi
+          bash -n scripts/install_guest_linux.sh
+          bash -n scripts/linux/install_host.sh
+          bash -n scripts/linux/diagnose.sh
 
       - name: Package Linux artifacts
         run: |
-          pkgDir="omnigpu-linux-${{ matrix.preset }}"
-
-          # Let CMake install everything (binaries, configs, clvk)
-          cmake --install "build/${{ matrix.preset }}" --prefix "$pkgDir"
-
-          # Scripts and docs (not part of cmake install)
-          mkdir -p "$pkgDir/scripts" "$pkgDir/docs"
-          cp scripts/linux/install_guest.sh "$pkgDir/scripts/" 2>/dev/null || true
-          cp scripts/linux/diagnose.sh      "$pkgDir/scripts/" 2>/dev/null || true
-          cp README.md "$pkgDir/docs/" 2>/dev/null || true
+          pkgDir="omnigpu-linux"
+          cmake --install build/linux --prefix "$PWD/$pkgDir"
+          python3 - "$PWD/$pkgDir/share/vulkan/icd.d/omnigpu_guest.json" <<'PY'
+          import json
+          import pathlib
+          import sys
+          manifest = pathlib.Path(sys.argv[1])
+          library = pathlib.Path(json.loads(manifest.read_text())["ICD"]["library_path"])
+          if not library.is_absolute():
+              library = (manifest.parent / library).resolve()
+          if not library.is_file():
+              raise SystemExit(f"installed ICD manifest does not resolve: {library}")
+          PY
+          mkdir -p "$pkgDir/scripts/linux" "$pkgDir/packaging/linux" "$pkgDir/docs"
+          cp scripts/install_guest_linux.sh "$pkgDir/scripts/"
+          cp scripts/linux/install_host.sh "$pkgDir/scripts/linux/"
+          cp scripts/linux/diagnose.sh "$pkgDir/scripts/linux/"
+          cp packaging/linux/omnigpu-host.service.in "$pkgDir/packaging/linux/"
+          cp README.md "$pkgDir/docs/"
           cp AGENTS.md "$pkgDir/docs/" 2>/dev/null || true
 
+          stageDir="$PWD/omnigpu-linux-install-smoke"
+          DESTDIR="$stageDir" "$pkgDir/scripts/install_guest_linux.sh" \
+            --build-dir "$PWD/$pkgDir" --prefix /usr
+          DESTDIR="$stageDir" "$pkgDir/scripts/linux/install_host.sh" \
+            --build-dir "$PWD/$pkgDir" --prefix /usr
+          test -f "$stageDir/usr/share/vulkan/icd.d/omnigpu_guest.json"
+          test -x "$stageDir/usr/bin/omnigpu_host"
+          test -f "$stageDir/etc/systemd/system/omnigpu-host.service"
+          test "$(stat -c '%a' "$stageDir/etc/omnigpu/omnigpu_guest.json")" = 644
+
+          # CMake also installs self-contained helpers under libexec. Exercise
+          # that layout so relative project-root/template regressions are fatal.
+          test -x "$pkgDir/libexec/omnigpu/install_guest_linux.sh"
+          test -x "$pkgDir/libexec/omnigpu/install_host.sh"
+          test -f "$pkgDir/libexec/omnigpu/omnigpu-host.service.in"
+          helperStage="$PWD/omnigpu-linux-libexec-smoke"
+          DESTDIR="$helperStage" "$pkgDir/libexec/omnigpu/install_guest_linux.sh" \
+            --build-dir "$PWD/$pkgDir" --prefix /usr/local
+          DESTDIR="$helperStage" "$pkgDir/libexec/omnigpu/install_host.sh" \
+            --build-dir "$PWD/$pkgDir" --prefix /usr/local
+          test -f "$helperStage/usr/local/share/vulkan/icd.d/omnigpu_guest.json"
+          test -f "$helperStage/etc/systemd/system/omnigpu-host.service"
+
           tar czf "$pkgDir.tar.gz" "$pkgDir/"
-          echo "Packaged: $pkgDir.tar.gz"
 
-
-      - name: Upload build artifacts
+      - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: omnigpu-linux-${{ matrix.preset }}
-          path: omnigpu-linux-${{ matrix.preset }}.tar.gz
+          name: omnigpu-linux
+          path: omnigpu-linux.tar.gz

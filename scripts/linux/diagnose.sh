@@ -1,154 +1,190 @@
 #!/usr/bin/env bash
-
-# OmniGPU Linux Diagnosis Tool
-# Verifies the status of the Host Server and Guest Driver setup
+# OmniGPU Linux diagnosis tool.
+set -o pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
-NC='\033[0;5m' # No Color
-GRAY='\033[0;90m'
+NC='\033[0m'
 
-echo -e "${CYAN}=============================================${NC}"
-echo -e "${CYAN}       OmniGPU Linux Diagnosis Tool          ${NC}"
-echo -e "${CYAN}=============================================${NC}"
-echo ""
-
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+PORT="${OMNIGPU_PORT:-}"
+if [[ -z "${PORT}" ]] && command -v python3 >/dev/null 2>&1; then
+    for host_config in \
+        "${PROJECT_ROOT}/omnigpu_host.json" \
+        "${PROJECT_ROOT}/etc/omnigpu/omnigpu_host.json" \
+        "/etc/omnigpu/omnigpu_host.json"; do
+        if [[ -f "${host_config}" ]]; then
+            PORT="$(python3 - "${host_config}" <<'PY' 2>/dev/null || true
+import json
+import pathlib
+import sys
+value = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")).get("port")
+if isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 65535:
+    print(value)
+PY
+)"
+            [[ -n "${PORT}" ]] && break
+        fi
+    done
+fi
+PORT="${PORT:-9443}"
+if [[ ! "${PORT}" =~ ^[0-9]+$ ]] || (( PORT < 1 || PORT > 65535 )); then
+    echo "Invalid OMNIGPU_PORT: ${PORT}" >&2
+    exit 2
+fi
 errors=0
 warnings=0
 
-# ---------------------------------------------------------
-# 1. Check Host Server Status
-# ---------------------------------------------------------
-echo -e "${YELLOW}[1/3] Checking OmniGPU Host Server...${NC}"
+ok() { echo -e "  ${GREEN}[OK]${NC} $*"; }
+warn() { echo -e "  ${YELLOW}[WARN]${NC} $*"; warnings=$((warnings + 1)); }
+fail() { echo -e "  ${RED}[ERROR]${NC} $*"; errors=$((errors + 1)); }
 
-# Check process
-host_pid=$(pgrep -f "omnigpu_host" || true)
-if [ -n "$host_pid" ]; then
-    echo -e "  ${GREEN}[OK] omnigpu_host is running (PID: $host_pid)${NC}"
+printf "%b\n" "${CYAN}=== OmniGPU Linux Diagnosis ===${NC}"
+
+echo "[1/4] Host runtime"
+if pgrep -x omnigpu_host >/dev/null 2>&1; then
+    ok "omnigpu_host process is running"
+elif command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet omnigpu-host.service 2>/dev/null; then
+    ok "omnigpu-host.service is active"
 else
-    echo -e "  ${YELLOW}[WARN] omnigpu_host is NOT running.${NC}"
-    warnings=$((warnings + 1))
+    warn "host is not running"
 fi
 
-# Check port 50051
-if command -v ss &> /dev/null; then
-    port_active=$(ss -tlnp | grep -q ":50051" && echo "yes" || echo "no")
-elif command -v netstat &> /dev/null; then
-    port_active=$(netstat -tlnp | grep -q ":50051" && echo "yes" || echo "no")
-else
-    port_active="unknown"
-fi
-
-if [ "$port_active" = "yes" ]; then
-    echo -e "  ${GREEN}[OK] TCP Port 50051 is active and listening${NC}"
-elif [ "$port_active" = "no" ]; then
-    if [ -n "$host_pid" ]; then
-        echo -e "  ${RED}[ERROR] omnigpu_host is running, but port 50051 is not listening!${NC}"
-        errors=$((errors + 1))
+if command -v ss >/dev/null 2>&1; then
+    if ss -H -ltn "sport = :${PORT}" 2>/dev/null | grep -q .; then
+        ok "TCP port ${PORT} is listening"
     else
-        echo -e "  ${GRAY}[--] Port 50051 is inactive (server stopped)${NC}"
-    fi
-fi
-
-# Detected Host GPUs via lspci
-if command -v lspci &> /dev/null; then
-    gpus=$(lspci | grep -i -E "vga|3d|display" || true)
-    if [ -n "$gpus" ]; then
-        echo -e "  ${GREEN}[OK] Detected Host GPU(s):${NC}"
-        echo "$gpus" | while read -r line; do
-            echo -e "    - $line"
-        done
+        warn "TCP port ${PORT} is not listening"
     fi
 else
-    echo -e "  ${YELLOW}[WARN] lspci not found, cannot detect physical GPUs.${NC}"
-fi
-echo ""
-
-# ---------------------------------------------------------
-# 2. Check Guest Driver Setup
-# ---------------------------------------------------------
-echo -e "${YELLOW}[2/3] Checking OmniGPU Guest Driver...${NC}"
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-bin_dir="$SCRIPT_DIR/../build/debug/bin"
-if [ ! -d "$bin_dir" ]; then
-    bin_dir="$SCRIPT_DIR/../bin"
+    warn "ss is not installed; port check skipped"
 fi
 
-if [ -d "$bin_dir" ]; then
-    echo -e "  ${GREEN}[OK] Binary directory found at: $bin_dir${NC}"
-else
-    echo -e "  ${RED}[ERROR] Binary output directory not found! Have you built the project?${NC}"
-    exit 1
+if command -v lspci >/dev/null 2>&1; then
+    gpu_lines="$(lspci | grep -iE 'vga|3d|display' || true)"
+    [[ -n "${gpu_lines}" ]] && ok "PCI display device detected" || warn "no PCI display device detected"
 fi
 
-# Check SO
-guest_so="$bin_dir/libomnigpu_guest.so"
-if [ -f "$guest_so" ]; then
-    echo -e "  ${GREEN}[OK] libomnigpu_guest.so exists ($(stat -c%s "$guest_so") bytes)${NC}"
-else
-    # Fallback check for DLL if compiled on Wine/Cross-build
-    guest_dll="$bin_dir/omnigpu_guest.dll"
-    if [ -f "$guest_dll" ]; then
-        echo -e "  ${GREEN}[OK] omnigpu_guest.dll exists (Windows ICD build)${NC}"
+echo "[2/4] Build/install artifacts"
+manifest=""
+for candidate in \
+    "${PROJECT_ROOT}/build/linux/src/guest/vk_icd.json" \
+    "${PROJECT_ROOT}/share/vulkan/icd.d/omnigpu_guest.json" \
+    "/usr/share/vulkan/icd.d/omnigpu_guest.json" \
+    "/usr/local/share/vulkan/icd.d/omnigpu_guest.json"; do
+    if [[ -f "${candidate}" ]]; then manifest="${candidate}"; break; fi
+done
+[[ -n "${manifest}" ]] && ok "ICD manifest: ${manifest}" || fail "OmniGPU ICD manifest not found"
+
+guest_library=""
+if [[ -n "${manifest}" ]]; then
+    if command -v python3 >/dev/null 2>&1; then
+        if guest_library="$(python3 - "${manifest}" <<'PY' 2>/dev/null
+import json
+import pathlib
+import sys
+manifest = pathlib.Path(sys.argv[1])
+data = json.loads(manifest.read_text(encoding="utf-8"))
+if not isinstance(data, dict) or not isinstance(data.get("ICD"), dict):
+    raise SystemExit(1)
+library_value = data["ICD"].get("library_path")
+if not isinstance(library_value, str) or not library_value:
+    raise SystemExit(1)
+path = pathlib.Path(library_value)
+if not path.is_absolute():
+    path = (manifest.parent / path).resolve()
+print(path)
+PY
+)"; then
+            if [[ ! -f "${guest_library}" ]]; then
+                fail "manifest library_path does not exist: ${guest_library}"
+                guest_library=""
+            fi
+        else
+            fail "ICD manifest is malformed or unreadable: ${manifest}"
+            guest_library=""
+        fi
     else
-        echo -e "  ${RED}[ERROR] libomnigpu_guest.so / omnigpu_guest.dll is missing!${NC}"
-        errors=$((errors + 1))
+        warn "python3 is not installed; ICD manifest parsing skipped"
     fi
 fi
+if [[ -z "${guest_library}" ]]; then
+    for candidate in \
+        "${PROJECT_ROOT}/build/linux/lib/libomnigpu_guest.so" \
+        "${PROJECT_ROOT}/lib/omnigpu/libomnigpu_guest.so" \
+        "/usr/lib/omnigpu/libomnigpu_guest.so" \
+        "/usr/local/lib/omnigpu/libomnigpu_guest.so"; do
+        if [[ -f "${candidate}" ]]; then guest_library="${candidate}"; break; fi
+    done
+fi
+[[ -n "${guest_library}" ]] && ok "guest ICD: ${guest_library}" || fail "libomnigpu_guest.so not found"
 
-# Check ICD JSON
-icd_json="$bin_dir/vk_icd.json"
-if [ -f "$icd_json" ]; then
-    echo -e "  ${GREEN}[OK] vk_icd.json exists${NC}"
-    if command -v jq &> /dev/null; then
-        lib_path=$(jq -r '.ICD.library_path' "$icd_json" 2>/dev/null || true)
-        echo -e "    - ICD library_path: $lib_path"
+host_binary=""
+for candidate in \
+    "${PROJECT_ROOT}/build/linux/bin/omnigpu_host" \
+    "${PROJECT_ROOT}/bin/omnigpu_host" \
+    "/usr/bin/omnigpu_host" \
+    "/usr/local/bin/omnigpu_host"; do
+    if [[ -x "${candidate}" ]]; then host_binary="${candidate}"; break; fi
+done
+[[ -n "${host_binary}" ]] && ok "host binary: ${host_binary}" || warn "omnigpu_host binary not found"
+
+if [[ -n "${guest_library}" ]] && command -v ldd >/dev/null 2>&1; then
+    if dependencies="$(ldd "${guest_library}" 2>&1)"; then
+        missing="$(printf '%s\n' "${dependencies}" | grep 'not found' || true)"
+        [[ -z "${missing}" ]] && ok "guest shared-library dependencies resolve" || fail "missing dependencies: ${missing}"
     else
-        echo -e "    - ICD content: $(cat "$icd_json")"
+        fail "ldd could not inspect ${guest_library}: ${dependencies}"
+    fi
+fi
+
+echo "[3/4] Vulkan loader"
+if [[ -n "${VK_DRIVER_FILES:-}" ]]; then
+    ok "VK_DRIVER_FILES=${VK_DRIVER_FILES}"
+elif [[ -n "${VK_ICD_FILENAMES:-}" ]]; then
+    warn "VK_ICD_FILENAMES is set; VK_DRIVER_FILES is preferred by newer loaders"
+else
+    ok "using system ICD discovery paths"
+fi
+
+if command -v vulkaninfo >/dev/null 2>&1; then
+    VULKANINFO_LOG="$(mktemp "${TMPDIR:-/tmp}/omnigpu-vulkaninfo.XXXXXX")" || {
+        fail "could not create a private vulkaninfo log"
+        VULKANINFO_LOG=""
+    }
+    if [[ -n "${VULKANINFO_LOG}" ]]; then
+        chmod 0600 "${VULKANINFO_LOG}"
+        if command -v timeout >/dev/null 2>&1; then
+            vulkaninfo_command=(timeout 15s vulkaninfo --summary)
+        else
+            vulkaninfo_command=(vulkaninfo --summary)
+        fi
+        if "${vulkaninfo_command[@]}" >"${VULKANINFO_LOG}" 2>&1; then
+            ok "vulkaninfo completed"
+            rm -f "${VULKANINFO_LOG}"
+        else
+            warn "vulkaninfo failed or timed out; inspect ${VULKANINFO_LOG}"
+        fi
     fi
 else
-    echo -e "  ${RED}[ERROR] vk_icd.json is missing!${NC}"
-    errors=$((errors + 1))
+    warn "vulkaninfo not installed (package: vulkan-tools)"
 fi
 
-# Check env
-if [ -n "$VK_ICD_FILENAMES" ]; then
-    echo -e "  ${GREEN}[OK] VK_ICD_FILENAMES is set to: $VK_ICD_FILENAMES${NC}"
-else
-    echo -e "  ${YELLOW}[WARN] VK_ICD_FILENAMES is not set. Setup environment or use helper script.${NC}"
-    warnings=$((warnings + 1))
+echo "[4/4] Configuration"
+config="${OMNIGPU_CONFIG:-}"
+if [[ -z "${config}" && -n "${XDG_CONFIG_HOME:-}" ]]; then
+    config="${XDG_CONFIG_HOME}/omnigpu/omnigpu_guest.json"
 fi
-echo ""
-
-# ---------------------------------------------------------
-# 3. Check Translation Layers
-# ---------------------------------------------------------
-echo -e "${YELLOW}[3/3] Checking Graphics Translation Layers...${NC}"
-
-# On Linux, Zink is standard. Check if MESA is configured for Zink
-if [ "$MESA_LOADER_DRIVER_OVERRIDE" = "zink" ] || [ "$GALLIUM_DRIVER" = "zink" ]; then
-    echo -e "  ${GREEN}[OK] Gallium Zink driver override active${NC}"
-else
-    echo -e "  ${GRAY}[--] Zink driver override not set (normal behavior unless forced)${NC}"
+if [[ -z "${config}" && -n "${HOME:-}" ]]; then
+    config="${HOME}/.config/omnigpu/omnigpu_guest.json"
 fi
-
-# Check clvk
-clvk_so="$bin_dir/libOpenCL.so"
-if [ -f "$clvk_so" ] || [ -f "$bin_dir/OpenCL.dll" ]; then
-    echo -e "  ${GREEN}[OK] clvk translation layer deployed${NC}"
-else
-    echo -e "  ${YELLOW}[WARN] clvk (libOpenCL.so) is missing. OpenCL compute translation unavailable.${NC}"
-    warnings=$((warnings + 1))
+if [[ -z "${config}" || ! -f "${config}" ]]; then
+    [[ -f /etc/omnigpu/omnigpu_guest.json ]] && config=/etc/omnigpu/omnigpu_guest.json
 fi
+[[ -n "${config}" && -f "${config}" ]] && ok "guest config: ${config}" || warn "guest config not found"
 
-echo ""
-echo -e "${CYAN}=============================================${NC}"
-if [ $errors -eq 0 ]; then
-    echo -e " ${GREEN}Diagnosis Completed: SYSTEM STABLE ($errors errors, $warnings warnings)${NC}"
-else
-    echo -e " ${RED}Diagnosis Completed: $errors ERROR(S) FOUND! Fix before running.${NC}"
-fi
-echo -e "${CYAN}=============================================${NC}"
+printf "%b\n" "${CYAN}=== Result: ${errors} error(s), ${warnings} warning(s) ===${NC}"
+[[ ${errors} -eq 0 ]]

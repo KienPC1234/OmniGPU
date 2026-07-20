@@ -1,0 +1,28 @@
+[Unit]
+Description=OmniGPU remote Vulkan compute host
+Documentation=https://github.com/KienPC1234/OmniGPU
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=omnigpu
+Group=omnigpu
+WorkingDirectory=/var/lib/omnigpu
+ExecStart=@OMNIGPU_HOST_BINARY@ @OMNIGPU_HOST_CONFIG@ --no-cli
+Restart=on-failure
+RestartSec=2s
+UMask=0077
+TimeoutStopSec=15s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadWritePaths=/var/lib/omnigpu /var/log/omnigpu /tmp
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

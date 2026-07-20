@@ -71,10 +71,12 @@
       "cacheVariables": {
         "CMAKE_C_COMPILER": "clang-19",
         "CMAKE_CXX_COMPILER": "clang++-19",
-        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_TARGET_TRIPLET": "x64-linux",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_CXX_CLANG_TIDY": "",
+        "OMNIGPU_FETCH_MESA3D": "OFF",
+        "OMNIGPU_BUILD_FFMPEG": "ON"
       }
     }
   ],

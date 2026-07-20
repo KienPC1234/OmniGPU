@@ -164,19 +164,21 @@ bool run_as_service() {
 }
 
 #else
-// Linux: systemd handles daemonization
+// Linux services run in the foreground under systemd. Installation requires
+// creating the service user, configuration, and unit file, which is handled by
+// the idempotent installer shipped with the project.
 bool install_service() {
-    SPDLOG_INFO("On Linux, use 'sudo systemctl enable omnigpu-host'");
-    return true;
+    SPDLOG_ERROR("Linux service installation requires: sudo ./scripts/linux/install_host.sh --start");
+    return false;
 }
 
 bool uninstall_service() {
-    SPDLOG_INFO("On Linux, use 'sudo systemctl disable omnigpu-host'");
-    return true;
+    SPDLOG_ERROR("Linux service removal requires: sudo ./scripts/linux/install_host.sh --uninstall");
+    return false;
 }
 
 bool run_as_service() {
-    SPDLOG_INFO("Running as foreground (use systemd for daemon)");
+    SPDLOG_INFO("Running in foreground service mode; systemd owns daemonization");
     return false;
 }
 #endif

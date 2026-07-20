@@ -39,7 +39,7 @@ target_link_libraries(omnigpu_common PUBLIC
   Threads::Threads
 )
 
-if(MSVC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+if(MSVC)
   target_compile_options(omnigpu_common PRIVATE /EHsc)
 endif()
 

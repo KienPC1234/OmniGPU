@@ -91,8 +91,10 @@ static VkQueue make_fake_queue() {
 // Check if an extension name is in the supported list (mirrors host GPU)
 static bool is_extension_supported(const char* name) {
     static const char* supported[] = {
+#ifdef _WIN32
         VK_KHR_SURFACE_EXTENSION_NAME,
-        "VK_KHR_win32_surface",
+        VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+#endif
         "VK_KHR_get_physical_device_properties2",
         "VK_KHR_get_surface_capabilities2",
         "VK_KHR_surface_protected_capabilities",
@@ -267,8 +269,10 @@ VkResult VKAPI_PTR vkEnumerateInstanceExtensionProperties_hook(
             p.specVersion = ver;
             instance_extensions.push_back(p);
         };
+#ifdef _WIN32
         add(VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_SURFACE_SPEC_VERSION);
-        add("VK_KHR_win32_surface", 6);
+        add(VK_KHR_WIN32_SURFACE_EXTENSION_NAME, VK_KHR_WIN32_SURFACE_SPEC_VERSION);
+#endif
         add("VK_KHR_get_physical_device_properties2", 2);
         add("VK_KHR_get_surface_capabilities2", 1);
         add("VK_KHR_surface_protected_capabilities", 1);
@@ -318,7 +322,9 @@ VkResult VKAPI_PTR vkEnumerateDeviceExtensionProperties_hook(
             p.specVersion = ver;
             device_extensions.push_back(p);
         };
+#ifdef _WIN32
         add(VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_SWAPCHAIN_SPEC_VERSION);
+#endif
         add("VK_KHR_maintenance1", 2);
         add("VK_KHR_maintenance2", 1);
         add("VK_KHR_maintenance3", 1);
