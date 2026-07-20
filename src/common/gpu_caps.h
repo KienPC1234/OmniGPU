@@ -29,7 +29,7 @@ struct GpuCapabilities {
     uint32_t heap_0_flags = 1;  // VK_MEMORY_HEAP_DEVICE_LOCAL_BIT
     uint32_t heap_1_flags = 0;  // HOST_VISIBLE_BIT
     uint32_t memory_type_count = 4;
-    float max_sampler_anisotropy = 16.0f;
+    float max_sampler_anisotropy = 16.0F;
     uint32_t max_color_attachments = 8;
     uint32_t max_bound_descriptor_sets_ext = 32;
     uint32_t max_per_stage_descriptor_samplers = 2048;
@@ -39,10 +39,10 @@ struct GpuCapabilities {
     uint32_t max_per_stage_descriptor_storage_images = 2048;
     uint32_t max_per_stage_resources_ext = 1000000;
     uint32_t subgroup_size = 32;
-    float timestamp_period = 1.0f;
+    float timestamp_period = 1.0F;
     uint32_t max_viewports = 16;
-    float max_viewport_dimensions_w = 16384.0f;
-    float max_viewport_dimensions_h = 16384.0f;
+    float max_viewport_dimensions_w = 16384.0F;
+    float max_viewport_dimensions_h = 16384.0F;
     uint32_t max_fragment_output_attachments = 8;
     uint64_t min_uniform_buffer_offset_alignment = 256;
     uint64_t min_storage_buffer_offset_alignment = 256;
@@ -67,7 +67,7 @@ struct GpuCapabilities {
     uint32_t compute_queue_count = 1;
     uint32_t supported_subgroup_operations = 0;
 
-    bool valid() const { return !gpu_name.empty(); }
+    [[nodiscard]] bool valid() const { return !gpu_name.empty(); }
 };
 
 } // namespace omnigpu::caps

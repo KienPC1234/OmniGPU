@@ -14,9 +14,13 @@ namespace omnigpu {
 static bool has_real_console() {
 #ifdef _WIN32
     HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (h == INVALID_HANDLE_VALUE || h == nullptr) return false;
+    if (h == INVALID_HANDLE_VALUE || h == nullptr) {
+        return false;
+    }
     DWORD type = GetFileType(h);
-    if (type != FILE_TYPE_CHAR) return false;
+    if (type != FILE_TYPE_CHAR) {
+        return false;
+    }
     DWORD mode = 0;
     return GetConsoleMode(h, &mode) != 0;
 #else

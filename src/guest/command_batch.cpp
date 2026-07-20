@@ -41,7 +41,7 @@ void CommandBatch::flush() {
     // Lock: extract all pending commands atomically
     std::vector<std::vector<uint8_t>> batch;
     size_t saved_count = 0;
-    size_t saved_bytes = 0;
+    [[maybe_unused]] size_t saved_bytes = 0;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (pending_cmds_.empty()) {

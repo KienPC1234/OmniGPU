@@ -29,7 +29,6 @@
 namespace omnigpu::intercept {
 
 // Forward declarations
-extern omnigpu::Client* g_client;
 
 // Global state for memory mapping / flush tracking
 static std::mutex s_map_mutex;
@@ -45,7 +44,6 @@ struct QueryResultDest { void* ptr; size_t size; };
 static std::unordered_map<uint64_t, QueryResultDest> s_pending_query_results;
 struct LayoutResultDest { VkSubresourceLayout* ptr; };
 static std::unordered_map<uint64_t, LayoutResultDest> s_pending_layouts;
-static batch::CommandBatch* g_batch = nullptr;
 static std::atomic<uint32_t> g_next_fake_id{0x10000};
 
 uint64_t next_fake_handle() {
@@ -1021,8 +1019,9 @@ void VKAPI_PTR vkGetImageSubresourceLayout_hook(
         batch->flush();
     }
 
-    if (g_client) {
-        g_client->sync_query(0x8c, image_key);
+    auto* client = init::get_client();
+    if (client) {
+        client->sync_query(0x8c, image_key);
     }
 
     {
@@ -1071,8 +1070,9 @@ VkResult VKAPI_PTR vkGetQueryPoolResults_hook(
         batch->flush();
     }
 
-    if (g_client) {
-        g_client->sync_query(0x8b, pool_key);
+    auto* client = init::get_client();
+    if (client) {
+        client->sync_query(0x8b, pool_key);
     }
 
     {
@@ -1108,8 +1108,9 @@ VkResult VKAPI_PTR vkGetFenceStatus_hook(VkDevice device, VkFence fence) {
     if (batch) {
         batch->flush();
     }
-    if (g_client) {
-        uint64_t res = g_client->sync_query(0x87, handle_to_u64(fence));
+    auto* client = init::get_client();
+    if (client) {
+        uint64_t res = client->sync_query(0x87, handle_to_u64(fence));
         return static_cast<VkResult>(res);
     }
     return VK_SUCCESS;
@@ -2082,9 +2083,10 @@ VkResult VKAPI_PTR vkInvalidateMappedMemoryRanges_hook(
         batch->flush();
     }
 
-    if (g_client) {
+    auto* client = init::get_client();
+    if (client) {
         for (uint32_t i = 0; i < memoryRangeCount; i++) {
-            g_client->sync_query(0x8d, handle_to_u64(pMemoryRanges[i].memory));
+            client->sync_query(0x8d, handle_to_u64(pMemoryRanges[i].memory));
         }
     }
     return VK_SUCCESS;
@@ -2185,9 +2187,10 @@ VkResult VKAPI_PTR vkWaitForFences_hook(
         batch->flush();
     }
     VkResult final_res = VK_SUCCESS;
-    if (g_client) {
+    auto* client = init::get_client();
+    if (client) {
         for (uint32_t i = 0; i < fenceCount; i++) {
-            uint64_t res = g_client->sync_query(0x85, handle_to_u64(pFences[i]));
+            uint64_t res = client->sync_query(0x85, handle_to_u64(pFences[i]));
             if (static_cast<VkResult>(res) != VK_SUCCESS) {
                 final_res = static_cast<VkResult>(res);
             }
@@ -2202,8 +2205,9 @@ VkResult VKAPI_PTR vkDeviceWaitIdle_hook(VkDevice device) {
     if (batch) {
         batch->flush();
     }
-    if (g_client) {
-        uint64_t res = g_client->sync_query(0x88, handle_to_u64(device));
+    auto* client = init::get_client();
+    if (client) {
+        uint64_t res = client->sync_query(0x88, handle_to_u64(device));
         return static_cast<VkResult>(res);
     }
     return VK_SUCCESS;
@@ -2215,8 +2219,9 @@ VkResult VKAPI_PTR vkQueueWaitIdle_hook(VkQueue queue) {
     if (batch) {
         batch->flush();
     }
-    if (g_client) {
-        uint64_t res = g_client->sync_query(0x89, handle_to_u64(queue));
+    auto* client = init::get_client();
+    if (client) {
+        uint64_t res = client->sync_query(0x89, handle_to_u64(queue));
         return static_cast<VkResult>(res);
     }
     return VK_SUCCESS;
@@ -2230,8 +2235,9 @@ VkResult VKAPI_PTR vkGetSemaphoreCounterValue_hook(
     if (batch) {
         batch->flush();
     }
-    if (g_client && pValue) {
-        uint64_t val = g_client->sync_query(0x8a, handle_to_u64(semaphore));
+    auto* client = init::get_client();
+    if (client && pValue) {
+        uint64_t val = client->sync_query(0x8a, handle_to_u64(semaphore));
         *pValue = val;
         return VK_SUCCESS;
     }

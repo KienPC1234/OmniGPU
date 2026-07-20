@@ -329,10 +329,18 @@ std::string BufferManager::stats() const {
 void BufferManager::cleanup() {
     std::lock_guard<std::mutex> lock(mutex_);
     for (auto& [id, buf] : buffers_) {
-        if (buf.stagingBuffer) vkDestroyBuffer(device_, buf.stagingBuffer, nullptr);
-        if (buf.stagingMemory) vkFreeMemory(device_, buf.stagingMemory, nullptr);
-        if (buf.buffer) vkDestroyBuffer(device_, buf.buffer, nullptr);
-        if (buf.memory) vkFreeMemory(device_, buf.memory, nullptr);
+        if (buf.stagingBuffer != VK_NULL_HANDLE) {
+            vkDestroyBuffer(device_, buf.stagingBuffer, nullptr);
+        }
+        if (buf.stagingMemory != VK_NULL_HANDLE) {
+            vkFreeMemory(device_, buf.stagingMemory, nullptr);
+        }
+        if (buf.buffer != VK_NULL_HANDLE) {
+            vkDestroyBuffer(device_, buf.buffer, nullptr);
+        }
+        if (buf.memory != VK_NULL_HANDLE) {
+            vkFreeMemory(device_, buf.memory, nullptr);
+        }
     }
     buffers_.clear();
     totalVramUsed_ = 0;
