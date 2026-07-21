@@ -235,6 +235,14 @@ bool Client::receive_data(uint8_t* buffer, size_t size) {
     return fd != INVALID_SOCKET && tcp::recv_all(fd, buffer, size);
 }
 
+bool Client::receive_data_for(uint8_t* buffer, size_t size,
+                              uint32_t timeout_ms) {
+    std::shared_lock lock(socket_lifetime_mutex_);
+    const SOCKET fd = socket_.load(std::memory_order_acquire);
+    return fd != INVALID_SOCKET &&
+           tcp::recv_all_for(fd, buffer, size, timeout_ms);
+}
+
 uint64_t Client::sync_query(uint64_t func_id, uint64_t arg) {
     std::lock_guard<std::mutex> send_lock(send_mutex_);
 

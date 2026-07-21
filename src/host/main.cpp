@@ -151,7 +151,11 @@ int main(int argc, char* argv[]) {
             break;
         }
     }
-    omnigpu::load_config(config);
+    if (!omnigpu::load_config(config)) {
+        SPDLOG_CRITICAL("Refusing to start with an invalid host configuration: {}",
+                        config.config_path);
+        return 2;
+    }
 
     // Rendering is secondary; an encoder failure must not prevent compute use.
     run_encoder_precheck(config);

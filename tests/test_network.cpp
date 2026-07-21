@@ -1,6 +1,8 @@
 #include "common/network_utils.h"
 
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <thread>
 #include <gtest/gtest.h>
@@ -44,6 +46,8 @@ TEST(Network, RejectsNullBuffers) {
     EXPECT_FALSE(omnigpu::tcp::recv_all(INVALID_SOCKET, nullptr, 1));
     EXPECT_TRUE(omnigpu::tcp::send_all(INVALID_SOCKET, nullptr, 0));
     EXPECT_TRUE(omnigpu::tcp::recv_all(INVALID_SOCKET, nullptr, 0));
+    EXPECT_FALSE(omnigpu::tcp::recv_all_for(INVALID_SOCKET, nullptr, 1, 100));
+    EXPECT_TRUE(omnigpu::tcp::recv_all_for(INVALID_SOCKET, nullptr, 0, 100));
 }
 
 TEST(Network, LoopbackRoundTrip) {
@@ -133,4 +137,50 @@ TEST(Network, TimeoutCanBeCleared) {
 #endif
 
     close_if_valid(socket);
+}
+
+
+TEST(Network, OverallReceiveDeadlineRejectsSlowDrip) {
+    using namespace std::chrono_literals;
+    TcpRuntime runtime;
+    ASSERT_TRUE(runtime.initialized());
+
+    SOCKET listener = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    ASSERT_NE(listener, INVALID_SOCKET);
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = 0;
+    ASSERT_EQ(::bind(listener, reinterpret_cast<sockaddr*>(&address),
+                     sizeof(address)), 0);
+    ASSERT_EQ(::listen(listener, 1), 0);
+#ifdef _WIN32
+    int address_length = sizeof(address);
+#else
+    socklen_t address_length = sizeof(address);
+#endif
+    ASSERT_EQ(::getsockname(listener, reinterpret_cast<sockaddr*>(&address),
+                            &address_length), 0);
+
+    std::jthread server([&]() {
+        SOCKET accepted = ::accept(listener, nullptr, nullptr);
+        if (accepted == INVALID_SOCKET) return;
+        for (uint8_t byte = 1; byte <= 4; ++byte) {
+            if (!omnigpu::tcp::send_all(accepted, &byte, 1)) break;
+            std::this_thread::sleep_for(75ms);
+        }
+        close_if_valid(accepted);
+    });
+
+    SOCKET socket = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    ASSERT_NE(socket, INVALID_SOCKET);
+    ASSERT_EQ(::connect(socket, reinterpret_cast<sockaddr*>(&address),
+                        sizeof(address)), 0);
+    std::array<uint8_t, 4> bytes{};
+    const auto start = std::chrono::steady_clock::now();
+    EXPECT_FALSE(omnigpu::tcp::recv_all_for(socket, bytes.data(), bytes.size(),
+                                            100));
+    EXPECT_TRUE(std::chrono::steady_clock::now() - start < 500ms);
+    close_if_valid(socket);
+    close_if_valid(listener);
 }

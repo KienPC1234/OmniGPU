@@ -21,6 +21,7 @@ public:
     void disconnect();
     bool send_data(const uint8_t* data, size_t size);
     bool receive_data(uint8_t* buffer, size_t size);
+    bool receive_data_for(uint8_t* buffer, size_t size, uint32_t timeout_ms);
 
     uint64_t sync_query(uint64_t func_id, uint64_t arg);
     void set_sync_response(uint64_t val);

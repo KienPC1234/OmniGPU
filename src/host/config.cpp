@@ -1,5 +1,6 @@
 #include "config.h"
 #include <fstream>
+#include <limits>
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
@@ -16,7 +17,14 @@ bool load_config(HostConfig& config) {
         nlohmann::json j;
         file >> j;
 
-        if (j.contains("port")) config.port = j["port"].get<uint16_t>();
+        if (j.contains("port")) {
+            const auto value = j["port"].get<int64_t>();
+            if (value < 1 || value > 65535) {
+                SPDLOG_ERROR("Invalid host port in '{}'", config.config_path);
+                return false;
+            }
+            config.port = static_cast<uint16_t>(value);
+        }
         if (j.contains("jpeg_quality")) config.jpeg_quality = j["jpeg_quality"].get<int>();
         if (j.contains("multi_gpu_enabled")) config.multi_gpu_enabled = j["multi_gpu_enabled"].get<bool>();
         if (j.contains("max_fps")) config.max_fps = j["max_fps"].get<int>();
@@ -36,10 +44,83 @@ bool load_config(HostConfig& config) {
 
         // Security settings
         config.auth_token = j.value("auth_token", config.auth_token);
-        config.max_sessions = j.value("max_sessions", config.max_sessions);
-        config.max_msg_size_mb = j.value("max_msg_size_mb", config.max_msg_size_mb);
-        config.session_timeout_s = j.value("session_timeout_s", config.session_timeout_s);
-        config.per_session_memory_budget = j.value("per_session_memory_budget", config.per_session_memory_budget);
+        if (j.contains("max_sessions")) {
+            const auto value = j["max_sessions"].get<int64_t>();
+            if (value < 1 || value > 65'535) {
+                SPDLOG_ERROR("Invalid max_sessions in '{}'", config.config_path);
+                return false;
+            }
+            config.max_sessions = static_cast<uint32_t>(value);
+        }
+        if (j.contains("max_msg_size_mb")) {
+            const auto value = j["max_msg_size_mb"].get<int64_t>();
+            if (value < 1 || value > 4'096) {
+                SPDLOG_ERROR("Invalid max_msg_size_mb in '{}'", config.config_path);
+                return false;
+            }
+            config.max_msg_size_mb = static_cast<uint32_t>(value);
+        }
+        if (j.contains("session_timeout_s")) {
+            const auto value = j["session_timeout_s"].get<int64_t>();
+            if (value < 0 || value > 604'800) {
+                SPDLOG_ERROR("Invalid session_timeout_s in '{}'", config.config_path);
+                return false;
+            }
+            config.session_timeout_s = static_cast<uint32_t>(value);
+        }
+        if (j.contains("per_session_memory_budget")) {
+            const auto value = j["per_session_memory_budget"].get<int64_t>();
+            if (value < 1 || value > (1LL << 40)) {
+                SPDLOG_ERROR("Invalid per_session_memory_budget in '{}'", config.config_path);
+                return false;
+            }
+            config.per_session_memory_budget = static_cast<uint64_t>(value);
+        }
+
+        if (config.jpeg_quality < 1 || config.jpeg_quality > 100) {
+            SPDLOG_ERROR("Invalid jpeg_quality in '{}'", config.config_path);
+            return false;
+        }
+        if (config.max_fps < 1 || config.max_fps > 1000 ||
+            config.video_fps < 1 || config.video_fps > 1000) {
+            SPDLOG_ERROR("Invalid frame rate in '{}'", config.config_path);
+            return false;
+        }
+        constexpr uint32_t kMaxDimension = 32768;
+        if (config.render_width == 0 || config.render_height == 0 ||
+            config.video_width == 0 || config.video_height == 0 ||
+            config.render_width > kMaxDimension ||
+            config.render_height > kMaxDimension ||
+            config.video_width > kMaxDimension ||
+            config.video_height > kMaxDimension) {
+            SPDLOG_ERROR("Invalid render/video dimensions in '{}'",
+                         config.config_path);
+            return false;
+        }
+        if (config.video_bitrate_kbps < 1 ||
+            config.video_bitrate_kbps > 1'000'000 ||
+            config.encoder.gop_length < 0) {
+            SPDLOG_ERROR("Invalid encoder settings in '{}'",
+                         config.config_path);
+            return false;
+        }
+        if (config.auth_token.size() > 4096) {
+            SPDLOG_ERROR("auth_token is unreasonably large in '{}'",
+                         config.config_path);
+            return false;
+        }
+        if (config.video_codec != "h264" && config.video_codec != "hevc" &&
+            config.video_codec != "av1") {
+            SPDLOG_ERROR("Unsupported video_codec in '{}'", config.config_path);
+            return false;
+        }
+        if (config.encoder.preset.empty() || config.encoder.tuning.empty() ||
+            config.encoder.preset.size() > 128 ||
+            config.encoder.tuning.size() > 128) {
+            SPDLOG_ERROR("Invalid encoder text settings in '{}'",
+                         config.config_path);
+            return false;
+        }
 
         SPDLOG_INFO("Loaded config from '{}'", config.config_path);
         return true;

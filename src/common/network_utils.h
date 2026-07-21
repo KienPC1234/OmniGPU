@@ -32,6 +32,10 @@ bool set_tcp_nodelay(SOCKET fd);
 
 bool send_all(SOCKET fd, const uint8_t* data, size_t size);
 bool recv_all(SOCKET fd, uint8_t* buffer, size_t size);
+// Receive the complete buffer before a single overall deadline. Unlike a
+// socket inactivity timeout, a slow-drip peer cannot extend this indefinitely.
+bool recv_all_for(SOCKET fd, uint8_t* buffer, size_t size,
+                  uint32_t timeout_ms);
 
 // Set send and receive socket timeouts (seconds). 0 = no timeout.
 bool set_tcp_timeout(SOCKET fd, uint32_t timeout_s);

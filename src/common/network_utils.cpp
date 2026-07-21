@@ -1,6 +1,7 @@
 #include "network_utils.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cerrno>
 #include <cstring>
 #include <limits>
@@ -8,9 +9,48 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <poll.h>
 #endif
 
 namespace omnigpu::tcp {
+namespace {
+
+bool wait_readable_until(
+    SOCKET fd, std::chrono::steady_clock::time_point deadline) {
+    while (true) {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) return false;
+        const auto remaining = deadline - now;
+        const auto milliseconds = std::max<int64_t>(
+            1, std::chrono::duration_cast<std::chrono::milliseconds>(remaining)
+                   .count());
+#ifdef _WIN32
+        fd_set readable;
+        FD_ZERO(&readable);
+        FD_SET(fd, &readable);
+        timeval timeout{};
+        timeout.tv_sec = static_cast<long>(milliseconds / 1000);
+        timeout.tv_usec = static_cast<long>((milliseconds % 1000) * 1000);
+        const int ready = ::select(0, &readable, nullptr, nullptr, &timeout);
+        if (ready == SOCKET_ERROR && WSAGetLastError() == WSAEINTR) continue;
+        return ready > 0 && FD_ISSET(fd, &readable);
+#else
+        pollfd descriptor{};
+        descriptor.fd = fd;
+        descriptor.events = POLLIN;
+        const int poll_timeout = milliseconds > std::numeric_limits<int>::max()
+            ? std::numeric_limits<int>::max()
+            : static_cast<int>(milliseconds);
+        const int ready = ::poll(&descriptor, 1, poll_timeout);
+        if (ready < 0 && errno == EINTR) continue;
+        return ready > 0 &&
+               (descriptor.revents & (POLLIN | POLLHUP | POLLERR | POLLNVAL)) != 0;
+#endif
+    }
+}
+
+} // namespace
 
 #ifdef _WIN32
 bool init() {
@@ -105,6 +145,51 @@ bool recv_all(SOCKET fd, uint8_t* buffer, size_t size) {
         return false;
     }
     while (size > 0) {
+#ifdef _WIN32
+        const auto chunk = static_cast<int>(std::min<size_t>(
+            size, static_cast<size_t>(std::numeric_limits<int>::max())));
+        const int received = ::recv(fd, reinterpret_cast<char*>(buffer), chunk, 0);
+        if (received == SOCKET_ERROR && WSAGetLastError() == WSAEINTR) continue;
+#else
+        const auto max_chunk = static_cast<size_t>(
+            std::numeric_limits<ssize_t>::max());
+        const size_t chunk = std::min(size, max_chunk);
+        const ssize_t received = ::recv(fd, buffer, chunk, 0);
+        if (received < 0 && errno == EINTR) continue;
+#endif
+        if (received <= 0) {
+            if (received == 0) {
+                SPDLOG_DEBUG("recv: connection closed by peer");
+            } else {
+                SPDLOG_ERROR("recv failed: {}", last_error());
+            }
+            return false;
+        }
+        buffer += static_cast<size_t>(received);
+        size -= static_cast<size_t>(received);
+    }
+    return true;
+}
+
+bool recv_all_for(SOCKET fd, uint8_t* buffer, size_t size,
+                  uint32_t timeout_ms) {
+    if (size != 0 && buffer == nullptr) {
+        SPDLOG_ERROR("recv_all_for called with null buffer and non-zero size");
+        return false;
+    }
+    if (size == 0) return true;
+    if (fd == INVALID_SOCKET || timeout_ms == 0) {
+        SPDLOG_ERROR("recv_all_for called with an invalid socket or timeout");
+        return false;
+    }
+
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::milliseconds(timeout_ms);
+    while (size > 0) {
+        if (!wait_readable_until(fd, deadline)) {
+            SPDLOG_ERROR("receive deadline expired");
+            return false;
+        }
 #ifdef _WIN32
         const auto chunk = static_cast<int>(std::min<size_t>(
             size, static_cast<size_t>(std::numeric_limits<int>::max())));

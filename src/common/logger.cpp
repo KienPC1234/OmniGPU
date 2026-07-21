@@ -119,18 +119,30 @@ std::vector<fs::path> candidate_log_paths(const std::string& log_name) {
 
 bool prepare_log_file(const fs::path& path) {
     const fs::path parent = path.parent_path();
+    bool created_parent = false;
     if (!parent.empty()) {
         std::error_code error;
-        fs::create_directories(parent, error);
+        created_parent = fs::create_directories(parent, error);
         if (error) {
             return false;
         }
 #ifndef _WIN32
-        // The selected Linux directory is dedicated to OmniGPU. Keep logs and
-        // any future state inaccessible to other local users.
-        ::chmod(parent.c_str(), S_IRWXU);
+        // Never change permissions on an existing caller-selected parent such
+        // as /var/log. Only harden a directory hierarchy that this invocation
+        // actually created for OmniGPU.
+        if (created_parent && ::chmod(parent.c_str(), S_IRWXU) != 0) {
+            return false;
+        }
 #endif
     }
+
+#ifndef _WIN32
+    std::error_code status_error;
+    const auto status = fs::symlink_status(path, status_error);
+    if (!status_error && fs::is_symlink(status)) {
+        return false;
+    }
+#endif
 
     FILE* file = std::fopen(path.string().c_str(), "a");
     if (file == nullptr) {

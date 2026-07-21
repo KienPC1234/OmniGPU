@@ -141,6 +141,8 @@ static void destroy_display() {
     g_disp_created = false;
 }
 #else
+// Common decoder code queries this flag outside the Windows-only block.
+static constexpr bool g_disp_created = false;
 static void create_display_window(uint32_t, uint32_t) {}
 static void update_display(const uint8_t*, uint32_t, uint32_t) {}
 static void destroy_display() {}

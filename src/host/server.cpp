@@ -25,6 +25,7 @@ bool Server::start() {
     listenFd_ = ::socket(AF_INET, SOCK_STREAM, 0);
     if (listenFd_ == INVALID_SOCKET) {
         SPDLOG_ERROR("socket creation failed: {}", tcp::last_error());
+        tcp::cleanup();
         return false;
     }
 
@@ -43,6 +44,7 @@ bool Server::start() {
         SPDLOG_ERROR("bind failed on port {}: {}", port_, tcp::last_error());
         tcp::close_socket(listenFd_);
         listenFd_ = INVALID_SOCKET;
+        tcp::cleanup();
         return false;
     }
 
@@ -50,6 +52,7 @@ bool Server::start() {
         SPDLOG_ERROR("listen failed: {}", tcp::last_error());
         tcp::close_socket(listenFd_);
         listenFd_ = INVALID_SOCKET;
+        tcp::cleanup();
         return false;
     }
 

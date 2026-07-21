@@ -17,6 +17,13 @@ namespace {
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 
+constexpr std::size_t kMaxHostLength = 1024;
+constexpr std::size_t kMaxAuthTokenLength = 4096;
+constexpr uint64_t kMaxCacheTtlSeconds = 10ULL * 365 * 24 * 60 * 60;
+constexpr uint64_t kMaxBatchIntervalMs = 60'000;
+constexpr uint64_t kMaxBatchCommands = 1'000'000;
+constexpr uint64_t kMaxBatchBytes = 64ULL * 1024 * 1024;
+
 std::string trim(const std::string& value) {
     const auto start = value.find_first_not_of(" \t\r\n");
     if (start == std::string::npos) return {};
@@ -91,7 +98,9 @@ void apply_json(GuestConfig& cfg, const json& values) {
     GuestConfig updated = cfg;
     if (values.contains("host")) {
         updated.host = trim(values.at("host").get<std::string>());
-        if (updated.host.empty()) throw std::invalid_argument("host must not be empty");
+        if (updated.host.empty() || updated.host.size() > kMaxHostLength) {
+            throw std::invalid_argument("host must be non-empty and reasonably sized");
+        }
     }
     if (values.contains("port")) {
         updated.port = static_cast<uint16_t>(bounded_unsigned(
@@ -99,38 +108,36 @@ void apply_json(GuestConfig& cfg, const json& values) {
     }
     if (values.contains("cache_ttl_seconds")) {
         updated.cache_ttl_seconds = bounded_unsigned(
-            values, "cache_ttl_seconds", 0, std::numeric_limits<uint64_t>::max());
+            values, "cache_ttl_seconds", 0, kMaxCacheTtlSeconds);
     }
     if (values.contains("auth_token")) {
         updated.auth_token = values.at("auth_token").get<std::string>();
+        if (updated.auth_token.size() > kMaxAuthTokenLength) {
+            throw std::invalid_argument("auth_token is too large");
+        }
     }
     if (values.contains("adaptive_batching")) {
         updated.adaptive_batching = values.at("adaptive_batching").get<bool>();
     }
     if (values.contains("max_batch_interval_ms")) {
         updated.max_batch_interval_ms = static_cast<uint32_t>(bounded_unsigned(
-            values, "max_batch_interval_ms", 1,
-            std::numeric_limits<uint32_t>::max()));
+            values, "max_batch_interval_ms", 1, kMaxBatchIntervalMs));
     }
     if (values.contains("min_batch_commands")) {
         updated.min_batch_commands = static_cast<uint32_t>(bounded_unsigned(
-            values, "min_batch_commands", 1,
-            std::numeric_limits<uint32_t>::max()));
+            values, "min_batch_commands", 1, kMaxBatchCommands));
     }
     if (values.contains("max_batch_commands")) {
         updated.max_batch_commands = static_cast<uint32_t>(bounded_unsigned(
-            values, "max_batch_commands", 1,
-            std::numeric_limits<uint32_t>::max()));
+            values, "max_batch_commands", 1, kMaxBatchCommands));
     }
     if (values.contains("min_batch_bytes")) {
         updated.min_batch_bytes = static_cast<uint32_t>(bounded_unsigned(
-            values, "min_batch_bytes", 1,
-            std::numeric_limits<uint32_t>::max()));
+            values, "min_batch_bytes", 1, kMaxBatchBytes));
     }
     if (values.contains("max_batch_bytes")) {
         updated.max_batch_bytes = static_cast<uint32_t>(bounded_unsigned(
-            values, "max_batch_bytes", 1,
-            std::numeric_limits<uint32_t>::max()));
+            values, "max_batch_bytes", 1, kMaxBatchBytes));
     }
 
     if (updated.min_batch_commands > updated.max_batch_commands) {
@@ -145,7 +152,10 @@ void apply_json(GuestConfig& cfg, const json& values) {
 void apply_environment(GuestConfig& cfg) {
     if (const char* host = std::getenv("OMNIGPU_HOST")) {
         const std::string value = trim(host);
-        if (!value.empty()) {
+        if (value.empty() || value.size() > kMaxHostLength) {
+            SPDLOG_ERROR("Invalid OMNIGPU_HOST override");
+            cfg.valid = false;
+        } else {
             cfg.host = value;
             SPDLOG_INFO("OMNIGPU_HOST env override: {}", cfg.host);
         }
@@ -163,13 +173,19 @@ void apply_environment(GuestConfig& cfg) {
             cfg.port = static_cast<uint16_t>(parsed);
             SPDLOG_INFO("OMNIGPU_PORT env override: {}", cfg.port);
         } catch (const std::exception&) {
-            SPDLOG_WARN("Ignoring invalid OMNIGPU_PORT='{}'", port);
+            SPDLOG_ERROR("Invalid OMNIGPU_PORT override");
+            cfg.valid = false;
         }
     }
 
     if (const char* token = std::getenv("OMNIGPU_AUTH_TOKEN")) {
-        cfg.auth_token = token;
-        SPDLOG_INFO("OMNIGPU_AUTH_TOKEN env override enabled");
+        if (std::char_traits<char>::length(token) > kMaxAuthTokenLength) {
+            SPDLOG_ERROR("OMNIGPU_AUTH_TOKEN is too large");
+            cfg.valid = false;
+        } else {
+            cfg.auth_token = token;
+            SPDLOG_INFO("OMNIGPU_AUTH_TOKEN env override enabled");
+        }
     }
 }
 
@@ -182,6 +198,9 @@ const char* config_path() {
 
 GuestConfig load(const std::string& path) {
     GuestConfig cfg;
+    const char* configured_path = std::getenv("OMNIGPU_CONFIG");
+    const bool explicit_path = !path.empty() ||
+        (configured_path != nullptr && !trim(configured_path).empty());
     const std::string selected_path = path.empty() ? config_path() : path;
 
     std::ifstream file(selected_path);
@@ -194,9 +213,13 @@ GuestConfig load(const std::string& path) {
                         selected_path, cfg.host, cfg.port,
                         cfg.adaptive_batching);
         } catch (const std::exception& error) {
-            SPDLOG_WARN("Failed to parse config {}: {}", selected_path,
-                        error.what());
+            SPDLOG_ERROR("Failed to parse config {}: {}", selected_path,
+                         error.what());
+            cfg.valid = false;
         }
+    } else if (explicit_path) {
+        SPDLOG_ERROR("Explicit config file not found: {}", selected_path);
+        cfg.valid = false;
     } else {
         SPDLOG_DEBUG("Config file not found: {} (using defaults/environment)",
                      selected_path);
@@ -215,7 +238,8 @@ GuestConfig from_json_string(const std::string& json_string) {
         SPDLOG_INFO("Parsed config JSON: host={}:{}, adaptive={}", cfg.host,
                     cfg.port, cfg.adaptive_batching);
     } catch (const std::exception& error) {
-        SPDLOG_WARN("Failed to parse config JSON: {}", error.what());
+        SPDLOG_ERROR("Failed to parse config JSON: {}", error.what());
+        cfg.valid = false;
     }
     return cfg;
 }

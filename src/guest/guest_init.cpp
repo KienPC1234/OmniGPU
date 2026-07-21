@@ -29,8 +29,30 @@ std::thread* g_recv_thread = nullptr;
 std::atomic<bool> g_running{false};
 std::once_flag g_init_flag;
 bool g_init_result = false;
+std::mutex g_connect_mutex;
+std::string g_host_hint;
+uint16_t g_port_hint = 0;
+constexpr uint32_t kHandshakeTimeoutMs = 10'000;
+constexpr uint32_t kMaxHandshakeBytes = 4 * 1024 * 1024;
+
+uint32_t remaining_handshake_ms(
+    std::chrono::steady_clock::time_point deadline) {
+    const auto now = std::chrono::steady_clock::now();
+    if (now >= deadline) return 0;
+    const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+        deadline - now).count();
+    return static_cast<uint32_t>(remaining > 0 ? remaining : 1);
+}
 
 bool do_handshake(Client& client, const std::string& auth_token) {
+    const auto handshake_deadline = std::chrono::steady_clock::now() +
+                                    std::chrono::milliseconds(kHandshakeTimeoutMs);
+    auto receive_handshake = [&](uint8_t* buffer, size_t size) {
+        const uint32_t remaining = remaining_handshake_ms(handshake_deadline);
+        return remaining != 0 &&
+               client.receive_data_for(buffer, size, remaining);
+    };
+
     caps::GpuCapabilities cached_caps;
     cache::CacheManager cache(client.host(), client.port());
     bool is_cached = cache.load(cached_caps);
@@ -78,31 +100,38 @@ bool do_handshake(Client& client, const std::string& auth_token) {
         // Already have cached capabilities, but must consume host response
         // to keep TCP stream in sync for subsequent messages
         uint32_t resp_size = 0;
-        if (client.receive_data(reinterpret_cast<uint8_t*>(&resp_size),
-                                 sizeof(resp_size))) {
-            resp_size = ntohl(resp_size);
-            if (resp_size > 64 * 1024 * 1024) {
-                SPDLOG_ERROR("Handshake: response size {} exceeds limit", resp_size);
-                return false;
-            }
-            std::vector<uint8_t> buf(resp_size);
-            if (!client.receive_data(buf.data(), resp_size)) return false;
-            auto* root = protocol::verify_root(buf.data(), buf.size());
-            if (!root || root->payload_type() != fbs::MessagePayload_CapabilitiesResponse) {
-                SPDLOG_WARN("Handshake: unexpected response type, ignoring");
-            }
+        if (!receive_handshake(reinterpret_cast<uint8_t*>(&resp_size),
+                               sizeof(resp_size))) {
+            SPDLOG_ERROR("Handshake: failed to receive cached capability response size");
+            return false;
+        }
+        resp_size = ntohl(resp_size);
+        if (resp_size == 0 || resp_size > kMaxHandshakeBytes) {
+            SPDLOG_ERROR("Handshake: invalid response size {}", resp_size);
+            return false;
+        }
+        std::vector<uint8_t> buf(resp_size);
+        if (!receive_handshake(buf.data(), resp_size)) return false;
+        auto* root = protocol::verify_root(buf.data(), buf.size());
+        if (!root || root->payload_type() != fbs::MessagePayload_CapabilitiesResponse) {
+            SPDLOG_ERROR("Handshake: unexpected cached capability response");
+            return false;
         }
         return true;
     }
 
     uint32_t resp_size = 0;
-    if (!client.receive_data(reinterpret_cast<uint8_t*>(&resp_size),
-                              sizeof(resp_size)))
+    if (!receive_handshake(reinterpret_cast<uint8_t*>(&resp_size),
+                           sizeof(resp_size)))
         return false;
 
     resp_size = ntohl(resp_size);
+    if (resp_size == 0 || resp_size > kMaxHandshakeBytes) {
+        SPDLOG_ERROR("Handshake: invalid response size {}", resp_size);
+        return false;
+    }
     std::vector<uint8_t> resp_buf(resp_size);
-    if (!client.receive_data(resp_buf.data(), resp_size))
+    if (!receive_handshake(resp_buf.data(), resp_size))
         return false;
 
     auto* root = protocol::verify_root(resp_buf.data(), resp_buf.size());
@@ -179,7 +208,12 @@ bool do_handshake(Client& client, const std::string& auth_token) {
 bool initialize_guest_internal(const char* host_hint, uint16_t port_hint) {
     init_logger();
 
-    auto cfg = config::load();
+    if (host_hint != nullptr && host_hint[0] != ' ') {
+        g_host_hint = host_hint;
+    }
+    if (port_hint != 0) {
+        g_port_hint = port_hint;
+    }
 
 #ifdef _WIN32
     // Auto-register ICD in HKCU registry so future Vulkan apps
@@ -208,10 +242,45 @@ bool initialize_guest(const char* host_hint, uint16_t port_hint) {
 }
 
 bool connect_to_host() {
-    static std::once_flag connect_flag;
-    static bool connect_result = false;
-    std::call_once(connect_flag, []() {
+    std::lock_guard<std::mutex> connect_lock(g_connect_mutex);
+    if (g_client != nullptr && g_running.load(std::memory_order_acquire)) {
+        return true;
+    }
+
+    // Recover from a previously lost connection before attempting a retry.
+    if (g_client != nullptr) {
+        g_client->interrupt();
+        if (g_recv_thread != nullptr) {
+            if (g_recv_thread->joinable()) g_recv_thread->join();
+            delete g_recv_thread;
+            g_recv_thread = nullptr;
+        }
+        intercept::set_batch(nullptr);
+        if (g_batch != nullptr) {
+            delete g_batch;
+            g_batch = nullptr;
+        }
+        if (g_decoder != nullptr) {
+            g_decoder->shutdown();
+            delete g_decoder;
+            g_decoder = nullptr;
+        }
+        g_client->disconnect();
+        delete g_client;
+        g_client = nullptr;
+    }
+
         auto cfg = config::load();
+        if (!cfg.valid) {
+            SPDLOG_ERROR("Guest configuration is invalid; refusing to connect");
+            return false;
+        }
+        if (!g_host_hint.empty()) cfg.host = g_host_hint;
+        if (g_port_hint != 0) cfg.port = g_port_hint;
+        if (cfg.host.empty() || cfg.port == 0) {
+            SPDLOG_ERROR("Guest endpoint is invalid; refusing to connect");
+            return false;
+        }
         std::string host = cfg.host;
         uint16_t port = cfg.port;
 
@@ -222,12 +291,15 @@ bool connect_to_host() {
             SPDLOG_ERROR("Failed to connect to {}:{} — check host address, port, and firewall", host, port);
             delete g_client;
             g_client = nullptr;
-            connect_result = false;
-            return;
+            return false;
         }
 
         if (!do_handshake(*g_client, cfg.auth_token)) {
-            SPDLOG_WARN("Handshake failed, continuing with defaults");
+            SPDLOG_ERROR("Handshake failed or exceeded its deadline; refusing an unauthenticated or desynchronized session");
+            g_client->disconnect();
+            delete g_client;
+            g_client = nullptr;
+            return false;
         }
 
         g_batch = new batch::CommandBatch(
@@ -247,6 +319,20 @@ bool connect_to_host() {
 
         // Enable command batching to forward Vulkan commands to the host
         intercept::set_batch(g_batch);
+
+        // Publish the decoder before the receive thread can inspect it. The
+        // previous order was a C++ data race and could drop the first frame.
+        g_decoder = video::create_decoder();
+        if (g_decoder) {
+            g_decoder->init();
+            g_decoder->set_frame_callback([](video::DecodedFrame frame) {
+                SPDLOG_DEBUG("Decoded frame: id={}, {}x{}, rgba={} bytes",
+                             frame.frame_id, frame.width, frame.height,
+                             frame.rgba_pixels.size());
+            });
+            SPDLOG_INFO("Video decoder initialized (hw={})",
+                        g_decoder->hardware_accelerated());
+        }
 
         g_running = true;
         g_recv_thread = new std::thread([]() {
@@ -311,22 +397,10 @@ bool connect_to_host() {
                     }
                 }
             }
+            g_running.store(false, std::memory_order_release);
             SPDLOG_INFO("Receive thread stopped");
         });
-        connect_result = true;
-
-        g_decoder = video::create_decoder();
-        if (g_decoder) {
-            g_decoder->init();
-            g_decoder->set_frame_callback([](video::DecodedFrame frame) {
-                SPDLOG_DEBUG("Decoded frame: id={}, {}x{}, rgba={} bytes",
-                             frame.frame_id, frame.width, frame.height,
-                             frame.rgba_pixels.size());
-            });
-            SPDLOG_INFO("Video decoder initialized (hw={})", g_decoder->hardware_accelerated());
-        }
-    });
-    return connect_result;
+    return g_running.load(std::memory_order_acquire);
 }
 
 Client* get_client() {
@@ -334,6 +408,7 @@ Client* get_client() {
 }
 
 void shutdown_guest() {
+    std::lock_guard<std::mutex> connect_lock(g_connect_mutex);
     g_running = false;
 
     // Shutdown first to unblock recv(); Client owns the final close.
@@ -347,6 +422,7 @@ void shutdown_guest() {
         g_recv_thread = nullptr;
     }
 
+    intercept::set_batch(nullptr);
     if (g_batch) {
         g_batch->force_flush();
         delete g_batch;

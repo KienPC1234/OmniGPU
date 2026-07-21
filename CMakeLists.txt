@@ -52,7 +52,8 @@ endif()
 # Force-include a bounded compatibility bridge for non-Windows C++ builds.
 if(NOT WIN32)
   add_compile_options(
-    "$<$<COMPILE_LANGUAGE:CXX>:-include${CMAKE_CURRENT_SOURCE_DIR}/src/common/platform_compat.h>"
+    "$<$<COMPILE_LANGUAGE:CXX>:-include>"
+    "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/src/common/platform_compat.h>"
   )
 endif()
 

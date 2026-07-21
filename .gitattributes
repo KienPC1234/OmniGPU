@@ -1,0 +1,10 @@
+# Keep source, build metadata, and Linux scripts deterministic across Windows
+# and Linux checkouts. Git stores LF and checks these paths out as LF.
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+*.json text eol=lf

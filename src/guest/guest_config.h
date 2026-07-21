@@ -19,6 +19,10 @@ struct GuestConfig {
     uint32_t max_batch_commands = 256;
     uint32_t min_batch_bytes = 1024;
     uint32_t max_batch_bytes = 524288;
+
+    // False only when an explicitly present configuration could not be parsed
+    // or validated. Missing configuration remains a valid defaults/env case.
+    bool valid = true;
 };
 
 GuestConfig load(const std::string& path = "");

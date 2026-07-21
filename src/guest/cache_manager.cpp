@@ -43,14 +43,14 @@ std::string CacheManager::get_cache_path() const {
                     kCacheFileName).string();
         }
     }
-    // Do not use a predictable shared /tmp cache path. If no private XDG or
-    // home directory exists, use the process working directory; save() will
-    // simply disable caching if that location is not writable.
-    return kCacheFileName;
+    // No private per-user cache root is available. Disable capability caching
+    // rather than writing a hidden file into an arbitrary process directory.
+    return {};
 #endif
 }
 
 bool CacheManager::load(caps::GpuCapabilities& caps) const {
+    if (cache_path_.empty()) return false;
     std::ifstream file(cache_path_);
     if (!file.is_open()) {
         SPDLOG_DEBUG("Cache file not found: {}", cache_path_);
@@ -73,7 +73,8 @@ bool CacheManager::load(caps::GpuCapabilities& caps) const {
                        std::chrono::system_clock::now().time_since_epoch())
                        .count();
 
-        if (static_cast<uint64_t>(now) - saved_ts > kCacheTtlSeconds) {
+        if (now < 0 || saved_ts > static_cast<uint64_t>(now) ||
+            static_cast<uint64_t>(now) - saved_ts > kCacheTtlSeconds) {
             SPDLOG_INFO("Cache expired for {} ({}s old)", cache_key_,
                         static_cast<uint64_t>(now) - saved_ts);
             return false;
@@ -128,6 +129,7 @@ bool CacheManager::load(caps::GpuCapabilities& caps) const {
 }
 
 bool CacheManager::save(const caps::GpuCapabilities& caps) {
+    if (cache_path_.empty()) return false;
     try {
         // Ensure the complete cache directory hierarchy exists.
         const auto parent = std::filesystem::path(cache_path_).parent_path();
@@ -210,6 +212,7 @@ bool CacheManager::is_valid() const {
 }
 
 void CacheManager::invalidate() {
+    if (cache_path_.empty()) return;
     std::ifstream infile(cache_path_);
     if (!infile.is_open()) return;
 
