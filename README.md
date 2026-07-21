@@ -314,3 +314,13 @@ OmniGPU/
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).
+
+
+## llama.cpp over OmniGPU on Linux
+
+Install the guest tools, build llama.cpp with its Vulkan backend using
+`omnigpu-build-llama-cpp`, and launch `llama-cli`, `llama-server`, or
+`llama-bench` through `omnigpu-llama`. The launcher restricts Vulkan to the
+OmniGPU ICD, performs a bounded exact-device probe, and defaults to numeric
+full-layer offload compatible with all three tools. See
+`docs/llama_cpp_linux.md`.

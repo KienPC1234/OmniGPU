@@ -205,6 +205,28 @@ if(UNIX AND NOT APPLE AND OMNIGPU_BUILD_HOST)
   )
 endif()
 
+if(UNIX AND NOT APPLE AND OMNIGPU_BUILD_GUEST)
+  # User-facing llama.cpp helpers belong with the guest ICD and are installed
+  # in PATH even when the host service is not part of this build.
+  install(
+    PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/linux/omnigpu-llama.sh"
+    DESTINATION "${CMAKE_INSTALL_BINDIR}"
+    RENAME "omnigpu-llama"
+    COMPONENT "Tools"
+  )
+  install(
+    PROGRAMS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/linux/build_llama_cpp.sh"
+    DESTINATION "${CMAKE_INSTALL_BINDIR}"
+    RENAME "omnigpu-build-llama-cpp"
+    COMPONENT "Tools"
+  )
+  install(
+    FILES "${CMAKE_CURRENT_SOURCE_DIR}/docs/llama_cpp_linux.md"
+    DESTINATION "${CMAKE_INSTALL_DOCDIR}"
+    COMPONENT "Tools"
+  )
+endif()
+
 # Mesa3D distribution directory (opengl32.dll + libgallium_wgl.dll)
 if(OMNIGPU_FETCH_MESA3D AND OMNIGPU_BUILD_GUEST AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mesa3d")
   install(

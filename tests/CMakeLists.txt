@@ -30,3 +30,12 @@ endif()
 
 include(GoogleTest)
 gtest_discover_tests(omnigpu_tests PROPERTIES TIMEOUT 20)
+
+if(UNIX AND NOT APPLE)
+  add_test(
+    NAME omnigpu_llama_launcher
+    COMMAND bash "${CMAKE_SOURCE_DIR}/tests/test_llama_launcher.sh"
+                 "${CMAKE_SOURCE_DIR}/scripts/linux/omnigpu-llama.sh"
+  )
+  set_tests_properties(omnigpu_llama_launcher PROPERTIES TIMEOUT 30)
+endif()
