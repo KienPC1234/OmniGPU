@@ -5,7 +5,7 @@
 namespace omnigpu::host {
 
 uint64_t VulkanDeserializer::read_handle() {
-    if (pos_ + 8 > size_) return 0;
+    if (pos_ + 8 > size_) { error_ = true; return 0; }
     uint64_t val;
     std::memcpy(&val, data_ + pos_, 8);
     pos_ += 8;
@@ -13,7 +13,7 @@ uint64_t VulkanDeserializer::read_handle() {
 }
 
 uint32_t VulkanDeserializer::read_u32() {
-    if (pos_ + 4 > size_) return 0;
+    if (pos_ + 4 > size_) { error_ = true; return 0; }
     uint32_t val;
     std::memcpy(&val, data_ + pos_, 4);
     pos_ += 4;
@@ -21,7 +21,7 @@ uint32_t VulkanDeserializer::read_u32() {
 }
 
 int32_t VulkanDeserializer::read_i32() {
-    if (pos_ + 4 > size_) return 0;
+    if (pos_ + 4 > size_) { error_ = true; return 0; }
     int32_t val;
     std::memcpy(&val, data_ + pos_, 4);
     pos_ += 4;
@@ -29,7 +29,7 @@ int32_t VulkanDeserializer::read_i32() {
 }
 
 uint64_t VulkanDeserializer::read_u64() {
-    if (pos_ + 8 > size_) return 0;
+    if (pos_ + 8 > size_) { error_ = true; return 0; }
     uint64_t val;
     std::memcpy(&val, data_ + pos_, 8);
     pos_ += 8;
@@ -37,7 +37,7 @@ uint64_t VulkanDeserializer::read_u64() {
 }
 
 float VulkanDeserializer::read_f32() {
-    if (pos_ + 4 > size_) return 0;
+    if (pos_ + 4 > size_) { error_ = true; return 0; }
     float val;
     std::memcpy(&val, data_ + pos_, 4);
     pos_ += 4;
@@ -48,14 +48,16 @@ VkBool32 VulkanDeserializer::read_bool() {
     return read_u32() ? VK_TRUE : VK_FALSE;
 }
 
-void VulkanDeserializer::read_raw(void* out, size_t bytes) {
+bool VulkanDeserializer::read_raw(void* out, size_t bytes) {
     if (pos_ + bytes > size_) {
+        error_ = true;
         if (bytes > 0) std::memset(out, 0, bytes);
         pos_ = size_;
-        return;
+        return false;
     }
     std::memcpy(out, data_ + pos_, bytes);
     pos_ += bytes;
+    return true;
 }
 
 std::string VulkanDeserializer::read_string() {
@@ -67,8 +69,12 @@ std::string VulkanDeserializer::read_string() {
 }
 
 void VulkanDeserializer::skip(size_t bytes) {
+    if (pos_ + bytes > size_) {
+        error_ = true;
+        pos_ = size_;
+        return;
+    }
     pos_ += bytes;
-    if (pos_ > size_) pos_ = size_;
 }
 
 } // namespace omnigpu::host

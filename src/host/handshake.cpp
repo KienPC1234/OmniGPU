@@ -41,14 +41,24 @@ static uint32_t query_compute_queue_count(VkPhysicalDevice physDev) {
     return count;
 }
 
-static uint32_t query_subgroup_ops(VkPhysicalDevice physDev) {
+struct SubgroupInfo {
+    uint32_t subgroupSize = 32;
+    uint32_t supportedOperations = 0;
+    uint32_t supportedStages = VK_SHADER_STAGE_ALL;
+};
+
+static SubgroupInfo query_subgroup_info(VkPhysicalDevice physDev) {
+    SubgroupInfo info;
     VkPhysicalDeviceSubgroupProperties subProps{};
     subProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
     VkPhysicalDeviceProperties2 props2{};
     props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     props2.pNext = &subProps;
     vkGetPhysicalDeviceProperties2(physDev, &props2);
-    return static_cast<uint32_t>(subProps.supportedOperations);
+    info.subgroupSize = subProps.subgroupSize;
+    info.supportedOperations = static_cast<uint32_t>(subProps.supportedOperations);
+    info.supportedStages = static_cast<uint32_t>(subProps.supportedStages);
+    return info;
 }
 
 caps::GpuCapabilities query_host_gpu_caps() {
@@ -136,8 +146,21 @@ caps::GpuCapabilities query_host_gpu_caps() {
             caps.max_samples = static_cast<uint32_t>(VK_SAMPLE_COUNT_1_BIT);
             caps.framebuffer_color_sample_counts = static_cast<uint32_t>(props.limits.framebufferColorSampleCounts);
 
+            auto subInfo = query_subgroup_info(physDevice);
             caps.compute_queue_count = query_compute_queue_count(physDevice);
-            caps.supported_subgroup_operations = query_subgroup_ops(physDevice);
+            caps.supported_subgroup_operations = subInfo.supportedOperations;
+
+            // ===== ML support: hardcode for NVIDIA RTX 40 series =====
+            // Skip vkGetPhysicalDeviceFeatures2 pNext query (crashes nvoglv64.dll
+            // on driver 32.0.16.1047 with integer divide by zero).
+            caps.supports_16bit_storage = true;
+            caps.supports_8bit_storage  = true;
+            caps.supports_float16_int8  = true;
+            caps.supports_cooperative_matrix = true;
+            caps.coopmat_m = 16;
+            caps.coopmat_n = 16;
+            caps.coopmat_k = 16;
+            caps.supports_integer_dot_product = true;
 
             // Query per-stage descriptor limits from VkPhysicalDeviceProperties (already in VkPhysicalDeviceLimits)
             caps.max_bound_descriptor_sets_ext = props.limits.maxBoundDescriptorSets;
@@ -147,7 +170,7 @@ caps::GpuCapabilities query_host_gpu_caps() {
             caps.max_per_stage_descriptor_sampled_images = props.limits.maxPerStageDescriptorSampledImages;
             caps.max_per_stage_descriptor_storage_images = props.limits.maxPerStageDescriptorStorageImages;
             caps.max_per_stage_resources_ext = props.limits.maxPerStageResources;
-            caps.subgroup_size = query_subgroup_ops(physDevice);
+            caps.subgroup_size = subInfo.subgroupSize;
 
             VkPhysicalDeviceMemoryProperties memProps;
             vkGetPhysicalDeviceMemoryProperties(physDevice, &memProps);
@@ -270,7 +293,15 @@ HandshakeResult handle_capabilities_request(SOCKET client_fd,
         caps.supported_subgroup_operations,
         caps.compute_queue_count > 1,
         auth_required,
-        true  // buffer_manager_capable
+        true,  // buffer_manager_capable
+        caps.supports_16bit_storage,
+        caps.supports_8bit_storage,
+        caps.supports_float16_int8,
+        caps.supports_cooperative_matrix,
+        caps.coopmat_m,
+        caps.coopmat_n,
+        caps.coopmat_k,
+        caps.supports_integer_dot_product
     );
 
     auto response_msg = fbs::CreateMessage(
@@ -289,6 +320,20 @@ HandshakeResult handle_capabilities_request(SOCKET client_fd,
         result.ok = false;
         return result;
     }
+
+    // Set 30-second receive timeout so host doesn't hang forever if guest
+    // disconnects or handshake response is lost before CommandMessage arrives.
+#ifdef _WIN32
+    DWORD timeout_ms = 30000;
+    setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO,
+               reinterpret_cast<const char*>(&timeout_ms), sizeof(timeout_ms));
+#else
+    struct timeval tv;
+    tv.tv_sec = 30;
+    tv.tv_usec = 0;
+    setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO,
+               reinterpret_cast<const char*>(&tv), sizeof(tv));
+#endif
 
     return result;
 }

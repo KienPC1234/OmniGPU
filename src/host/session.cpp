@@ -88,10 +88,17 @@ bool Session::recv_message(std::vector<uint8_t>& buffer, bool is_first) {
     SPDLOG_INFO("Session::recv_message starting, clientFd={}", (int)clientFd_);
     // Set receive timeout for first message to avoid deadlock on lost handshake
     if (is_first) {
+#ifdef _WIN32
+        DWORD timeout_ms = 30000;
+        setsockopt(clientFd_, SOL_SOCKET, SO_RCVTIMEO,
+                   reinterpret_cast<const char*>(&timeout_ms), sizeof(timeout_ms));
+#else
         struct timeval tv;
         tv.tv_sec = 30;
         tv.tv_usec = 0;
-        setsockopt(clientFd_, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+        setsockopt(clientFd_, SOL_SOCKET, SO_RCVTIMEO,
+                   reinterpret_cast<const char*>(&tv), sizeof(tv));
+#endif
     }
     uint32_t msgSize = 0;
     if (!tcp::recv_all(clientFd_, reinterpret_cast<uint8_t*>(&msgSize), sizeof(msgSize))) {

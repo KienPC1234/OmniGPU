@@ -16,13 +16,41 @@ static_assert(FLATBUFFERS_VERSION_MAJOR == 25 &&
 namespace omnigpu {
 namespace fbs {
 
+struct CapabilitiesRequest;
+struct CapabilitiesRequestBuilder;
+struct CapabilitiesRequestT;
+
+struct CapabilitiesResponse;
+struct CapabilitiesResponseBuilder;
+struct CapabilitiesResponseT;
+
 struct CommandMessage;
 struct CommandMessageBuilder;
 struct CommandMessageT;
 
+struct BatchMessage;
+struct BatchMessageBuilder;
+struct BatchMessageT;
+
 struct DataMessage;
 struct DataMessageBuilder;
 struct DataMessageT;
+
+struct ResourceCacheUpload;
+struct ResourceCacheUploadBuilder;
+struct ResourceCacheUploadT;
+
+struct ResourceCacheEvictRequest;
+struct ResourceCacheEvictRequestBuilder;
+struct ResourceCacheEvictRequestT;
+
+struct ResourceCacheEvictResponse;
+struct ResourceCacheEvictResponseBuilder;
+struct ResourceCacheEvictResponseT;
+
+struct VideoFrame;
+struct VideoFrameBuilder;
+struct VideoFrameT;
 
 struct Message;
 struct MessageBuilder;
@@ -38,13 +66,195 @@ enum FunctionId : uint16_t {
   FunctionId_vkAllocateCommandBuffers = 6,
   FunctionId_vkBeginCommandBuffer = 7,
   FunctionId_vkEndCommandBuffer = 8,
-  FunctionId_vkQueueSubmit = 9,
-  FunctionId_vkQueuePresentKHR = 10,
+  FunctionId_vkGetDeviceQueue = 9,
+  FunctionId_vkQueueSubmit = 10,
+  FunctionId_vkQueuePresentKHR = 11,
+  FunctionId_vkAllocateMemory = 12,
+  FunctionId_vkFreeMemory = 13,
+  FunctionId_vkBindBufferMemory = 14,
+  FunctionId_vkBindImageMemory = 15,
+  FunctionId_vkCreateBuffer = 16,
+  FunctionId_vkDestroyBuffer = 17,
+  FunctionId_vkCreateImage = 18,
+  FunctionId_vkDestroyImage = 19,
+  FunctionId_vkCreateImageView = 20,
+  FunctionId_vkDestroyImageView = 21,
+  FunctionId_vkCreateSampler = 22,
+  FunctionId_vkDestroySampler = 23,
+  FunctionId_vkCreateShaderModule = 24,
+  FunctionId_vkDestroyShaderModule = 25,
+  FunctionId_vkCreatePipelineLayout = 26,
+  FunctionId_vkDestroyPipelineLayout = 27,
+  FunctionId_vkCreateGraphicsPipelines = 28,
+  FunctionId_vkCreateComputePipelines = 29,
+  FunctionId_vkDestroyPipeline = 30,
+  FunctionId_vkCreateRenderPass = 31,
+  FunctionId_vkDestroyRenderPass = 32,
+  FunctionId_vkCreateFramebuffer = 33,
+  FunctionId_vkDestroyFramebuffer = 34,
+  FunctionId_vkCmdDraw = 35,
+  FunctionId_vkCmdDrawIndexed = 36,
+  FunctionId_vkCmdDrawIndirect = 37,
+  FunctionId_vkCmdDispatch = 38,
+  FunctionId_vkCmdBindPipeline = 39,
+  FunctionId_vkCmdBindVertexBuffers = 40,
+  FunctionId_vkCmdBindIndexBuffer = 41,
+  FunctionId_vkCmdBindDescriptorSets = 42,
+  FunctionId_vkCmdSetViewport = 43,
+  FunctionId_vkCmdSetScissor = 44,
+  FunctionId_vkCmdPushConstants = 45,
+  FunctionId_vkCmdClearColorImage = 46,
+  FunctionId_vkCmdClearDepthStencilImage = 47,
+  FunctionId_vkCmdCopyBuffer = 48,
+  FunctionId_vkCmdCopyImage = 49,
+  FunctionId_vkCmdBlitImage = 50,
+  FunctionId_vkCmdPipelineBarrier = 51,
+  FunctionId_vkCmdBeginRenderPass = 52,
+  FunctionId_vkCmdEndRenderPass = 53,
+  FunctionId_vkCmdExecuteCommands = 54,
+  FunctionId_vkCreateDescriptorSetLayout = 55,
+  FunctionId_vkDestroyDescriptorSetLayout = 56,
+  FunctionId_vkCreateDescriptorPool = 57,
+  FunctionId_vkDestroyDescriptorPool = 58,
+  FunctionId_vkAllocateDescriptorSets = 59,
+  FunctionId_vkFreeDescriptorSets = 60,
+  FunctionId_vkUpdateDescriptorSets = 61,
+  FunctionId_vkCreateFence = 62,
+  FunctionId_vkDestroyFence = 63,
+  FunctionId_vkCreateSemaphore = 64,
+  FunctionId_vkDestroySemaphore = 65,
+  FunctionId_vkWaitForFences = 66,
+  FunctionId_vkResetFences = 67,
+  FunctionId_vkCreateEvent = 68,
+  FunctionId_vkDestroyEvent = 69,
+  FunctionId_vkCmdSetEvent = 70,
+  FunctionId_vkCmdResetEvent = 71,
+  FunctionId_vkCmdWaitEvents = 72,
+  FunctionId_vkCreateCommandPool = 73,
+  FunctionId_vkDestroyCommandPool = 74,
+  FunctionId_vkResetCommandPool = 75,
+  FunctionId_vkFreeCommandBuffers = 76,
+  FunctionId_vkResetCommandBuffer = 77,
+  FunctionId_vkDeviceWaitIdle = 78,
+  FunctionId_vkQueueWaitIdle = 79,
+  FunctionId_vkMapMemory = 80,
+  FunctionId_vkUnmapMemory = 81,
+  FunctionId_vkFlushMappedMemoryRanges = 82,
+  FunctionId_vkInvalidateMappedMemoryRanges = 83,
+  FunctionId_vkCreatePipelineCache = 84,
+  FunctionId_vkDestroyPipelineCache = 85,
+  FunctionId_vkMergePipelineCaches = 86,
+  FunctionId_vkCmdDrawIndexedIndirect = 87,
+  FunctionId_vkCmdDispatchIndirect = 88,
+  FunctionId_vkCmdSetDepthBias = 89,
+  FunctionId_vkCmdSetLineWidth = 90,
+  FunctionId_vkCmdSetDepthBounds = 91,
+  FunctionId_vkCmdSetStencilCompareMask = 92,
+  FunctionId_vkCmdSetStencilWriteMask = 93,
+  FunctionId_vkCmdSetStencilReference = 94,
+  FunctionId_vkCmdSetBlendConstants = 95,
+  FunctionId_vkCmdCopyBufferToImage = 96,
+  FunctionId_vkCmdCopyImageToBuffer = 97,
+  FunctionId_vkCmdUpdateBuffer = 98,
+  FunctionId_vkCmdFillBuffer = 99,
+  FunctionId_vkCmdClearAttachments = 100,
+  FunctionId_vkCmdResolveImage = 101,
+  FunctionId_vkCmdNextSubpass = 102,
+  FunctionId_vkResetDescriptorPool = 103,
+  FunctionId_vkSetEvent = 104,
+  FunctionId_vkResetEvent = 105,
+  FunctionId_vkCreateQueryPool = 106,
+  FunctionId_vkDestroyQueryPool = 107,
+  FunctionId_vkCmdBeginQuery = 108,
+  FunctionId_vkCmdEndQuery = 109,
+  FunctionId_vkCmdWriteTimestamp = 110,
+  FunctionId_vkCmdResetQueryPool = 111,
+  FunctionId_vkCmdCopyQueryPoolResults = 112,
+  FunctionId_vkBindBufferMemory2 = 113,
+  FunctionId_vkBindImageMemory2 = 114,
+  FunctionId_vkTrimCommandPool = 115,
+  FunctionId_vkCmdDrawIndirectCount = 116,
+  FunctionId_vkCmdDrawIndexedIndirectCount = 117,
+  FunctionId_vkCreateRenderPass2 = 118,
+  FunctionId_vkCmdBeginRenderPass2 = 119,
+  FunctionId_vkCmdNextSubpass2 = 120,
+  FunctionId_vkCmdEndRenderPass2 = 121,
+  FunctionId_vkResetQueryPool = 122,
+  FunctionId_vkGetSemaphoreCounterValue = 123,
+  FunctionId_vkWaitSemaphores = 124,
+  FunctionId_vkSignalSemaphore = 125,
+  FunctionId_vkCmdBeginRendering = 126,
+  FunctionId_vkCmdEndRendering = 127,
+  FunctionId_vkCmdSetCullMode = 128,
+  FunctionId_vkCmdSetFrontFace = 129,
+  FunctionId_vkCmdSetPrimitiveTopology = 130,
+  FunctionId_vkCmdSetViewportWithCount = 131,
+  FunctionId_vkCmdSetScissorWithCount = 132,
+  FunctionId_vkCmdSetDepthTestEnable = 133,
+  FunctionId_vkCmdSetDepthWriteEnable = 134,
+  FunctionId_vkCmdSetDepthCompareOp = 135,
+  FunctionId_vkCmdSetDepthBoundsTestEnable = 136,
+  FunctionId_vkCmdSetStencilTestEnable = 137,
+  FunctionId_vkCmdSetStencilOp = 138,
+  FunctionId_vkCmdSetRasterizerDiscardEnable = 139,
+  FunctionId_vkCmdSetDepthBiasEnable = 140,
+  FunctionId_vkCmdSetPrimitiveRestartEnable = 141,
+  FunctionId_vkCmdPipelineBarrier2 = 142,
+  FunctionId_vkCmdResetEvent2 = 143,
+  FunctionId_vkCmdSetEvent2 = 144,
+  FunctionId_vkCmdWaitEvents2 = 145,
+  FunctionId_vkCmdWriteTimestamp2 = 146,
+  FunctionId_vkQueueSubmit2 = 147,
+  FunctionId_vkCmdCopyBuffer2 = 148,
+  FunctionId_vkCmdCopyImage2 = 149,
+  FunctionId_vkCmdCopyBufferToImage2 = 150,
+  FunctionId_vkCmdCopyImageToBuffer2 = 151,
+  FunctionId_vkCmdBlitImage2 = 152,
+  FunctionId_vkCmdResolveImage2 = 153,
+  FunctionId_vkCreatePrivateDataSlotEXT = 154,
+  FunctionId_vkDestroyPrivateDataSlotEXT = 155,
+  FunctionId_vkSetPrivateDataEXT = 156,
+  FunctionId_vkCmdSetVertexInputEXT = 157,
+  FunctionId_vkCreateSwapchainKHR = 158,
+  FunctionId_vkDestroySwapchainKHR = 159,
+  FunctionId_vkGetSwapchainImagesKHR = 160,
+  FunctionId_vkAcquireNextImageKHR = 161,
+  FunctionId_vkAcquireNextImage2KHR = 162,
+  FunctionId_vkCreateBufferView = 163,
+  FunctionId_vkDestroyBufferView = 164,
+  FunctionId_vkCreateDescriptorUpdateTemplate = 165,
+  FunctionId_vkDestroyDescriptorUpdateTemplate = 166,
+  FunctionId_vkUpdateDescriptorSetWithTemplate = 167,
+  FunctionId_vkCreateSamplerYcbcrConversion = 168,
+  FunctionId_vkDestroySamplerYcbcrConversion = 169,
+  FunctionId_vkCmdSetDeviceMask = 170,
+  FunctionId_vkCmdDispatchBase = 171,
+  FunctionId_vkGetDeviceGroupPeerMemoryFeatures = 172,
+  FunctionId_vkCreatePrivateDataSlot = 173,
+  FunctionId_vkDestroyPrivateDataSlot = 174,
+  FunctionId_vkSetPrivateData = 175,
+  FunctionId_vkGetPrivateData = 176,
+  FunctionId_vkCmdBindVertexBuffers2 = 177,
+  FunctionId_vkGetDeviceBufferMemoryRequirements = 178,
+  FunctionId_vkGetDeviceImageMemoryRequirements = 179,
+  FunctionId_vkGetDeviceImageSparseMemoryRequirements = 180,
+  FunctionId_vkGetDeviceGroupPresentCapabilitiesKHR = 181,
+  FunctionId_vkGetDeviceGroupSurfacePresentModesKHR = 182,
+  FunctionId_vkQueueBindSparse = 183,
+  FunctionId_vkCreateWin32SurfaceKHR = 184,
+  FunctionId_vkCreateHeadlessSurfaceEXT = 185,
+  FunctionId_vkGetPhysicalDeviceSurfaceCapabilities2KHR = 186,
+  FunctionId_vkGetPhysicalDeviceSurfaceFormats2KHR = 187,
+  FunctionId_vkGetBufferDeviceAddress = 188,
+  FunctionId_vkGetBufferOpaqueCaptureAddress = 189,
+  FunctionId_vkGetDeviceMemoryOpaqueCaptureAddress = 190,
+  FunctionId_vkGetQueryPoolResults = 191,
+  FunctionId_vkGetImageSubresourceLayout = 192,
   FunctionId_MIN = FunctionId_NONE,
-  FunctionId_MAX = FunctionId_vkQueuePresentKHR
+  FunctionId_MAX = FunctionId_vkGetImageSubresourceLayout
 };
 
-inline const FunctionId (&EnumValuesFunctionId())[11] {
+inline const FunctionId (&EnumValuesFunctionId())[193] {
   static const FunctionId values[] = {
     FunctionId_NONE,
     FunctionId_vkCreateInstance,
@@ -55,14 +265,196 @@ inline const FunctionId (&EnumValuesFunctionId())[11] {
     FunctionId_vkAllocateCommandBuffers,
     FunctionId_vkBeginCommandBuffer,
     FunctionId_vkEndCommandBuffer,
+    FunctionId_vkGetDeviceQueue,
     FunctionId_vkQueueSubmit,
-    FunctionId_vkQueuePresentKHR
+    FunctionId_vkQueuePresentKHR,
+    FunctionId_vkAllocateMemory,
+    FunctionId_vkFreeMemory,
+    FunctionId_vkBindBufferMemory,
+    FunctionId_vkBindImageMemory,
+    FunctionId_vkCreateBuffer,
+    FunctionId_vkDestroyBuffer,
+    FunctionId_vkCreateImage,
+    FunctionId_vkDestroyImage,
+    FunctionId_vkCreateImageView,
+    FunctionId_vkDestroyImageView,
+    FunctionId_vkCreateSampler,
+    FunctionId_vkDestroySampler,
+    FunctionId_vkCreateShaderModule,
+    FunctionId_vkDestroyShaderModule,
+    FunctionId_vkCreatePipelineLayout,
+    FunctionId_vkDestroyPipelineLayout,
+    FunctionId_vkCreateGraphicsPipelines,
+    FunctionId_vkCreateComputePipelines,
+    FunctionId_vkDestroyPipeline,
+    FunctionId_vkCreateRenderPass,
+    FunctionId_vkDestroyRenderPass,
+    FunctionId_vkCreateFramebuffer,
+    FunctionId_vkDestroyFramebuffer,
+    FunctionId_vkCmdDraw,
+    FunctionId_vkCmdDrawIndexed,
+    FunctionId_vkCmdDrawIndirect,
+    FunctionId_vkCmdDispatch,
+    FunctionId_vkCmdBindPipeline,
+    FunctionId_vkCmdBindVertexBuffers,
+    FunctionId_vkCmdBindIndexBuffer,
+    FunctionId_vkCmdBindDescriptorSets,
+    FunctionId_vkCmdSetViewport,
+    FunctionId_vkCmdSetScissor,
+    FunctionId_vkCmdPushConstants,
+    FunctionId_vkCmdClearColorImage,
+    FunctionId_vkCmdClearDepthStencilImage,
+    FunctionId_vkCmdCopyBuffer,
+    FunctionId_vkCmdCopyImage,
+    FunctionId_vkCmdBlitImage,
+    FunctionId_vkCmdPipelineBarrier,
+    FunctionId_vkCmdBeginRenderPass,
+    FunctionId_vkCmdEndRenderPass,
+    FunctionId_vkCmdExecuteCommands,
+    FunctionId_vkCreateDescriptorSetLayout,
+    FunctionId_vkDestroyDescriptorSetLayout,
+    FunctionId_vkCreateDescriptorPool,
+    FunctionId_vkDestroyDescriptorPool,
+    FunctionId_vkAllocateDescriptorSets,
+    FunctionId_vkFreeDescriptorSets,
+    FunctionId_vkUpdateDescriptorSets,
+    FunctionId_vkCreateFence,
+    FunctionId_vkDestroyFence,
+    FunctionId_vkCreateSemaphore,
+    FunctionId_vkDestroySemaphore,
+    FunctionId_vkWaitForFences,
+    FunctionId_vkResetFences,
+    FunctionId_vkCreateEvent,
+    FunctionId_vkDestroyEvent,
+    FunctionId_vkCmdSetEvent,
+    FunctionId_vkCmdResetEvent,
+    FunctionId_vkCmdWaitEvents,
+    FunctionId_vkCreateCommandPool,
+    FunctionId_vkDestroyCommandPool,
+    FunctionId_vkResetCommandPool,
+    FunctionId_vkFreeCommandBuffers,
+    FunctionId_vkResetCommandBuffer,
+    FunctionId_vkDeviceWaitIdle,
+    FunctionId_vkQueueWaitIdle,
+    FunctionId_vkMapMemory,
+    FunctionId_vkUnmapMemory,
+    FunctionId_vkFlushMappedMemoryRanges,
+    FunctionId_vkInvalidateMappedMemoryRanges,
+    FunctionId_vkCreatePipelineCache,
+    FunctionId_vkDestroyPipelineCache,
+    FunctionId_vkMergePipelineCaches,
+    FunctionId_vkCmdDrawIndexedIndirect,
+    FunctionId_vkCmdDispatchIndirect,
+    FunctionId_vkCmdSetDepthBias,
+    FunctionId_vkCmdSetLineWidth,
+    FunctionId_vkCmdSetDepthBounds,
+    FunctionId_vkCmdSetStencilCompareMask,
+    FunctionId_vkCmdSetStencilWriteMask,
+    FunctionId_vkCmdSetStencilReference,
+    FunctionId_vkCmdSetBlendConstants,
+    FunctionId_vkCmdCopyBufferToImage,
+    FunctionId_vkCmdCopyImageToBuffer,
+    FunctionId_vkCmdUpdateBuffer,
+    FunctionId_vkCmdFillBuffer,
+    FunctionId_vkCmdClearAttachments,
+    FunctionId_vkCmdResolveImage,
+    FunctionId_vkCmdNextSubpass,
+    FunctionId_vkResetDescriptorPool,
+    FunctionId_vkSetEvent,
+    FunctionId_vkResetEvent,
+    FunctionId_vkCreateQueryPool,
+    FunctionId_vkDestroyQueryPool,
+    FunctionId_vkCmdBeginQuery,
+    FunctionId_vkCmdEndQuery,
+    FunctionId_vkCmdWriteTimestamp,
+    FunctionId_vkCmdResetQueryPool,
+    FunctionId_vkCmdCopyQueryPoolResults,
+    FunctionId_vkBindBufferMemory2,
+    FunctionId_vkBindImageMemory2,
+    FunctionId_vkTrimCommandPool,
+    FunctionId_vkCmdDrawIndirectCount,
+    FunctionId_vkCmdDrawIndexedIndirectCount,
+    FunctionId_vkCreateRenderPass2,
+    FunctionId_vkCmdBeginRenderPass2,
+    FunctionId_vkCmdNextSubpass2,
+    FunctionId_vkCmdEndRenderPass2,
+    FunctionId_vkResetQueryPool,
+    FunctionId_vkGetSemaphoreCounterValue,
+    FunctionId_vkWaitSemaphores,
+    FunctionId_vkSignalSemaphore,
+    FunctionId_vkCmdBeginRendering,
+    FunctionId_vkCmdEndRendering,
+    FunctionId_vkCmdSetCullMode,
+    FunctionId_vkCmdSetFrontFace,
+    FunctionId_vkCmdSetPrimitiveTopology,
+    FunctionId_vkCmdSetViewportWithCount,
+    FunctionId_vkCmdSetScissorWithCount,
+    FunctionId_vkCmdSetDepthTestEnable,
+    FunctionId_vkCmdSetDepthWriteEnable,
+    FunctionId_vkCmdSetDepthCompareOp,
+    FunctionId_vkCmdSetDepthBoundsTestEnable,
+    FunctionId_vkCmdSetStencilTestEnable,
+    FunctionId_vkCmdSetStencilOp,
+    FunctionId_vkCmdSetRasterizerDiscardEnable,
+    FunctionId_vkCmdSetDepthBiasEnable,
+    FunctionId_vkCmdSetPrimitiveRestartEnable,
+    FunctionId_vkCmdPipelineBarrier2,
+    FunctionId_vkCmdResetEvent2,
+    FunctionId_vkCmdSetEvent2,
+    FunctionId_vkCmdWaitEvents2,
+    FunctionId_vkCmdWriteTimestamp2,
+    FunctionId_vkQueueSubmit2,
+    FunctionId_vkCmdCopyBuffer2,
+    FunctionId_vkCmdCopyImage2,
+    FunctionId_vkCmdCopyBufferToImage2,
+    FunctionId_vkCmdCopyImageToBuffer2,
+    FunctionId_vkCmdBlitImage2,
+    FunctionId_vkCmdResolveImage2,
+    FunctionId_vkCreatePrivateDataSlotEXT,
+    FunctionId_vkDestroyPrivateDataSlotEXT,
+    FunctionId_vkSetPrivateDataEXT,
+    FunctionId_vkCmdSetVertexInputEXT,
+    FunctionId_vkCreateSwapchainKHR,
+    FunctionId_vkDestroySwapchainKHR,
+    FunctionId_vkGetSwapchainImagesKHR,
+    FunctionId_vkAcquireNextImageKHR,
+    FunctionId_vkAcquireNextImage2KHR,
+    FunctionId_vkCreateBufferView,
+    FunctionId_vkDestroyBufferView,
+    FunctionId_vkCreateDescriptorUpdateTemplate,
+    FunctionId_vkDestroyDescriptorUpdateTemplate,
+    FunctionId_vkUpdateDescriptorSetWithTemplate,
+    FunctionId_vkCreateSamplerYcbcrConversion,
+    FunctionId_vkDestroySamplerYcbcrConversion,
+    FunctionId_vkCmdSetDeviceMask,
+    FunctionId_vkCmdDispatchBase,
+    FunctionId_vkGetDeviceGroupPeerMemoryFeatures,
+    FunctionId_vkCreatePrivateDataSlot,
+    FunctionId_vkDestroyPrivateDataSlot,
+    FunctionId_vkSetPrivateData,
+    FunctionId_vkGetPrivateData,
+    FunctionId_vkCmdBindVertexBuffers2,
+    FunctionId_vkGetDeviceBufferMemoryRequirements,
+    FunctionId_vkGetDeviceImageMemoryRequirements,
+    FunctionId_vkGetDeviceImageSparseMemoryRequirements,
+    FunctionId_vkGetDeviceGroupPresentCapabilitiesKHR,
+    FunctionId_vkGetDeviceGroupSurfacePresentModesKHR,
+    FunctionId_vkQueueBindSparse,
+    FunctionId_vkCreateWin32SurfaceKHR,
+    FunctionId_vkCreateHeadlessSurfaceEXT,
+    FunctionId_vkGetPhysicalDeviceSurfaceCapabilities2KHR,
+    FunctionId_vkGetPhysicalDeviceSurfaceFormats2KHR,
+    FunctionId_vkGetBufferDeviceAddress,
+    FunctionId_vkGetBufferOpaqueCaptureAddress,
+    FunctionId_vkGetDeviceMemoryOpaqueCaptureAddress,
+    FunctionId_vkGetQueryPoolResults,
+    FunctionId_vkGetImageSubresourceLayout
   };
   return values;
 }
 
 inline const char * const *EnumNamesFunctionId() {
-  static const char * const names[12] = {
+  static const char * const names[194] = {
     "NONE",
     "vkCreateInstance",
     "vkDestroyInstance",
@@ -72,15 +464,197 @@ inline const char * const *EnumNamesFunctionId() {
     "vkAllocateCommandBuffers",
     "vkBeginCommandBuffer",
     "vkEndCommandBuffer",
+    "vkGetDeviceQueue",
     "vkQueueSubmit",
     "vkQueuePresentKHR",
+    "vkAllocateMemory",
+    "vkFreeMemory",
+    "vkBindBufferMemory",
+    "vkBindImageMemory",
+    "vkCreateBuffer",
+    "vkDestroyBuffer",
+    "vkCreateImage",
+    "vkDestroyImage",
+    "vkCreateImageView",
+    "vkDestroyImageView",
+    "vkCreateSampler",
+    "vkDestroySampler",
+    "vkCreateShaderModule",
+    "vkDestroyShaderModule",
+    "vkCreatePipelineLayout",
+    "vkDestroyPipelineLayout",
+    "vkCreateGraphicsPipelines",
+    "vkCreateComputePipelines",
+    "vkDestroyPipeline",
+    "vkCreateRenderPass",
+    "vkDestroyRenderPass",
+    "vkCreateFramebuffer",
+    "vkDestroyFramebuffer",
+    "vkCmdDraw",
+    "vkCmdDrawIndexed",
+    "vkCmdDrawIndirect",
+    "vkCmdDispatch",
+    "vkCmdBindPipeline",
+    "vkCmdBindVertexBuffers",
+    "vkCmdBindIndexBuffer",
+    "vkCmdBindDescriptorSets",
+    "vkCmdSetViewport",
+    "vkCmdSetScissor",
+    "vkCmdPushConstants",
+    "vkCmdClearColorImage",
+    "vkCmdClearDepthStencilImage",
+    "vkCmdCopyBuffer",
+    "vkCmdCopyImage",
+    "vkCmdBlitImage",
+    "vkCmdPipelineBarrier",
+    "vkCmdBeginRenderPass",
+    "vkCmdEndRenderPass",
+    "vkCmdExecuteCommands",
+    "vkCreateDescriptorSetLayout",
+    "vkDestroyDescriptorSetLayout",
+    "vkCreateDescriptorPool",
+    "vkDestroyDescriptorPool",
+    "vkAllocateDescriptorSets",
+    "vkFreeDescriptorSets",
+    "vkUpdateDescriptorSets",
+    "vkCreateFence",
+    "vkDestroyFence",
+    "vkCreateSemaphore",
+    "vkDestroySemaphore",
+    "vkWaitForFences",
+    "vkResetFences",
+    "vkCreateEvent",
+    "vkDestroyEvent",
+    "vkCmdSetEvent",
+    "vkCmdResetEvent",
+    "vkCmdWaitEvents",
+    "vkCreateCommandPool",
+    "vkDestroyCommandPool",
+    "vkResetCommandPool",
+    "vkFreeCommandBuffers",
+    "vkResetCommandBuffer",
+    "vkDeviceWaitIdle",
+    "vkQueueWaitIdle",
+    "vkMapMemory",
+    "vkUnmapMemory",
+    "vkFlushMappedMemoryRanges",
+    "vkInvalidateMappedMemoryRanges",
+    "vkCreatePipelineCache",
+    "vkDestroyPipelineCache",
+    "vkMergePipelineCaches",
+    "vkCmdDrawIndexedIndirect",
+    "vkCmdDispatchIndirect",
+    "vkCmdSetDepthBias",
+    "vkCmdSetLineWidth",
+    "vkCmdSetDepthBounds",
+    "vkCmdSetStencilCompareMask",
+    "vkCmdSetStencilWriteMask",
+    "vkCmdSetStencilReference",
+    "vkCmdSetBlendConstants",
+    "vkCmdCopyBufferToImage",
+    "vkCmdCopyImageToBuffer",
+    "vkCmdUpdateBuffer",
+    "vkCmdFillBuffer",
+    "vkCmdClearAttachments",
+    "vkCmdResolveImage",
+    "vkCmdNextSubpass",
+    "vkResetDescriptorPool",
+    "vkSetEvent",
+    "vkResetEvent",
+    "vkCreateQueryPool",
+    "vkDestroyQueryPool",
+    "vkCmdBeginQuery",
+    "vkCmdEndQuery",
+    "vkCmdWriteTimestamp",
+    "vkCmdResetQueryPool",
+    "vkCmdCopyQueryPoolResults",
+    "vkBindBufferMemory2",
+    "vkBindImageMemory2",
+    "vkTrimCommandPool",
+    "vkCmdDrawIndirectCount",
+    "vkCmdDrawIndexedIndirectCount",
+    "vkCreateRenderPass2",
+    "vkCmdBeginRenderPass2",
+    "vkCmdNextSubpass2",
+    "vkCmdEndRenderPass2",
+    "vkResetQueryPool",
+    "vkGetSemaphoreCounterValue",
+    "vkWaitSemaphores",
+    "vkSignalSemaphore",
+    "vkCmdBeginRendering",
+    "vkCmdEndRendering",
+    "vkCmdSetCullMode",
+    "vkCmdSetFrontFace",
+    "vkCmdSetPrimitiveTopology",
+    "vkCmdSetViewportWithCount",
+    "vkCmdSetScissorWithCount",
+    "vkCmdSetDepthTestEnable",
+    "vkCmdSetDepthWriteEnable",
+    "vkCmdSetDepthCompareOp",
+    "vkCmdSetDepthBoundsTestEnable",
+    "vkCmdSetStencilTestEnable",
+    "vkCmdSetStencilOp",
+    "vkCmdSetRasterizerDiscardEnable",
+    "vkCmdSetDepthBiasEnable",
+    "vkCmdSetPrimitiveRestartEnable",
+    "vkCmdPipelineBarrier2",
+    "vkCmdResetEvent2",
+    "vkCmdSetEvent2",
+    "vkCmdWaitEvents2",
+    "vkCmdWriteTimestamp2",
+    "vkQueueSubmit2",
+    "vkCmdCopyBuffer2",
+    "vkCmdCopyImage2",
+    "vkCmdCopyBufferToImage2",
+    "vkCmdCopyImageToBuffer2",
+    "vkCmdBlitImage2",
+    "vkCmdResolveImage2",
+    "vkCreatePrivateDataSlotEXT",
+    "vkDestroyPrivateDataSlotEXT",
+    "vkSetPrivateDataEXT",
+    "vkCmdSetVertexInputEXT",
+    "vkCreateSwapchainKHR",
+    "vkDestroySwapchainKHR",
+    "vkGetSwapchainImagesKHR",
+    "vkAcquireNextImageKHR",
+    "vkAcquireNextImage2KHR",
+    "vkCreateBufferView",
+    "vkDestroyBufferView",
+    "vkCreateDescriptorUpdateTemplate",
+    "vkDestroyDescriptorUpdateTemplate",
+    "vkUpdateDescriptorSetWithTemplate",
+    "vkCreateSamplerYcbcrConversion",
+    "vkDestroySamplerYcbcrConversion",
+    "vkCmdSetDeviceMask",
+    "vkCmdDispatchBase",
+    "vkGetDeviceGroupPeerMemoryFeatures",
+    "vkCreatePrivateDataSlot",
+    "vkDestroyPrivateDataSlot",
+    "vkSetPrivateData",
+    "vkGetPrivateData",
+    "vkCmdBindVertexBuffers2",
+    "vkGetDeviceBufferMemoryRequirements",
+    "vkGetDeviceImageMemoryRequirements",
+    "vkGetDeviceImageSparseMemoryRequirements",
+    "vkGetDeviceGroupPresentCapabilitiesKHR",
+    "vkGetDeviceGroupSurfacePresentModesKHR",
+    "vkQueueBindSparse",
+    "vkCreateWin32SurfaceKHR",
+    "vkCreateHeadlessSurfaceEXT",
+    "vkGetPhysicalDeviceSurfaceCapabilities2KHR",
+    "vkGetPhysicalDeviceSurfaceFormats2KHR",
+    "vkGetBufferDeviceAddress",
+    "vkGetBufferOpaqueCaptureAddress",
+    "vkGetDeviceMemoryOpaqueCaptureAddress",
+    "vkGetQueryPoolResults",
+    "vkGetImageSubresourceLayout",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameFunctionId(FunctionId e) {
-  if (::flatbuffers::IsOutRange(e, FunctionId_NONE, FunctionId_vkQueuePresentKHR)) return "";
+  if (::flatbuffers::IsOutRange(e, FunctionId_NONE, FunctionId_vkGetImageSubresourceLayout)) return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesFunctionId()[index];
 }
@@ -130,35 +704,92 @@ inline const char *EnumNameDataType(DataType e) {
   return EnumNamesDataType()[index];
 }
 
+enum VideoCodec : int8_t {
+  VideoCodec_Unknown = 0,
+  VideoCodec_H264 = 1,
+  VideoCodec_HEVC = 2,
+  VideoCodec_AV1 = 3,
+  VideoCodec_MIN = VideoCodec_Unknown,
+  VideoCodec_MAX = VideoCodec_AV1
+};
+
+inline const VideoCodec (&EnumValuesVideoCodec())[4] {
+  static const VideoCodec values[] = {
+    VideoCodec_Unknown,
+    VideoCodec_H264,
+    VideoCodec_HEVC,
+    VideoCodec_AV1
+  };
+  return values;
+}
+
+inline const char * const *EnumNamesVideoCodec() {
+  static const char * const names[5] = {
+    "Unknown",
+    "H264",
+    "HEVC",
+    "AV1",
+    nullptr
+  };
+  return names;
+}
+
+inline const char *EnumNameVideoCodec(VideoCodec e) {
+  if (::flatbuffers::IsOutRange(e, VideoCodec_Unknown, VideoCodec_AV1)) return "";
+  const size_t index = static_cast<size_t>(e);
+  return EnumNamesVideoCodec()[index];
+}
+
 enum MessagePayload : uint8_t {
   MessagePayload_NONE = 0,
   MessagePayload_CommandMessage = 1,
-  MessagePayload_DataMessage = 2,
+  MessagePayload_BatchMessage = 2,
+  MessagePayload_DataMessage = 3,
+  MessagePayload_CapabilitiesRequest = 4,
+  MessagePayload_CapabilitiesResponse = 5,
+  MessagePayload_ResourceCacheUpload = 6,
+  MessagePayload_ResourceCacheEvictRequest = 7,
+  MessagePayload_ResourceCacheEvictResponse = 8,
+  MessagePayload_VideoFrame = 9,
   MessagePayload_MIN = MessagePayload_NONE,
-  MessagePayload_MAX = MessagePayload_DataMessage
+  MessagePayload_MAX = MessagePayload_VideoFrame
 };
 
-inline const MessagePayload (&EnumValuesMessagePayload())[3] {
+inline const MessagePayload (&EnumValuesMessagePayload())[10] {
   static const MessagePayload values[] = {
     MessagePayload_NONE,
     MessagePayload_CommandMessage,
-    MessagePayload_DataMessage
+    MessagePayload_BatchMessage,
+    MessagePayload_DataMessage,
+    MessagePayload_CapabilitiesRequest,
+    MessagePayload_CapabilitiesResponse,
+    MessagePayload_ResourceCacheUpload,
+    MessagePayload_ResourceCacheEvictRequest,
+    MessagePayload_ResourceCacheEvictResponse,
+    MessagePayload_VideoFrame
   };
   return values;
 }
 
 inline const char * const *EnumNamesMessagePayload() {
-  static const char * const names[4] = {
+  static const char * const names[11] = {
     "NONE",
     "CommandMessage",
+    "BatchMessage",
     "DataMessage",
+    "CapabilitiesRequest",
+    "CapabilitiesResponse",
+    "ResourceCacheUpload",
+    "ResourceCacheEvictRequest",
+    "ResourceCacheEvictResponse",
+    "VideoFrame",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameMessagePayload(MessagePayload e) {
-  if (::flatbuffers::IsOutRange(e, MessagePayload_NONE, MessagePayload_DataMessage)) return "";
+  if (::flatbuffers::IsOutRange(e, MessagePayload_NONE, MessagePayload_VideoFrame)) return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesMessagePayload()[index];
 }
@@ -171,8 +802,36 @@ template<> struct MessagePayloadTraits<omnigpu::fbs::CommandMessage> {
   static const MessagePayload enum_value = MessagePayload_CommandMessage;
 };
 
+template<> struct MessagePayloadTraits<omnigpu::fbs::BatchMessage> {
+  static const MessagePayload enum_value = MessagePayload_BatchMessage;
+};
+
 template<> struct MessagePayloadTraits<omnigpu::fbs::DataMessage> {
   static const MessagePayload enum_value = MessagePayload_DataMessage;
+};
+
+template<> struct MessagePayloadTraits<omnigpu::fbs::CapabilitiesRequest> {
+  static const MessagePayload enum_value = MessagePayload_CapabilitiesRequest;
+};
+
+template<> struct MessagePayloadTraits<omnigpu::fbs::CapabilitiesResponse> {
+  static const MessagePayload enum_value = MessagePayload_CapabilitiesResponse;
+};
+
+template<> struct MessagePayloadTraits<omnigpu::fbs::ResourceCacheUpload> {
+  static const MessagePayload enum_value = MessagePayload_ResourceCacheUpload;
+};
+
+template<> struct MessagePayloadTraits<omnigpu::fbs::ResourceCacheEvictRequest> {
+  static const MessagePayload enum_value = MessagePayload_ResourceCacheEvictRequest;
+};
+
+template<> struct MessagePayloadTraits<omnigpu::fbs::ResourceCacheEvictResponse> {
+  static const MessagePayload enum_value = MessagePayload_ResourceCacheEvictResponse;
+};
+
+template<> struct MessagePayloadTraits<omnigpu::fbs::VideoFrame> {
+  static const MessagePayload enum_value = MessagePayload_VideoFrame;
 };
 
 template<typename T> struct MessagePayloadUnionTraits {
@@ -183,8 +842,36 @@ template<> struct MessagePayloadUnionTraits<omnigpu::fbs::CommandMessageT> {
   static const MessagePayload enum_value = MessagePayload_CommandMessage;
 };
 
+template<> struct MessagePayloadUnionTraits<omnigpu::fbs::BatchMessageT> {
+  static const MessagePayload enum_value = MessagePayload_BatchMessage;
+};
+
 template<> struct MessagePayloadUnionTraits<omnigpu::fbs::DataMessageT> {
   static const MessagePayload enum_value = MessagePayload_DataMessage;
+};
+
+template<> struct MessagePayloadUnionTraits<omnigpu::fbs::CapabilitiesRequestT> {
+  static const MessagePayload enum_value = MessagePayload_CapabilitiesRequest;
+};
+
+template<> struct MessagePayloadUnionTraits<omnigpu::fbs::CapabilitiesResponseT> {
+  static const MessagePayload enum_value = MessagePayload_CapabilitiesResponse;
+};
+
+template<> struct MessagePayloadUnionTraits<omnigpu::fbs::ResourceCacheUploadT> {
+  static const MessagePayload enum_value = MessagePayload_ResourceCacheUpload;
+};
+
+template<> struct MessagePayloadUnionTraits<omnigpu::fbs::ResourceCacheEvictRequestT> {
+  static const MessagePayload enum_value = MessagePayload_ResourceCacheEvictRequest;
+};
+
+template<> struct MessagePayloadUnionTraits<omnigpu::fbs::ResourceCacheEvictResponseT> {
+  static const MessagePayload enum_value = MessagePayload_ResourceCacheEvictResponse;
+};
+
+template<> struct MessagePayloadUnionTraits<omnigpu::fbs::VideoFrameT> {
+  static const MessagePayload enum_value = MessagePayload_VideoFrame;
 };
 
 struct MessagePayloadUnion {
@@ -225,6 +912,14 @@ struct MessagePayloadUnion {
     return type == MessagePayload_CommandMessage ?
       reinterpret_cast<const omnigpu::fbs::CommandMessageT *>(value) : nullptr;
   }
+  omnigpu::fbs::BatchMessageT *AsBatchMessage() {
+    return type == MessagePayload_BatchMessage ?
+      reinterpret_cast<omnigpu::fbs::BatchMessageT *>(value) : nullptr;
+  }
+  const omnigpu::fbs::BatchMessageT *AsBatchMessage() const {
+    return type == MessagePayload_BatchMessage ?
+      reinterpret_cast<const omnigpu::fbs::BatchMessageT *>(value) : nullptr;
+  }
   omnigpu::fbs::DataMessageT *AsDataMessage() {
     return type == MessagePayload_DataMessage ?
       reinterpret_cast<omnigpu::fbs::DataMessageT *>(value) : nullptr;
@@ -233,12 +928,1125 @@ struct MessagePayloadUnion {
     return type == MessagePayload_DataMessage ?
       reinterpret_cast<const omnigpu::fbs::DataMessageT *>(value) : nullptr;
   }
+  omnigpu::fbs::CapabilitiesRequestT *AsCapabilitiesRequest() {
+    return type == MessagePayload_CapabilitiesRequest ?
+      reinterpret_cast<omnigpu::fbs::CapabilitiesRequestT *>(value) : nullptr;
+  }
+  const omnigpu::fbs::CapabilitiesRequestT *AsCapabilitiesRequest() const {
+    return type == MessagePayload_CapabilitiesRequest ?
+      reinterpret_cast<const omnigpu::fbs::CapabilitiesRequestT *>(value) : nullptr;
+  }
+  omnigpu::fbs::CapabilitiesResponseT *AsCapabilitiesResponse() {
+    return type == MessagePayload_CapabilitiesResponse ?
+      reinterpret_cast<omnigpu::fbs::CapabilitiesResponseT *>(value) : nullptr;
+  }
+  const omnigpu::fbs::CapabilitiesResponseT *AsCapabilitiesResponse() const {
+    return type == MessagePayload_CapabilitiesResponse ?
+      reinterpret_cast<const omnigpu::fbs::CapabilitiesResponseT *>(value) : nullptr;
+  }
+  omnigpu::fbs::ResourceCacheUploadT *AsResourceCacheUpload() {
+    return type == MessagePayload_ResourceCacheUpload ?
+      reinterpret_cast<omnigpu::fbs::ResourceCacheUploadT *>(value) : nullptr;
+  }
+  const omnigpu::fbs::ResourceCacheUploadT *AsResourceCacheUpload() const {
+    return type == MessagePayload_ResourceCacheUpload ?
+      reinterpret_cast<const omnigpu::fbs::ResourceCacheUploadT *>(value) : nullptr;
+  }
+  omnigpu::fbs::ResourceCacheEvictRequestT *AsResourceCacheEvictRequest() {
+    return type == MessagePayload_ResourceCacheEvictRequest ?
+      reinterpret_cast<omnigpu::fbs::ResourceCacheEvictRequestT *>(value) : nullptr;
+  }
+  const omnigpu::fbs::ResourceCacheEvictRequestT *AsResourceCacheEvictRequest() const {
+    return type == MessagePayload_ResourceCacheEvictRequest ?
+      reinterpret_cast<const omnigpu::fbs::ResourceCacheEvictRequestT *>(value) : nullptr;
+  }
+  omnigpu::fbs::ResourceCacheEvictResponseT *AsResourceCacheEvictResponse() {
+    return type == MessagePayload_ResourceCacheEvictResponse ?
+      reinterpret_cast<omnigpu::fbs::ResourceCacheEvictResponseT *>(value) : nullptr;
+  }
+  const omnigpu::fbs::ResourceCacheEvictResponseT *AsResourceCacheEvictResponse() const {
+    return type == MessagePayload_ResourceCacheEvictResponse ?
+      reinterpret_cast<const omnigpu::fbs::ResourceCacheEvictResponseT *>(value) : nullptr;
+  }
+  omnigpu::fbs::VideoFrameT *AsVideoFrame() {
+    return type == MessagePayload_VideoFrame ?
+      reinterpret_cast<omnigpu::fbs::VideoFrameT *>(value) : nullptr;
+  }
+  const omnigpu::fbs::VideoFrameT *AsVideoFrame() const {
+    return type == MessagePayload_VideoFrame ?
+      reinterpret_cast<const omnigpu::fbs::VideoFrameT *>(value) : nullptr;
+  }
 };
 
 template <bool B = false>
 bool VerifyMessagePayload(::flatbuffers::VerifierTemplate<B> &verifier, const void *obj, MessagePayload type);
 template <bool B = false>
 bool VerifyMessagePayloadVector(::flatbuffers::VerifierTemplate<B> &verifier, const ::flatbuffers::Vector<::flatbuffers::Offset<void>> *values, const ::flatbuffers::Vector<uint8_t> *types);
+
+struct CapabilitiesRequestT : public ::flatbuffers::NativeTable {
+  typedef CapabilitiesRequest TableType;
+  uint32_t client_version = 1;
+  uint32_t preferred_width = 0;
+  uint32_t preferred_height = 0;
+  std::string auth_token{};
+  bool compute_mode = false;
+  bool large_buffers = false;
+};
+
+struct CapabilitiesRequest FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef CapabilitiesRequestT NativeTableType;
+  typedef CapabilitiesRequestBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_CLIENT_VERSION = 4,
+    VT_PREFERRED_WIDTH = 6,
+    VT_PREFERRED_HEIGHT = 8,
+    VT_AUTH_TOKEN = 10,
+    VT_COMPUTE_MODE = 12,
+    VT_LARGE_BUFFERS = 14
+  };
+  uint32_t client_version() const {
+    return GetField<uint32_t>(VT_CLIENT_VERSION, 1);
+  }
+  uint32_t preferred_width() const {
+    return GetField<uint32_t>(VT_PREFERRED_WIDTH, 0);
+  }
+  uint32_t preferred_height() const {
+    return GetField<uint32_t>(VT_PREFERRED_HEIGHT, 0);
+  }
+  const ::flatbuffers::String *auth_token() const {
+    auto* ptr = GetPointer<const ::flatbuffers::String *>(VT_AUTH_TOKEN);
+    if (ptr) return ptr;
+    static const struct { uint32_t len; const char s[1]; } bfbs_string = { 0, "" };
+    return reinterpret_cast<const ::flatbuffers::String  *>(&bfbs_string);
+  }
+  bool compute_mode() const {
+    return GetField<uint8_t>(VT_COMPUTE_MODE, 0) != 0;
+  }
+  bool large_buffers() const {
+    return GetField<uint8_t>(VT_LARGE_BUFFERS, 0) != 0;
+  }
+  template <bool B = false>
+  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint32_t>(verifier, VT_CLIENT_VERSION, 4) &&
+           VerifyField<uint32_t>(verifier, VT_PREFERRED_WIDTH, 4) &&
+           VerifyField<uint32_t>(verifier, VT_PREFERRED_HEIGHT, 4) &&
+           VerifyOffset(verifier, VT_AUTH_TOKEN) &&
+           VerifyStringWithDefault(verifier, VT_AUTH_TOKEN) &&
+           VerifyField<uint8_t>(verifier, VT_COMPUTE_MODE, 1) &&
+           VerifyField<uint8_t>(verifier, VT_LARGE_BUFFERS, 1) &&
+           verifier.EndTable();
+  }
+  CapabilitiesRequestT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(CapabilitiesRequestT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<CapabilitiesRequest> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const CapabilitiesRequestT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct CapabilitiesRequestBuilder {
+  typedef CapabilitiesRequest Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_client_version(uint32_t client_version) {
+    fbb_.AddElement<uint32_t>(CapabilitiesRequest::VT_CLIENT_VERSION, client_version, 1);
+  }
+  void add_preferred_width(uint32_t preferred_width) {
+    fbb_.AddElement<uint32_t>(CapabilitiesRequest::VT_PREFERRED_WIDTH, preferred_width, 0);
+  }
+  void add_preferred_height(uint32_t preferred_height) {
+    fbb_.AddElement<uint32_t>(CapabilitiesRequest::VT_PREFERRED_HEIGHT, preferred_height, 0);
+  }
+  void add_auth_token(::flatbuffers::Offset<::flatbuffers::String> auth_token) {
+    fbb_.AddOffset(CapabilitiesRequest::VT_AUTH_TOKEN, auth_token);
+  }
+  void add_compute_mode(bool compute_mode) {
+    fbb_.AddElement<uint8_t>(CapabilitiesRequest::VT_COMPUTE_MODE, static_cast<uint8_t>(compute_mode), 0);
+  }
+  void add_large_buffers(bool large_buffers) {
+    fbb_.AddElement<uint8_t>(CapabilitiesRequest::VT_LARGE_BUFFERS, static_cast<uint8_t>(large_buffers), 0);
+  }
+  explicit CapabilitiesRequestBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<CapabilitiesRequest> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<CapabilitiesRequest>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<CapabilitiesRequest> CreateCapabilitiesRequest(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    uint32_t client_version = 1,
+    uint32_t preferred_width = 0,
+    uint32_t preferred_height = 0,
+    ::flatbuffers::Offset<::flatbuffers::String> auth_token = 0,
+    bool compute_mode = false,
+    bool large_buffers = false) {
+  CapabilitiesRequestBuilder builder_(_fbb);
+  builder_.add_auth_token(auth_token);
+  builder_.add_preferred_height(preferred_height);
+  builder_.add_preferred_width(preferred_width);
+  builder_.add_client_version(client_version);
+  builder_.add_large_buffers(large_buffers);
+  builder_.add_compute_mode(compute_mode);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<CapabilitiesRequest> CreateCapabilitiesRequestDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    uint32_t client_version = 1,
+    uint32_t preferred_width = 0,
+    uint32_t preferred_height = 0,
+    const char *auth_token = nullptr,
+    bool compute_mode = false,
+    bool large_buffers = false) {
+  auto auth_token__ = auth_token ? _fbb.CreateString(auth_token) : _fbb.CreateString("");
+  return omnigpu::fbs::CreateCapabilitiesRequest(
+      _fbb,
+      client_version,
+      preferred_width,
+      preferred_height,
+      auth_token__,
+      compute_mode,
+      large_buffers);
+}
+
+::flatbuffers::Offset<CapabilitiesRequest> CreateCapabilitiesRequest(::flatbuffers::FlatBufferBuilder &_fbb, const CapabilitiesRequestT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct CapabilitiesResponseT : public ::flatbuffers::NativeTable {
+  typedef CapabilitiesResponse TableType;
+  std::string gpu_name{};
+  uint32_t driver_version = 0;
+  uint32_t api_version = 0;
+  uint64_t max_memory_allocation = 0;
+  uint32_t max_push_constants_size = 128;
+  uint32_t max_bound_descriptor_sets = 4;
+  uint32_t max_per_stage_resources = 32;
+  uint32_t max_image_dimension_2d = 8192;
+  uint64_t timestamp = 0;
+  uint32_t vendor_id = 4318;
+  uint32_t device_id = 9860;
+  uint32_t device_type = 2;
+  uint32_t max_framebuffer_width = 16384;
+  uint32_t max_framebuffer_height = 16384;
+  uint32_t max_framebuffer_layers = 256;
+  uint32_t max_memory_heaps = 2;
+  uint64_t memory_heap_size_0 = 25769803776ULL;
+  uint64_t memory_heap_size_1 = 17179869184ULL;
+  uint32_t heap_0_flags = 1;
+  uint32_t heap_1_flags = 0;
+  uint32_t memory_type_count = 4;
+  float max_sampler_anisotropy = 16.0f;
+  uint32_t max_color_attachments = 8;
+  uint32_t max_bound_descriptor_sets_ext = 32;
+  uint32_t max_per_stage_descriptor_samplers = 2048;
+  uint32_t max_per_stage_descriptor_uniform_buffers = 2048;
+  uint32_t max_per_stage_descriptor_storage_buffers = 2048;
+  uint32_t max_per_stage_descriptor_sampled_images = 2048;
+  uint32_t max_per_stage_descriptor_storage_images = 2048;
+  uint32_t max_per_stage_resources_ext = 1000000;
+  uint32_t subgroup_size = 32;
+  float timestamp_period = 1.0f;
+  uint32_t max_viewports = 16;
+  float max_viewport_dimensions_w = 16384.0f;
+  float max_viewport_dimensions_h = 16384.0f;
+  uint32_t max_fragment_output_attachments = 8;
+  uint64_t min_uniform_buffer_offset_alignment = 256ULL;
+  uint64_t min_storage_buffer_offset_alignment = 256ULL;
+  uint64_t max_uniform_buffer_range = 65536ULL;
+  uint64_t max_storage_buffer_range = 1073741824ULL;
+  uint32_t non_coherent_atom_size = 256;
+  uint64_t buffer_image_granularity = 1024ULL;
+  uint32_t max_compute_work_group_count_x = 65535;
+  uint32_t max_compute_work_group_count_y = 65535;
+  uint32_t max_compute_work_group_count_z = 65535;
+  uint32_t max_compute_work_group_invocations = 1024;
+  uint32_t max_compute_shared_memory_size = 49152;
+  uint32_t max_clip_distances = 8;
+  uint32_t max_cull_distances = 8;
+  uint32_t max_combined_clip_and_cull_distances = 8;
+  uint32_t sample_counts = 15;
+  uint32_t max_samples = 1;
+  uint32_t max_tessellation_factor = 64;
+  uint32_t framebuffer_color_sample_counts = 15;
+  uint32_t compute_queue_count = 1;
+  bool supports_buffer_device_address = true;
+  uint32_t supported_subgroup_operations = 0;
+  bool dedicated_compute_queue = false;
+  bool auth_required = false;
+  bool buffer_manager_capable = true;
+  bool supports_16bit_storage = false;
+  bool supports_8bit_storage = false;
+  bool supports_float16_int8 = false;
+  bool supports_cooperative_matrix = false;
+  uint32_t coopmat_m = 16;
+  uint32_t coopmat_n = 16;
+  uint32_t coopmat_k = 16;
+  bool supports_integer_dot_product = false;
+};
+
+struct CapabilitiesResponse FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef CapabilitiesResponseT NativeTableType;
+  typedef CapabilitiesResponseBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_GPU_NAME = 4,
+    VT_DRIVER_VERSION = 6,
+    VT_API_VERSION = 8,
+    VT_MAX_MEMORY_ALLOCATION = 10,
+    VT_MAX_PUSH_CONSTANTS_SIZE = 12,
+    VT_MAX_BOUND_DESCRIPTOR_SETS = 14,
+    VT_MAX_PER_STAGE_RESOURCES = 16,
+    VT_MAX_IMAGE_DIMENSION_2D = 18,
+    VT_TIMESTAMP = 20,
+    VT_VENDOR_ID = 22,
+    VT_DEVICE_ID = 24,
+    VT_DEVICE_TYPE = 26,
+    VT_MAX_FRAMEBUFFER_WIDTH = 28,
+    VT_MAX_FRAMEBUFFER_HEIGHT = 30,
+    VT_MAX_FRAMEBUFFER_LAYERS = 32,
+    VT_MAX_MEMORY_HEAPS = 34,
+    VT_MEMORY_HEAP_SIZE_0 = 36,
+    VT_MEMORY_HEAP_SIZE_1 = 38,
+    VT_HEAP_0_FLAGS = 40,
+    VT_HEAP_1_FLAGS = 42,
+    VT_MEMORY_TYPE_COUNT = 44,
+    VT_MAX_SAMPLER_ANISOTROPY = 46,
+    VT_MAX_COLOR_ATTACHMENTS = 48,
+    VT_MAX_BOUND_DESCRIPTOR_SETS_EXT = 50,
+    VT_MAX_PER_STAGE_DESCRIPTOR_SAMPLERS = 52,
+    VT_MAX_PER_STAGE_DESCRIPTOR_UNIFORM_BUFFERS = 54,
+    VT_MAX_PER_STAGE_DESCRIPTOR_STORAGE_BUFFERS = 56,
+    VT_MAX_PER_STAGE_DESCRIPTOR_SAMPLED_IMAGES = 58,
+    VT_MAX_PER_STAGE_DESCRIPTOR_STORAGE_IMAGES = 60,
+    VT_MAX_PER_STAGE_RESOURCES_EXT = 62,
+    VT_SUBGROUP_SIZE = 64,
+    VT_TIMESTAMP_PERIOD = 66,
+    VT_MAX_VIEWPORTS = 68,
+    VT_MAX_VIEWPORT_DIMENSIONS_W = 70,
+    VT_MAX_VIEWPORT_DIMENSIONS_H = 72,
+    VT_MAX_FRAGMENT_OUTPUT_ATTACHMENTS = 74,
+    VT_MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT = 76,
+    VT_MIN_STORAGE_BUFFER_OFFSET_ALIGNMENT = 78,
+    VT_MAX_UNIFORM_BUFFER_RANGE = 80,
+    VT_MAX_STORAGE_BUFFER_RANGE = 82,
+    VT_NON_COHERENT_ATOM_SIZE = 84,
+    VT_BUFFER_IMAGE_GRANULARITY = 86,
+    VT_MAX_COMPUTE_WORK_GROUP_COUNT_X = 88,
+    VT_MAX_COMPUTE_WORK_GROUP_COUNT_Y = 90,
+    VT_MAX_COMPUTE_WORK_GROUP_COUNT_Z = 92,
+    VT_MAX_COMPUTE_WORK_GROUP_INVOCATIONS = 94,
+    VT_MAX_COMPUTE_SHARED_MEMORY_SIZE = 96,
+    VT_MAX_CLIP_DISTANCES = 98,
+    VT_MAX_CULL_DISTANCES = 100,
+    VT_MAX_COMBINED_CLIP_AND_CULL_DISTANCES = 102,
+    VT_SAMPLE_COUNTS = 104,
+    VT_MAX_SAMPLES = 106,
+    VT_MAX_TESSELLATION_FACTOR = 108,
+    VT_FRAMEBUFFER_COLOR_SAMPLE_COUNTS = 110,
+    VT_COMPUTE_QUEUE_COUNT = 112,
+    VT_SUPPORTS_BUFFER_DEVICE_ADDRESS = 114,
+    VT_SUPPORTED_SUBGROUP_OPERATIONS = 116,
+    VT_DEDICATED_COMPUTE_QUEUE = 118,
+    VT_AUTH_REQUIRED = 120,
+    VT_BUFFER_MANAGER_CAPABLE = 122,
+    VT_SUPPORTS_16BIT_STORAGE = 124,
+    VT_SUPPORTS_8BIT_STORAGE = 126,
+    VT_SUPPORTS_FLOAT16_INT8 = 128,
+    VT_SUPPORTS_COOPERATIVE_MATRIX = 130,
+    VT_COOPMAT_M = 132,
+    VT_COOPMAT_N = 134,
+    VT_COOPMAT_K = 136,
+    VT_SUPPORTS_INTEGER_DOT_PRODUCT = 138
+  };
+  const ::flatbuffers::String *gpu_name() const {
+    return GetPointer<const ::flatbuffers::String *>(VT_GPU_NAME);
+  }
+  uint32_t driver_version() const {
+    return GetField<uint32_t>(VT_DRIVER_VERSION, 0);
+  }
+  uint32_t api_version() const {
+    return GetField<uint32_t>(VT_API_VERSION, 0);
+  }
+  uint64_t max_memory_allocation() const {
+    return GetField<uint64_t>(VT_MAX_MEMORY_ALLOCATION, 0);
+  }
+  uint32_t max_push_constants_size() const {
+    return GetField<uint32_t>(VT_MAX_PUSH_CONSTANTS_SIZE, 128);
+  }
+  uint32_t max_bound_descriptor_sets() const {
+    return GetField<uint32_t>(VT_MAX_BOUND_DESCRIPTOR_SETS, 4);
+  }
+  uint32_t max_per_stage_resources() const {
+    return GetField<uint32_t>(VT_MAX_PER_STAGE_RESOURCES, 32);
+  }
+  uint32_t max_image_dimension_2d() const {
+    return GetField<uint32_t>(VT_MAX_IMAGE_DIMENSION_2D, 8192);
+  }
+  uint64_t timestamp() const {
+    return GetField<uint64_t>(VT_TIMESTAMP, 0);
+  }
+  uint32_t vendor_id() const {
+    return GetField<uint32_t>(VT_VENDOR_ID, 4318);
+  }
+  uint32_t device_id() const {
+    return GetField<uint32_t>(VT_DEVICE_ID, 9860);
+  }
+  uint32_t device_type() const {
+    return GetField<uint32_t>(VT_DEVICE_TYPE, 2);
+  }
+  uint32_t max_framebuffer_width() const {
+    return GetField<uint32_t>(VT_MAX_FRAMEBUFFER_WIDTH, 16384);
+  }
+  uint32_t max_framebuffer_height() const {
+    return GetField<uint32_t>(VT_MAX_FRAMEBUFFER_HEIGHT, 16384);
+  }
+  uint32_t max_framebuffer_layers() const {
+    return GetField<uint32_t>(VT_MAX_FRAMEBUFFER_LAYERS, 256);
+  }
+  uint32_t max_memory_heaps() const {
+    return GetField<uint32_t>(VT_MAX_MEMORY_HEAPS, 2);
+  }
+  uint64_t memory_heap_size_0() const {
+    return GetField<uint64_t>(VT_MEMORY_HEAP_SIZE_0, 25769803776ULL);
+  }
+  uint64_t memory_heap_size_1() const {
+    return GetField<uint64_t>(VT_MEMORY_HEAP_SIZE_1, 17179869184ULL);
+  }
+  uint32_t heap_0_flags() const {
+    return GetField<uint32_t>(VT_HEAP_0_FLAGS, 1);
+  }
+  uint32_t heap_1_flags() const {
+    return GetField<uint32_t>(VT_HEAP_1_FLAGS, 0);
+  }
+  uint32_t memory_type_count() const {
+    return GetField<uint32_t>(VT_MEMORY_TYPE_COUNT, 4);
+  }
+  float max_sampler_anisotropy() const {
+    return GetField<float>(VT_MAX_SAMPLER_ANISOTROPY, 16.0f);
+  }
+  uint32_t max_color_attachments() const {
+    return GetField<uint32_t>(VT_MAX_COLOR_ATTACHMENTS, 8);
+  }
+  uint32_t max_bound_descriptor_sets_ext() const {
+    return GetField<uint32_t>(VT_MAX_BOUND_DESCRIPTOR_SETS_EXT, 32);
+  }
+  uint32_t max_per_stage_descriptor_samplers() const {
+    return GetField<uint32_t>(VT_MAX_PER_STAGE_DESCRIPTOR_SAMPLERS, 2048);
+  }
+  uint32_t max_per_stage_descriptor_uniform_buffers() const {
+    return GetField<uint32_t>(VT_MAX_PER_STAGE_DESCRIPTOR_UNIFORM_BUFFERS, 2048);
+  }
+  uint32_t max_per_stage_descriptor_storage_buffers() const {
+    return GetField<uint32_t>(VT_MAX_PER_STAGE_DESCRIPTOR_STORAGE_BUFFERS, 2048);
+  }
+  uint32_t max_per_stage_descriptor_sampled_images() const {
+    return GetField<uint32_t>(VT_MAX_PER_STAGE_DESCRIPTOR_SAMPLED_IMAGES, 2048);
+  }
+  uint32_t max_per_stage_descriptor_storage_images() const {
+    return GetField<uint32_t>(VT_MAX_PER_STAGE_DESCRIPTOR_STORAGE_IMAGES, 2048);
+  }
+  uint32_t max_per_stage_resources_ext() const {
+    return GetField<uint32_t>(VT_MAX_PER_STAGE_RESOURCES_EXT, 1000000);
+  }
+  uint32_t subgroup_size() const {
+    return GetField<uint32_t>(VT_SUBGROUP_SIZE, 32);
+  }
+  float timestamp_period() const {
+    return GetField<float>(VT_TIMESTAMP_PERIOD, 1.0f);
+  }
+  uint32_t max_viewports() const {
+    return GetField<uint32_t>(VT_MAX_VIEWPORTS, 16);
+  }
+  float max_viewport_dimensions_w() const {
+    return GetField<float>(VT_MAX_VIEWPORT_DIMENSIONS_W, 16384.0f);
+  }
+  float max_viewport_dimensions_h() const {
+    return GetField<float>(VT_MAX_VIEWPORT_DIMENSIONS_H, 16384.0f);
+  }
+  uint32_t max_fragment_output_attachments() const {
+    return GetField<uint32_t>(VT_MAX_FRAGMENT_OUTPUT_ATTACHMENTS, 8);
+  }
+  uint64_t min_uniform_buffer_offset_alignment() const {
+    return GetField<uint64_t>(VT_MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT, 256ULL);
+  }
+  uint64_t min_storage_buffer_offset_alignment() const {
+    return GetField<uint64_t>(VT_MIN_STORAGE_BUFFER_OFFSET_ALIGNMENT, 256ULL);
+  }
+  uint64_t max_uniform_buffer_range() const {
+    return GetField<uint64_t>(VT_MAX_UNIFORM_BUFFER_RANGE, 65536ULL);
+  }
+  uint64_t max_storage_buffer_range() const {
+    return GetField<uint64_t>(VT_MAX_STORAGE_BUFFER_RANGE, 1073741824ULL);
+  }
+  uint32_t non_coherent_atom_size() const {
+    return GetField<uint32_t>(VT_NON_COHERENT_ATOM_SIZE, 256);
+  }
+  uint64_t buffer_image_granularity() const {
+    return GetField<uint64_t>(VT_BUFFER_IMAGE_GRANULARITY, 1024ULL);
+  }
+  uint32_t max_compute_work_group_count_x() const {
+    return GetField<uint32_t>(VT_MAX_COMPUTE_WORK_GROUP_COUNT_X, 65535);
+  }
+  uint32_t max_compute_work_group_count_y() const {
+    return GetField<uint32_t>(VT_MAX_COMPUTE_WORK_GROUP_COUNT_Y, 65535);
+  }
+  uint32_t max_compute_work_group_count_z() const {
+    return GetField<uint32_t>(VT_MAX_COMPUTE_WORK_GROUP_COUNT_Z, 65535);
+  }
+  uint32_t max_compute_work_group_invocations() const {
+    return GetField<uint32_t>(VT_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, 1024);
+  }
+  uint32_t max_compute_shared_memory_size() const {
+    return GetField<uint32_t>(VT_MAX_COMPUTE_SHARED_MEMORY_SIZE, 49152);
+  }
+  uint32_t max_clip_distances() const {
+    return GetField<uint32_t>(VT_MAX_CLIP_DISTANCES, 8);
+  }
+  uint32_t max_cull_distances() const {
+    return GetField<uint32_t>(VT_MAX_CULL_DISTANCES, 8);
+  }
+  uint32_t max_combined_clip_and_cull_distances() const {
+    return GetField<uint32_t>(VT_MAX_COMBINED_CLIP_AND_CULL_DISTANCES, 8);
+  }
+  uint32_t sample_counts() const {
+    return GetField<uint32_t>(VT_SAMPLE_COUNTS, 15);
+  }
+  uint32_t max_samples() const {
+    return GetField<uint32_t>(VT_MAX_SAMPLES, 1);
+  }
+  uint32_t max_tessellation_factor() const {
+    return GetField<uint32_t>(VT_MAX_TESSELLATION_FACTOR, 64);
+  }
+  uint32_t framebuffer_color_sample_counts() const {
+    return GetField<uint32_t>(VT_FRAMEBUFFER_COLOR_SAMPLE_COUNTS, 15);
+  }
+  uint32_t compute_queue_count() const {
+    return GetField<uint32_t>(VT_COMPUTE_QUEUE_COUNT, 1);
+  }
+  bool supports_buffer_device_address() const {
+    return GetField<uint8_t>(VT_SUPPORTS_BUFFER_DEVICE_ADDRESS, 1) != 0;
+  }
+  uint32_t supported_subgroup_operations() const {
+    return GetField<uint32_t>(VT_SUPPORTED_SUBGROUP_OPERATIONS, 0);
+  }
+  bool dedicated_compute_queue() const {
+    return GetField<uint8_t>(VT_DEDICATED_COMPUTE_QUEUE, 0) != 0;
+  }
+  bool auth_required() const {
+    return GetField<uint8_t>(VT_AUTH_REQUIRED, 0) != 0;
+  }
+  bool buffer_manager_capable() const {
+    return GetField<uint8_t>(VT_BUFFER_MANAGER_CAPABLE, 1) != 0;
+  }
+  bool supports_16bit_storage() const {
+    return GetField<uint8_t>(VT_SUPPORTS_16BIT_STORAGE, 0) != 0;
+  }
+  bool supports_8bit_storage() const {
+    return GetField<uint8_t>(VT_SUPPORTS_8BIT_STORAGE, 0) != 0;
+  }
+  bool supports_float16_int8() const {
+    return GetField<uint8_t>(VT_SUPPORTS_FLOAT16_INT8, 0) != 0;
+  }
+  bool supports_cooperative_matrix() const {
+    return GetField<uint8_t>(VT_SUPPORTS_COOPERATIVE_MATRIX, 0) != 0;
+  }
+  uint32_t coopmat_m() const {
+    return GetField<uint32_t>(VT_COOPMAT_M, 16);
+  }
+  uint32_t coopmat_n() const {
+    return GetField<uint32_t>(VT_COOPMAT_N, 16);
+  }
+  uint32_t coopmat_k() const {
+    return GetField<uint32_t>(VT_COOPMAT_K, 16);
+  }
+  bool supports_integer_dot_product() const {
+    return GetField<uint8_t>(VT_SUPPORTS_INTEGER_DOT_PRODUCT, 0) != 0;
+  }
+  template <bool B = false>
+  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_GPU_NAME) &&
+           verifier.VerifyString(gpu_name()) &&
+           VerifyField<uint32_t>(verifier, VT_DRIVER_VERSION, 4) &&
+           VerifyField<uint32_t>(verifier, VT_API_VERSION, 4) &&
+           VerifyField<uint64_t>(verifier, VT_MAX_MEMORY_ALLOCATION, 8) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_PUSH_CONSTANTS_SIZE, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_BOUND_DESCRIPTOR_SETS, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_PER_STAGE_RESOURCES, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_IMAGE_DIMENSION_2D, 4) &&
+           VerifyField<uint64_t>(verifier, VT_TIMESTAMP, 8) &&
+           VerifyField<uint32_t>(verifier, VT_VENDOR_ID, 4) &&
+           VerifyField<uint32_t>(verifier, VT_DEVICE_ID, 4) &&
+           VerifyField<uint32_t>(verifier, VT_DEVICE_TYPE, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_FRAMEBUFFER_WIDTH, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_FRAMEBUFFER_HEIGHT, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_FRAMEBUFFER_LAYERS, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_MEMORY_HEAPS, 4) &&
+           VerifyField<uint64_t>(verifier, VT_MEMORY_HEAP_SIZE_0, 8) &&
+           VerifyField<uint64_t>(verifier, VT_MEMORY_HEAP_SIZE_1, 8) &&
+           VerifyField<uint32_t>(verifier, VT_HEAP_0_FLAGS, 4) &&
+           VerifyField<uint32_t>(verifier, VT_HEAP_1_FLAGS, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MEMORY_TYPE_COUNT, 4) &&
+           VerifyField<float>(verifier, VT_MAX_SAMPLER_ANISOTROPY, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_COLOR_ATTACHMENTS, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_BOUND_DESCRIPTOR_SETS_EXT, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_PER_STAGE_DESCRIPTOR_SAMPLERS, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_PER_STAGE_DESCRIPTOR_UNIFORM_BUFFERS, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_PER_STAGE_DESCRIPTOR_STORAGE_BUFFERS, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_PER_STAGE_DESCRIPTOR_SAMPLED_IMAGES, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_PER_STAGE_DESCRIPTOR_STORAGE_IMAGES, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_PER_STAGE_RESOURCES_EXT, 4) &&
+           VerifyField<uint32_t>(verifier, VT_SUBGROUP_SIZE, 4) &&
+           VerifyField<float>(verifier, VT_TIMESTAMP_PERIOD, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_VIEWPORTS, 4) &&
+           VerifyField<float>(verifier, VT_MAX_VIEWPORT_DIMENSIONS_W, 4) &&
+           VerifyField<float>(verifier, VT_MAX_VIEWPORT_DIMENSIONS_H, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_FRAGMENT_OUTPUT_ATTACHMENTS, 4) &&
+           VerifyField<uint64_t>(verifier, VT_MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT, 8) &&
+           VerifyField<uint64_t>(verifier, VT_MIN_STORAGE_BUFFER_OFFSET_ALIGNMENT, 8) &&
+           VerifyField<uint64_t>(verifier, VT_MAX_UNIFORM_BUFFER_RANGE, 8) &&
+           VerifyField<uint64_t>(verifier, VT_MAX_STORAGE_BUFFER_RANGE, 8) &&
+           VerifyField<uint32_t>(verifier, VT_NON_COHERENT_ATOM_SIZE, 4) &&
+           VerifyField<uint64_t>(verifier, VT_BUFFER_IMAGE_GRANULARITY, 8) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_COMPUTE_WORK_GROUP_COUNT_X, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_COMPUTE_WORK_GROUP_COUNT_Y, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_COMPUTE_WORK_GROUP_COUNT_Z, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_COMPUTE_SHARED_MEMORY_SIZE, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_CLIP_DISTANCES, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_CULL_DISTANCES, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_COMBINED_CLIP_AND_CULL_DISTANCES, 4) &&
+           VerifyField<uint32_t>(verifier, VT_SAMPLE_COUNTS, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_SAMPLES, 4) &&
+           VerifyField<uint32_t>(verifier, VT_MAX_TESSELLATION_FACTOR, 4) &&
+           VerifyField<uint32_t>(verifier, VT_FRAMEBUFFER_COLOR_SAMPLE_COUNTS, 4) &&
+           VerifyField<uint32_t>(verifier, VT_COMPUTE_QUEUE_COUNT, 4) &&
+           VerifyField<uint8_t>(verifier, VT_SUPPORTS_BUFFER_DEVICE_ADDRESS, 1) &&
+           VerifyField<uint32_t>(verifier, VT_SUPPORTED_SUBGROUP_OPERATIONS, 4) &&
+           VerifyField<uint8_t>(verifier, VT_DEDICATED_COMPUTE_QUEUE, 1) &&
+           VerifyField<uint8_t>(verifier, VT_AUTH_REQUIRED, 1) &&
+           VerifyField<uint8_t>(verifier, VT_BUFFER_MANAGER_CAPABLE, 1) &&
+           VerifyField<uint8_t>(verifier, VT_SUPPORTS_16BIT_STORAGE, 1) &&
+           VerifyField<uint8_t>(verifier, VT_SUPPORTS_8BIT_STORAGE, 1) &&
+           VerifyField<uint8_t>(verifier, VT_SUPPORTS_FLOAT16_INT8, 1) &&
+           VerifyField<uint8_t>(verifier, VT_SUPPORTS_COOPERATIVE_MATRIX, 1) &&
+           VerifyField<uint32_t>(verifier, VT_COOPMAT_M, 4) &&
+           VerifyField<uint32_t>(verifier, VT_COOPMAT_N, 4) &&
+           VerifyField<uint32_t>(verifier, VT_COOPMAT_K, 4) &&
+           VerifyField<uint8_t>(verifier, VT_SUPPORTS_INTEGER_DOT_PRODUCT, 1) &&
+           verifier.EndTable();
+  }
+  CapabilitiesResponseT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(CapabilitiesResponseT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<CapabilitiesResponse> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const CapabilitiesResponseT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct CapabilitiesResponseBuilder {
+  typedef CapabilitiesResponse Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_gpu_name(::flatbuffers::Offset<::flatbuffers::String> gpu_name) {
+    fbb_.AddOffset(CapabilitiesResponse::VT_GPU_NAME, gpu_name);
+  }
+  void add_driver_version(uint32_t driver_version) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_DRIVER_VERSION, driver_version, 0);
+  }
+  void add_api_version(uint32_t api_version) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_API_VERSION, api_version, 0);
+  }
+  void add_max_memory_allocation(uint64_t max_memory_allocation) {
+    fbb_.AddElement<uint64_t>(CapabilitiesResponse::VT_MAX_MEMORY_ALLOCATION, max_memory_allocation, 0);
+  }
+  void add_max_push_constants_size(uint32_t max_push_constants_size) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_PUSH_CONSTANTS_SIZE, max_push_constants_size, 128);
+  }
+  void add_max_bound_descriptor_sets(uint32_t max_bound_descriptor_sets) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_BOUND_DESCRIPTOR_SETS, max_bound_descriptor_sets, 4);
+  }
+  void add_max_per_stage_resources(uint32_t max_per_stage_resources) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_PER_STAGE_RESOURCES, max_per_stage_resources, 32);
+  }
+  void add_max_image_dimension_2d(uint32_t max_image_dimension_2d) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_IMAGE_DIMENSION_2D, max_image_dimension_2d, 8192);
+  }
+  void add_timestamp(uint64_t timestamp) {
+    fbb_.AddElement<uint64_t>(CapabilitiesResponse::VT_TIMESTAMP, timestamp, 0);
+  }
+  void add_vendor_id(uint32_t vendor_id) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_VENDOR_ID, vendor_id, 4318);
+  }
+  void add_device_id(uint32_t device_id) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_DEVICE_ID, device_id, 9860);
+  }
+  void add_device_type(uint32_t device_type) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_DEVICE_TYPE, device_type, 2);
+  }
+  void add_max_framebuffer_width(uint32_t max_framebuffer_width) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_FRAMEBUFFER_WIDTH, max_framebuffer_width, 16384);
+  }
+  void add_max_framebuffer_height(uint32_t max_framebuffer_height) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_FRAMEBUFFER_HEIGHT, max_framebuffer_height, 16384);
+  }
+  void add_max_framebuffer_layers(uint32_t max_framebuffer_layers) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_FRAMEBUFFER_LAYERS, max_framebuffer_layers, 256);
+  }
+  void add_max_memory_heaps(uint32_t max_memory_heaps) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_MEMORY_HEAPS, max_memory_heaps, 2);
+  }
+  void add_memory_heap_size_0(uint64_t memory_heap_size_0) {
+    fbb_.AddElement<uint64_t>(CapabilitiesResponse::VT_MEMORY_HEAP_SIZE_0, memory_heap_size_0, 25769803776ULL);
+  }
+  void add_memory_heap_size_1(uint64_t memory_heap_size_1) {
+    fbb_.AddElement<uint64_t>(CapabilitiesResponse::VT_MEMORY_HEAP_SIZE_1, memory_heap_size_1, 17179869184ULL);
+  }
+  void add_heap_0_flags(uint32_t heap_0_flags) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_HEAP_0_FLAGS, heap_0_flags, 1);
+  }
+  void add_heap_1_flags(uint32_t heap_1_flags) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_HEAP_1_FLAGS, heap_1_flags, 0);
+  }
+  void add_memory_type_count(uint32_t memory_type_count) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MEMORY_TYPE_COUNT, memory_type_count, 4);
+  }
+  void add_max_sampler_anisotropy(float max_sampler_anisotropy) {
+    fbb_.AddElement<float>(CapabilitiesResponse::VT_MAX_SAMPLER_ANISOTROPY, max_sampler_anisotropy, 16.0f);
+  }
+  void add_max_color_attachments(uint32_t max_color_attachments) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_COLOR_ATTACHMENTS, max_color_attachments, 8);
+  }
+  void add_max_bound_descriptor_sets_ext(uint32_t max_bound_descriptor_sets_ext) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_BOUND_DESCRIPTOR_SETS_EXT, max_bound_descriptor_sets_ext, 32);
+  }
+  void add_max_per_stage_descriptor_samplers(uint32_t max_per_stage_descriptor_samplers) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_PER_STAGE_DESCRIPTOR_SAMPLERS, max_per_stage_descriptor_samplers, 2048);
+  }
+  void add_max_per_stage_descriptor_uniform_buffers(uint32_t max_per_stage_descriptor_uniform_buffers) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_PER_STAGE_DESCRIPTOR_UNIFORM_BUFFERS, max_per_stage_descriptor_uniform_buffers, 2048);
+  }
+  void add_max_per_stage_descriptor_storage_buffers(uint32_t max_per_stage_descriptor_storage_buffers) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_PER_STAGE_DESCRIPTOR_STORAGE_BUFFERS, max_per_stage_descriptor_storage_buffers, 2048);
+  }
+  void add_max_per_stage_descriptor_sampled_images(uint32_t max_per_stage_descriptor_sampled_images) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_PER_STAGE_DESCRIPTOR_SAMPLED_IMAGES, max_per_stage_descriptor_sampled_images, 2048);
+  }
+  void add_max_per_stage_descriptor_storage_images(uint32_t max_per_stage_descriptor_storage_images) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_PER_STAGE_DESCRIPTOR_STORAGE_IMAGES, max_per_stage_descriptor_storage_images, 2048);
+  }
+  void add_max_per_stage_resources_ext(uint32_t max_per_stage_resources_ext) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_PER_STAGE_RESOURCES_EXT, max_per_stage_resources_ext, 1000000);
+  }
+  void add_subgroup_size(uint32_t subgroup_size) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_SUBGROUP_SIZE, subgroup_size, 32);
+  }
+  void add_timestamp_period(float timestamp_period) {
+    fbb_.AddElement<float>(CapabilitiesResponse::VT_TIMESTAMP_PERIOD, timestamp_period, 1.0f);
+  }
+  void add_max_viewports(uint32_t max_viewports) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_VIEWPORTS, max_viewports, 16);
+  }
+  void add_max_viewport_dimensions_w(float max_viewport_dimensions_w) {
+    fbb_.AddElement<float>(CapabilitiesResponse::VT_MAX_VIEWPORT_DIMENSIONS_W, max_viewport_dimensions_w, 16384.0f);
+  }
+  void add_max_viewport_dimensions_h(float max_viewport_dimensions_h) {
+    fbb_.AddElement<float>(CapabilitiesResponse::VT_MAX_VIEWPORT_DIMENSIONS_H, max_viewport_dimensions_h, 16384.0f);
+  }
+  void add_max_fragment_output_attachments(uint32_t max_fragment_output_attachments) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_FRAGMENT_OUTPUT_ATTACHMENTS, max_fragment_output_attachments, 8);
+  }
+  void add_min_uniform_buffer_offset_alignment(uint64_t min_uniform_buffer_offset_alignment) {
+    fbb_.AddElement<uint64_t>(CapabilitiesResponse::VT_MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT, min_uniform_buffer_offset_alignment, 256ULL);
+  }
+  void add_min_storage_buffer_offset_alignment(uint64_t min_storage_buffer_offset_alignment) {
+    fbb_.AddElement<uint64_t>(CapabilitiesResponse::VT_MIN_STORAGE_BUFFER_OFFSET_ALIGNMENT, min_storage_buffer_offset_alignment, 256ULL);
+  }
+  void add_max_uniform_buffer_range(uint64_t max_uniform_buffer_range) {
+    fbb_.AddElement<uint64_t>(CapabilitiesResponse::VT_MAX_UNIFORM_BUFFER_RANGE, max_uniform_buffer_range, 65536ULL);
+  }
+  void add_max_storage_buffer_range(uint64_t max_storage_buffer_range) {
+    fbb_.AddElement<uint64_t>(CapabilitiesResponse::VT_MAX_STORAGE_BUFFER_RANGE, max_storage_buffer_range, 1073741824ULL);
+  }
+  void add_non_coherent_atom_size(uint32_t non_coherent_atom_size) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_NON_COHERENT_ATOM_SIZE, non_coherent_atom_size, 256);
+  }
+  void add_buffer_image_granularity(uint64_t buffer_image_granularity) {
+    fbb_.AddElement<uint64_t>(CapabilitiesResponse::VT_BUFFER_IMAGE_GRANULARITY, buffer_image_granularity, 1024ULL);
+  }
+  void add_max_compute_work_group_count_x(uint32_t max_compute_work_group_count_x) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_COMPUTE_WORK_GROUP_COUNT_X, max_compute_work_group_count_x, 65535);
+  }
+  void add_max_compute_work_group_count_y(uint32_t max_compute_work_group_count_y) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_COMPUTE_WORK_GROUP_COUNT_Y, max_compute_work_group_count_y, 65535);
+  }
+  void add_max_compute_work_group_count_z(uint32_t max_compute_work_group_count_z) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_COMPUTE_WORK_GROUP_COUNT_Z, max_compute_work_group_count_z, 65535);
+  }
+  void add_max_compute_work_group_invocations(uint32_t max_compute_work_group_invocations) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, max_compute_work_group_invocations, 1024);
+  }
+  void add_max_compute_shared_memory_size(uint32_t max_compute_shared_memory_size) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_COMPUTE_SHARED_MEMORY_SIZE, max_compute_shared_memory_size, 49152);
+  }
+  void add_max_clip_distances(uint32_t max_clip_distances) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_CLIP_DISTANCES, max_clip_distances, 8);
+  }
+  void add_max_cull_distances(uint32_t max_cull_distances) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_CULL_DISTANCES, max_cull_distances, 8);
+  }
+  void add_max_combined_clip_and_cull_distances(uint32_t max_combined_clip_and_cull_distances) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_COMBINED_CLIP_AND_CULL_DISTANCES, max_combined_clip_and_cull_distances, 8);
+  }
+  void add_sample_counts(uint32_t sample_counts) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_SAMPLE_COUNTS, sample_counts, 15);
+  }
+  void add_max_samples(uint32_t max_samples) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_SAMPLES, max_samples, 1);
+  }
+  void add_max_tessellation_factor(uint32_t max_tessellation_factor) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_MAX_TESSELLATION_FACTOR, max_tessellation_factor, 64);
+  }
+  void add_framebuffer_color_sample_counts(uint32_t framebuffer_color_sample_counts) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_FRAMEBUFFER_COLOR_SAMPLE_COUNTS, framebuffer_color_sample_counts, 15);
+  }
+  void add_compute_queue_count(uint32_t compute_queue_count) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_COMPUTE_QUEUE_COUNT, compute_queue_count, 1);
+  }
+  void add_supports_buffer_device_address(bool supports_buffer_device_address) {
+    fbb_.AddElement<uint8_t>(CapabilitiesResponse::VT_SUPPORTS_BUFFER_DEVICE_ADDRESS, static_cast<uint8_t>(supports_buffer_device_address), 1);
+  }
+  void add_supported_subgroup_operations(uint32_t supported_subgroup_operations) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_SUPPORTED_SUBGROUP_OPERATIONS, supported_subgroup_operations, 0);
+  }
+  void add_dedicated_compute_queue(bool dedicated_compute_queue) {
+    fbb_.AddElement<uint8_t>(CapabilitiesResponse::VT_DEDICATED_COMPUTE_QUEUE, static_cast<uint8_t>(dedicated_compute_queue), 0);
+  }
+  void add_auth_required(bool auth_required) {
+    fbb_.AddElement<uint8_t>(CapabilitiesResponse::VT_AUTH_REQUIRED, static_cast<uint8_t>(auth_required), 0);
+  }
+  void add_buffer_manager_capable(bool buffer_manager_capable) {
+    fbb_.AddElement<uint8_t>(CapabilitiesResponse::VT_BUFFER_MANAGER_CAPABLE, static_cast<uint8_t>(buffer_manager_capable), 1);
+  }
+  void add_supports_16bit_storage(bool supports_16bit_storage) {
+    fbb_.AddElement<uint8_t>(CapabilitiesResponse::VT_SUPPORTS_16BIT_STORAGE, static_cast<uint8_t>(supports_16bit_storage), 0);
+  }
+  void add_supports_8bit_storage(bool supports_8bit_storage) {
+    fbb_.AddElement<uint8_t>(CapabilitiesResponse::VT_SUPPORTS_8BIT_STORAGE, static_cast<uint8_t>(supports_8bit_storage), 0);
+  }
+  void add_supports_float16_int8(bool supports_float16_int8) {
+    fbb_.AddElement<uint8_t>(CapabilitiesResponse::VT_SUPPORTS_FLOAT16_INT8, static_cast<uint8_t>(supports_float16_int8), 0);
+  }
+  void add_supports_cooperative_matrix(bool supports_cooperative_matrix) {
+    fbb_.AddElement<uint8_t>(CapabilitiesResponse::VT_SUPPORTS_COOPERATIVE_MATRIX, static_cast<uint8_t>(supports_cooperative_matrix), 0);
+  }
+  void add_coopmat_m(uint32_t coopmat_m) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_COOPMAT_M, coopmat_m, 16);
+  }
+  void add_coopmat_n(uint32_t coopmat_n) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_COOPMAT_N, coopmat_n, 16);
+  }
+  void add_coopmat_k(uint32_t coopmat_k) {
+    fbb_.AddElement<uint32_t>(CapabilitiesResponse::VT_COOPMAT_K, coopmat_k, 16);
+  }
+  void add_supports_integer_dot_product(bool supports_integer_dot_product) {
+    fbb_.AddElement<uint8_t>(CapabilitiesResponse::VT_SUPPORTS_INTEGER_DOT_PRODUCT, static_cast<uint8_t>(supports_integer_dot_product), 0);
+  }
+  explicit CapabilitiesResponseBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<CapabilitiesResponse> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<CapabilitiesResponse>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<CapabilitiesResponse> CreateCapabilitiesResponse(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    ::flatbuffers::Offset<::flatbuffers::String> gpu_name = 0,
+    uint32_t driver_version = 0,
+    uint32_t api_version = 0,
+    uint64_t max_memory_allocation = 0,
+    uint32_t max_push_constants_size = 128,
+    uint32_t max_bound_descriptor_sets = 4,
+    uint32_t max_per_stage_resources = 32,
+    uint32_t max_image_dimension_2d = 8192,
+    uint64_t timestamp = 0,
+    uint32_t vendor_id = 4318,
+    uint32_t device_id = 9860,
+    uint32_t device_type = 2,
+    uint32_t max_framebuffer_width = 16384,
+    uint32_t max_framebuffer_height = 16384,
+    uint32_t max_framebuffer_layers = 256,
+    uint32_t max_memory_heaps = 2,
+    uint64_t memory_heap_size_0 = 25769803776ULL,
+    uint64_t memory_heap_size_1 = 17179869184ULL,
+    uint32_t heap_0_flags = 1,
+    uint32_t heap_1_flags = 0,
+    uint32_t memory_type_count = 4,
+    float max_sampler_anisotropy = 16.0f,
+    uint32_t max_color_attachments = 8,
+    uint32_t max_bound_descriptor_sets_ext = 32,
+    uint32_t max_per_stage_descriptor_samplers = 2048,
+    uint32_t max_per_stage_descriptor_uniform_buffers = 2048,
+    uint32_t max_per_stage_descriptor_storage_buffers = 2048,
+    uint32_t max_per_stage_descriptor_sampled_images = 2048,
+    uint32_t max_per_stage_descriptor_storage_images = 2048,
+    uint32_t max_per_stage_resources_ext = 1000000,
+    uint32_t subgroup_size = 32,
+    float timestamp_period = 1.0f,
+    uint32_t max_viewports = 16,
+    float max_viewport_dimensions_w = 16384.0f,
+    float max_viewport_dimensions_h = 16384.0f,
+    uint32_t max_fragment_output_attachments = 8,
+    uint64_t min_uniform_buffer_offset_alignment = 256ULL,
+    uint64_t min_storage_buffer_offset_alignment = 256ULL,
+    uint64_t max_uniform_buffer_range = 65536ULL,
+    uint64_t max_storage_buffer_range = 1073741824ULL,
+    uint32_t non_coherent_atom_size = 256,
+    uint64_t buffer_image_granularity = 1024ULL,
+    uint32_t max_compute_work_group_count_x = 65535,
+    uint32_t max_compute_work_group_count_y = 65535,
+    uint32_t max_compute_work_group_count_z = 65535,
+    uint32_t max_compute_work_group_invocations = 1024,
+    uint32_t max_compute_shared_memory_size = 49152,
+    uint32_t max_clip_distances = 8,
+    uint32_t max_cull_distances = 8,
+    uint32_t max_combined_clip_and_cull_distances = 8,
+    uint32_t sample_counts = 15,
+    uint32_t max_samples = 1,
+    uint32_t max_tessellation_factor = 64,
+    uint32_t framebuffer_color_sample_counts = 15,
+    uint32_t compute_queue_count = 1,
+    bool supports_buffer_device_address = true,
+    uint32_t supported_subgroup_operations = 0,
+    bool dedicated_compute_queue = false,
+    bool auth_required = false,
+    bool buffer_manager_capable = true,
+    bool supports_16bit_storage = false,
+    bool supports_8bit_storage = false,
+    bool supports_float16_int8 = false,
+    bool supports_cooperative_matrix = false,
+    uint32_t coopmat_m = 16,
+    uint32_t coopmat_n = 16,
+    uint32_t coopmat_k = 16,
+    bool supports_integer_dot_product = false) {
+  CapabilitiesResponseBuilder builder_(_fbb);
+  builder_.add_buffer_image_granularity(buffer_image_granularity);
+  builder_.add_max_storage_buffer_range(max_storage_buffer_range);
+  builder_.add_max_uniform_buffer_range(max_uniform_buffer_range);
+  builder_.add_min_storage_buffer_offset_alignment(min_storage_buffer_offset_alignment);
+  builder_.add_min_uniform_buffer_offset_alignment(min_uniform_buffer_offset_alignment);
+  builder_.add_memory_heap_size_1(memory_heap_size_1);
+  builder_.add_memory_heap_size_0(memory_heap_size_0);
+  builder_.add_timestamp(timestamp);
+  builder_.add_max_memory_allocation(max_memory_allocation);
+  builder_.add_coopmat_k(coopmat_k);
+  builder_.add_coopmat_n(coopmat_n);
+  builder_.add_coopmat_m(coopmat_m);
+  builder_.add_supported_subgroup_operations(supported_subgroup_operations);
+  builder_.add_compute_queue_count(compute_queue_count);
+  builder_.add_framebuffer_color_sample_counts(framebuffer_color_sample_counts);
+  builder_.add_max_tessellation_factor(max_tessellation_factor);
+  builder_.add_max_samples(max_samples);
+  builder_.add_sample_counts(sample_counts);
+  builder_.add_max_combined_clip_and_cull_distances(max_combined_clip_and_cull_distances);
+  builder_.add_max_cull_distances(max_cull_distances);
+  builder_.add_max_clip_distances(max_clip_distances);
+  builder_.add_max_compute_shared_memory_size(max_compute_shared_memory_size);
+  builder_.add_max_compute_work_group_invocations(max_compute_work_group_invocations);
+  builder_.add_max_compute_work_group_count_z(max_compute_work_group_count_z);
+  builder_.add_max_compute_work_group_count_y(max_compute_work_group_count_y);
+  builder_.add_max_compute_work_group_count_x(max_compute_work_group_count_x);
+  builder_.add_non_coherent_atom_size(non_coherent_atom_size);
+  builder_.add_max_fragment_output_attachments(max_fragment_output_attachments);
+  builder_.add_max_viewport_dimensions_h(max_viewport_dimensions_h);
+  builder_.add_max_viewport_dimensions_w(max_viewport_dimensions_w);
+  builder_.add_max_viewports(max_viewports);
+  builder_.add_timestamp_period(timestamp_period);
+  builder_.add_subgroup_size(subgroup_size);
+  builder_.add_max_per_stage_resources_ext(max_per_stage_resources_ext);
+  builder_.add_max_per_stage_descriptor_storage_images(max_per_stage_descriptor_storage_images);
+  builder_.add_max_per_stage_descriptor_sampled_images(max_per_stage_descriptor_sampled_images);
+  builder_.add_max_per_stage_descriptor_storage_buffers(max_per_stage_descriptor_storage_buffers);
+  builder_.add_max_per_stage_descriptor_uniform_buffers(max_per_stage_descriptor_uniform_buffers);
+  builder_.add_max_per_stage_descriptor_samplers(max_per_stage_descriptor_samplers);
+  builder_.add_max_bound_descriptor_sets_ext(max_bound_descriptor_sets_ext);
+  builder_.add_max_color_attachments(max_color_attachments);
+  builder_.add_max_sampler_anisotropy(max_sampler_anisotropy);
+  builder_.add_memory_type_count(memory_type_count);
+  builder_.add_heap_1_flags(heap_1_flags);
+  builder_.add_heap_0_flags(heap_0_flags);
+  builder_.add_max_memory_heaps(max_memory_heaps);
+  builder_.add_max_framebuffer_layers(max_framebuffer_layers);
+  builder_.add_max_framebuffer_height(max_framebuffer_height);
+  builder_.add_max_framebuffer_width(max_framebuffer_width);
+  builder_.add_device_type(device_type);
+  builder_.add_device_id(device_id);
+  builder_.add_vendor_id(vendor_id);
+  builder_.add_max_image_dimension_2d(max_image_dimension_2d);
+  builder_.add_max_per_stage_resources(max_per_stage_resources);
+  builder_.add_max_bound_descriptor_sets(max_bound_descriptor_sets);
+  builder_.add_max_push_constants_size(max_push_constants_size);
+  builder_.add_api_version(api_version);
+  builder_.add_driver_version(driver_version);
+  builder_.add_gpu_name(gpu_name);
+  builder_.add_supports_integer_dot_product(supports_integer_dot_product);
+  builder_.add_supports_cooperative_matrix(supports_cooperative_matrix);
+  builder_.add_supports_float16_int8(supports_float16_int8);
+  builder_.add_supports_8bit_storage(supports_8bit_storage);
+  builder_.add_supports_16bit_storage(supports_16bit_storage);
+  builder_.add_buffer_manager_capable(buffer_manager_capable);
+  builder_.add_auth_required(auth_required);
+  builder_.add_dedicated_compute_queue(dedicated_compute_queue);
+  builder_.add_supports_buffer_device_address(supports_buffer_device_address);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<CapabilitiesResponse> CreateCapabilitiesResponseDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    const char *gpu_name = nullptr,
+    uint32_t driver_version = 0,
+    uint32_t api_version = 0,
+    uint64_t max_memory_allocation = 0,
+    uint32_t max_push_constants_size = 128,
+    uint32_t max_bound_descriptor_sets = 4,
+    uint32_t max_per_stage_resources = 32,
+    uint32_t max_image_dimension_2d = 8192,
+    uint64_t timestamp = 0,
+    uint32_t vendor_id = 4318,
+    uint32_t device_id = 9860,
+    uint32_t device_type = 2,
+    uint32_t max_framebuffer_width = 16384,
+    uint32_t max_framebuffer_height = 16384,
+    uint32_t max_framebuffer_layers = 256,
+    uint32_t max_memory_heaps = 2,
+    uint64_t memory_heap_size_0 = 25769803776ULL,
+    uint64_t memory_heap_size_1 = 17179869184ULL,
+    uint32_t heap_0_flags = 1,
+    uint32_t heap_1_flags = 0,
+    uint32_t memory_type_count = 4,
+    float max_sampler_anisotropy = 16.0f,
+    uint32_t max_color_attachments = 8,
+    uint32_t max_bound_descriptor_sets_ext = 32,
+    uint32_t max_per_stage_descriptor_samplers = 2048,
+    uint32_t max_per_stage_descriptor_uniform_buffers = 2048,
+    uint32_t max_per_stage_descriptor_storage_buffers = 2048,
+    uint32_t max_per_stage_descriptor_sampled_images = 2048,
+    uint32_t max_per_stage_descriptor_storage_images = 2048,
+    uint32_t max_per_stage_resources_ext = 1000000,
+    uint32_t subgroup_size = 32,
+    float timestamp_period = 1.0f,
+    uint32_t max_viewports = 16,
+    float max_viewport_dimensions_w = 16384.0f,
+    float max_viewport_dimensions_h = 16384.0f,
+    uint32_t max_fragment_output_attachments = 8,
+    uint64_t min_uniform_buffer_offset_alignment = 256ULL,
+    uint64_t min_storage_buffer_offset_alignment = 256ULL,
+    uint64_t max_uniform_buffer_range = 65536ULL,
+    uint64_t max_storage_buffer_range = 1073741824ULL,
+    uint32_t non_coherent_atom_size = 256,
+    uint64_t buffer_image_granularity = 1024ULL,
+    uint32_t max_compute_work_group_count_x = 65535,
+    uint32_t max_compute_work_group_count_y = 65535,
+    uint32_t max_compute_work_group_count_z = 65535,
+    uint32_t max_compute_work_group_invocations = 1024,
+    uint32_t max_compute_shared_memory_size = 49152,
+    uint32_t max_clip_distances = 8,
+    uint32_t max_cull_distances = 8,
+    uint32_t max_combined_clip_and_cull_distances = 8,
+    uint32_t sample_counts = 15,
+    uint32_t max_samples = 1,
+    uint32_t max_tessellation_factor = 64,
+    uint32_t framebuffer_color_sample_counts = 15,
+    uint32_t compute_queue_count = 1,
+    bool supports_buffer_device_address = true,
+    uint32_t supported_subgroup_operations = 0,
+    bool dedicated_compute_queue = false,
+    bool auth_required = false,
+    bool buffer_manager_capable = true,
+    bool supports_16bit_storage = false,
+    bool supports_8bit_storage = false,
+    bool supports_float16_int8 = false,
+    bool supports_cooperative_matrix = false,
+    uint32_t coopmat_m = 16,
+    uint32_t coopmat_n = 16,
+    uint32_t coopmat_k = 16,
+    bool supports_integer_dot_product = false) {
+  auto gpu_name__ = gpu_name ? _fbb.CreateString(gpu_name) : 0;
+  return omnigpu::fbs::CreateCapabilitiesResponse(
+      _fbb,
+      gpu_name__,
+      driver_version,
+      api_version,
+      max_memory_allocation,
+      max_push_constants_size,
+      max_bound_descriptor_sets,
+      max_per_stage_resources,
+      max_image_dimension_2d,
+      timestamp,
+      vendor_id,
+      device_id,
+      device_type,
+      max_framebuffer_width,
+      max_framebuffer_height,
+      max_framebuffer_layers,
+      max_memory_heaps,
+      memory_heap_size_0,
+      memory_heap_size_1,
+      heap_0_flags,
+      heap_1_flags,
+      memory_type_count,
+      max_sampler_anisotropy,
+      max_color_attachments,
+      max_bound_descriptor_sets_ext,
+      max_per_stage_descriptor_samplers,
+      max_per_stage_descriptor_uniform_buffers,
+      max_per_stage_descriptor_storage_buffers,
+      max_per_stage_descriptor_sampled_images,
+      max_per_stage_descriptor_storage_images,
+      max_per_stage_resources_ext,
+      subgroup_size,
+      timestamp_period,
+      max_viewports,
+      max_viewport_dimensions_w,
+      max_viewport_dimensions_h,
+      max_fragment_output_attachments,
+      min_uniform_buffer_offset_alignment,
+      min_storage_buffer_offset_alignment,
+      max_uniform_buffer_range,
+      max_storage_buffer_range,
+      non_coherent_atom_size,
+      buffer_image_granularity,
+      max_compute_work_group_count_x,
+      max_compute_work_group_count_y,
+      max_compute_work_group_count_z,
+      max_compute_work_group_invocations,
+      max_compute_shared_memory_size,
+      max_clip_distances,
+      max_cull_distances,
+      max_combined_clip_and_cull_distances,
+      sample_counts,
+      max_samples,
+      max_tessellation_factor,
+      framebuffer_color_sample_counts,
+      compute_queue_count,
+      supports_buffer_device_address,
+      supported_subgroup_operations,
+      dedicated_compute_queue,
+      auth_required,
+      buffer_manager_capable,
+      supports_16bit_storage,
+      supports_8bit_storage,
+      supports_float16_int8,
+      supports_cooperative_matrix,
+      coopmat_m,
+      coopmat_n,
+      coopmat_k,
+      supports_integer_dot_product);
+}
+
+::flatbuffers::Offset<CapabilitiesResponse> CreateCapabilitiesResponse(::flatbuffers::FlatBufferBuilder &_fbb, const CapabilitiesResponseT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct CommandMessageT : public ::flatbuffers::NativeTable {
   typedef CommandMessage TableType;
@@ -329,11 +2137,80 @@ inline ::flatbuffers::Offset<CommandMessage> CreateCommandMessageDirect(
 
 ::flatbuffers::Offset<CommandMessage> CreateCommandMessage(::flatbuffers::FlatBufferBuilder &_fbb, const CommandMessageT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
+struct BatchMessageT : public ::flatbuffers::NativeTable {
+  typedef BatchMessage TableType;
+  std::vector<std::unique_ptr<omnigpu::fbs::CommandMessageT>> commands{};
+  BatchMessageT() = default;
+  BatchMessageT(const BatchMessageT &o);
+  BatchMessageT(BatchMessageT&&) FLATBUFFERS_NOEXCEPT = default;
+  BatchMessageT &operator=(BatchMessageT o) FLATBUFFERS_NOEXCEPT;
+};
+
+struct BatchMessage FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef BatchMessageT NativeTableType;
+  typedef BatchMessageBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_COMMANDS = 4
+  };
+  const ::flatbuffers::Vector<::flatbuffers::Offset<omnigpu::fbs::CommandMessage>> *commands() const {
+    return GetPointer<const ::flatbuffers::Vector<::flatbuffers::Offset<omnigpu::fbs::CommandMessage>> *>(VT_COMMANDS);
+  }
+  template <bool B = false>
+  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_COMMANDS) &&
+           verifier.VerifyVector(commands()) &&
+           verifier.VerifyVectorOfTables(commands()) &&
+           verifier.EndTable();
+  }
+  BatchMessageT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(BatchMessageT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<BatchMessage> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const BatchMessageT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct BatchMessageBuilder {
+  typedef BatchMessage Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_commands(::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<omnigpu::fbs::CommandMessage>>> commands) {
+    fbb_.AddOffset(BatchMessage::VT_COMMANDS, commands);
+  }
+  explicit BatchMessageBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<BatchMessage> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<BatchMessage>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<BatchMessage> CreateBatchMessage(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<omnigpu::fbs::CommandMessage>>> commands = 0) {
+  BatchMessageBuilder builder_(_fbb);
+  builder_.add_commands(commands);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<BatchMessage> CreateBatchMessageDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    const std::vector<::flatbuffers::Offset<omnigpu::fbs::CommandMessage>> *commands = nullptr) {
+  auto commands__ = commands ? _fbb.CreateVector<::flatbuffers::Offset<omnigpu::fbs::CommandMessage>>(*commands) : 0;
+  return omnigpu::fbs::CreateBatchMessage(
+      _fbb,
+      commands__);
+}
+
+::flatbuffers::Offset<BatchMessage> CreateBatchMessage(::flatbuffers::FlatBufferBuilder &_fbb, const BatchMessageT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
 struct DataMessageT : public ::flatbuffers::NativeTable {
   typedef DataMessage TableType;
   omnigpu::fbs::DataType data_type = omnigpu::fbs::DataType_Unknown;
   uint64_t data_id = 0;
   uint64_t total_size = 0;
+  uint64_t offset = 0;
   std::vector<uint8_t> payload{};
 };
 
@@ -344,7 +2221,8 @@ struct DataMessage FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     VT_DATA_TYPE = 4,
     VT_DATA_ID = 6,
     VT_TOTAL_SIZE = 8,
-    VT_PAYLOAD = 10
+    VT_OFFSET = 10,
+    VT_PAYLOAD = 12
   };
   omnigpu::fbs::DataType data_type() const {
     return static_cast<omnigpu::fbs::DataType>(GetField<int8_t>(VT_DATA_TYPE, 0));
@@ -355,6 +2233,9 @@ struct DataMessage FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   uint64_t total_size() const {
     return GetField<uint64_t>(VT_TOTAL_SIZE, 0);
   }
+  uint64_t offset() const {
+    return GetField<uint64_t>(VT_OFFSET, 0);
+  }
   const ::flatbuffers::Vector<uint8_t> *payload() const {
     return GetPointer<const ::flatbuffers::Vector<uint8_t> *>(VT_PAYLOAD);
   }
@@ -364,6 +2245,7 @@ struct DataMessage FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyField<int8_t>(verifier, VT_DATA_TYPE, 1) &&
            VerifyField<uint64_t>(verifier, VT_DATA_ID, 8) &&
            VerifyField<uint64_t>(verifier, VT_TOTAL_SIZE, 8) &&
+           VerifyField<uint64_t>(verifier, VT_OFFSET, 8) &&
            VerifyOffset(verifier, VT_PAYLOAD) &&
            verifier.VerifyVector(payload()) &&
            verifier.EndTable();
@@ -386,6 +2268,9 @@ struct DataMessageBuilder {
   void add_total_size(uint64_t total_size) {
     fbb_.AddElement<uint64_t>(DataMessage::VT_TOTAL_SIZE, total_size, 0);
   }
+  void add_offset(uint64_t offset) {
+    fbb_.AddElement<uint64_t>(DataMessage::VT_OFFSET, offset, 0);
+  }
   void add_payload(::flatbuffers::Offset<::flatbuffers::Vector<uint8_t>> payload) {
     fbb_.AddOffset(DataMessage::VT_PAYLOAD, payload);
   }
@@ -405,8 +2290,10 @@ inline ::flatbuffers::Offset<DataMessage> CreateDataMessage(
     omnigpu::fbs::DataType data_type = omnigpu::fbs::DataType_Unknown,
     uint64_t data_id = 0,
     uint64_t total_size = 0,
+    uint64_t offset = 0,
     ::flatbuffers::Offset<::flatbuffers::Vector<uint8_t>> payload = 0) {
   DataMessageBuilder builder_(_fbb);
+  builder_.add_offset(offset);
   builder_.add_total_size(total_size);
   builder_.add_data_id(data_id);
   builder_.add_payload(payload);
@@ -419,6 +2306,7 @@ inline ::flatbuffers::Offset<DataMessage> CreateDataMessageDirect(
     omnigpu::fbs::DataType data_type = omnigpu::fbs::DataType_Unknown,
     uint64_t data_id = 0,
     uint64_t total_size = 0,
+    uint64_t offset = 0,
     const std::vector<uint8_t> *payload = nullptr) {
   auto payload__ = payload ? _fbb.CreateVector<uint8_t>(*payload) : 0;
   return omnigpu::fbs::CreateDataMessage(
@@ -426,10 +2314,371 @@ inline ::flatbuffers::Offset<DataMessage> CreateDataMessageDirect(
       data_type,
       data_id,
       total_size,
+      offset,
       payload__);
 }
 
 ::flatbuffers::Offset<DataMessage> CreateDataMessage(::flatbuffers::FlatBufferBuilder &_fbb, const DataMessageT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct ResourceCacheUploadT : public ::flatbuffers::NativeTable {
+  typedef ResourceCacheUpload TableType;
+  uint64_t resource_id = 0;
+  omnigpu::fbs::DataType resource_type = omnigpu::fbs::DataType_Unknown;
+  uint64_t data_size = 0;
+  std::vector<uint8_t> data{};
+};
+
+struct ResourceCacheUpload FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef ResourceCacheUploadT NativeTableType;
+  typedef ResourceCacheUploadBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_RESOURCE_ID = 4,
+    VT_RESOURCE_TYPE = 6,
+    VT_DATA_SIZE = 8,
+    VT_DATA = 10
+  };
+  uint64_t resource_id() const {
+    return GetField<uint64_t>(VT_RESOURCE_ID, 0);
+  }
+  omnigpu::fbs::DataType resource_type() const {
+    return static_cast<omnigpu::fbs::DataType>(GetField<int8_t>(VT_RESOURCE_TYPE, 0));
+  }
+  uint64_t data_size() const {
+    return GetField<uint64_t>(VT_DATA_SIZE, 0);
+  }
+  const ::flatbuffers::Vector<uint8_t> *data() const {
+    return GetPointer<const ::flatbuffers::Vector<uint8_t> *>(VT_DATA);
+  }
+  template <bool B = false>
+  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint64_t>(verifier, VT_RESOURCE_ID, 8) &&
+           VerifyField<int8_t>(verifier, VT_RESOURCE_TYPE, 1) &&
+           VerifyField<uint64_t>(verifier, VT_DATA_SIZE, 8) &&
+           VerifyOffset(verifier, VT_DATA) &&
+           verifier.VerifyVector(data()) &&
+           verifier.EndTable();
+  }
+  ResourceCacheUploadT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(ResourceCacheUploadT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<ResourceCacheUpload> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ResourceCacheUploadT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct ResourceCacheUploadBuilder {
+  typedef ResourceCacheUpload Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_resource_id(uint64_t resource_id) {
+    fbb_.AddElement<uint64_t>(ResourceCacheUpload::VT_RESOURCE_ID, resource_id, 0);
+  }
+  void add_resource_type(omnigpu::fbs::DataType resource_type) {
+    fbb_.AddElement<int8_t>(ResourceCacheUpload::VT_RESOURCE_TYPE, static_cast<int8_t>(resource_type), 0);
+  }
+  void add_data_size(uint64_t data_size) {
+    fbb_.AddElement<uint64_t>(ResourceCacheUpload::VT_DATA_SIZE, data_size, 0);
+  }
+  void add_data(::flatbuffers::Offset<::flatbuffers::Vector<uint8_t>> data) {
+    fbb_.AddOffset(ResourceCacheUpload::VT_DATA, data);
+  }
+  explicit ResourceCacheUploadBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<ResourceCacheUpload> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<ResourceCacheUpload>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<ResourceCacheUpload> CreateResourceCacheUpload(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    uint64_t resource_id = 0,
+    omnigpu::fbs::DataType resource_type = omnigpu::fbs::DataType_Unknown,
+    uint64_t data_size = 0,
+    ::flatbuffers::Offset<::flatbuffers::Vector<uint8_t>> data = 0) {
+  ResourceCacheUploadBuilder builder_(_fbb);
+  builder_.add_data_size(data_size);
+  builder_.add_resource_id(resource_id);
+  builder_.add_data(data);
+  builder_.add_resource_type(resource_type);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<ResourceCacheUpload> CreateResourceCacheUploadDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    uint64_t resource_id = 0,
+    omnigpu::fbs::DataType resource_type = omnigpu::fbs::DataType_Unknown,
+    uint64_t data_size = 0,
+    const std::vector<uint8_t> *data = nullptr) {
+  auto data__ = data ? _fbb.CreateVector<uint8_t>(*data) : 0;
+  return omnigpu::fbs::CreateResourceCacheUpload(
+      _fbb,
+      resource_id,
+      resource_type,
+      data_size,
+      data__);
+}
+
+::flatbuffers::Offset<ResourceCacheUpload> CreateResourceCacheUpload(::flatbuffers::FlatBufferBuilder &_fbb, const ResourceCacheUploadT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct ResourceCacheEvictRequestT : public ::flatbuffers::NativeTable {
+  typedef ResourceCacheEvictRequest TableType;
+  uint64_t resource_id = 0;
+};
+
+struct ResourceCacheEvictRequest FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef ResourceCacheEvictRequestT NativeTableType;
+  typedef ResourceCacheEvictRequestBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_RESOURCE_ID = 4
+  };
+  uint64_t resource_id() const {
+    return GetField<uint64_t>(VT_RESOURCE_ID, 0);
+  }
+  template <bool B = false>
+  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint64_t>(verifier, VT_RESOURCE_ID, 8) &&
+           verifier.EndTable();
+  }
+  ResourceCacheEvictRequestT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(ResourceCacheEvictRequestT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<ResourceCacheEvictRequest> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ResourceCacheEvictRequestT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct ResourceCacheEvictRequestBuilder {
+  typedef ResourceCacheEvictRequest Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_resource_id(uint64_t resource_id) {
+    fbb_.AddElement<uint64_t>(ResourceCacheEvictRequest::VT_RESOURCE_ID, resource_id, 0);
+  }
+  explicit ResourceCacheEvictRequestBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<ResourceCacheEvictRequest> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<ResourceCacheEvictRequest>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<ResourceCacheEvictRequest> CreateResourceCacheEvictRequest(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    uint64_t resource_id = 0) {
+  ResourceCacheEvictRequestBuilder builder_(_fbb);
+  builder_.add_resource_id(resource_id);
+  return builder_.Finish();
+}
+
+::flatbuffers::Offset<ResourceCacheEvictRequest> CreateResourceCacheEvictRequest(::flatbuffers::FlatBufferBuilder &_fbb, const ResourceCacheEvictRequestT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct ResourceCacheEvictResponseT : public ::flatbuffers::NativeTable {
+  typedef ResourceCacheEvictResponse TableType;
+  uint64_t resource_id = 0;
+  bool success = false;
+};
+
+struct ResourceCacheEvictResponse FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef ResourceCacheEvictResponseT NativeTableType;
+  typedef ResourceCacheEvictResponseBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_RESOURCE_ID = 4,
+    VT_SUCCESS = 6
+  };
+  uint64_t resource_id() const {
+    return GetField<uint64_t>(VT_RESOURCE_ID, 0);
+  }
+  bool success() const {
+    return GetField<uint8_t>(VT_SUCCESS, 0) != 0;
+  }
+  template <bool B = false>
+  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<uint64_t>(verifier, VT_RESOURCE_ID, 8) &&
+           VerifyField<uint8_t>(verifier, VT_SUCCESS, 1) &&
+           verifier.EndTable();
+  }
+  ResourceCacheEvictResponseT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(ResourceCacheEvictResponseT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<ResourceCacheEvictResponse> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ResourceCacheEvictResponseT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct ResourceCacheEvictResponseBuilder {
+  typedef ResourceCacheEvictResponse Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_resource_id(uint64_t resource_id) {
+    fbb_.AddElement<uint64_t>(ResourceCacheEvictResponse::VT_RESOURCE_ID, resource_id, 0);
+  }
+  void add_success(bool success) {
+    fbb_.AddElement<uint8_t>(ResourceCacheEvictResponse::VT_SUCCESS, static_cast<uint8_t>(success), 0);
+  }
+  explicit ResourceCacheEvictResponseBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<ResourceCacheEvictResponse> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<ResourceCacheEvictResponse>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<ResourceCacheEvictResponse> CreateResourceCacheEvictResponse(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    uint64_t resource_id = 0,
+    bool success = false) {
+  ResourceCacheEvictResponseBuilder builder_(_fbb);
+  builder_.add_resource_id(resource_id);
+  builder_.add_success(success);
+  return builder_.Finish();
+}
+
+::flatbuffers::Offset<ResourceCacheEvictResponse> CreateResourceCacheEvictResponse(::flatbuffers::FlatBufferBuilder &_fbb, const ResourceCacheEvictResponseT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
+struct VideoFrameT : public ::flatbuffers::NativeTable {
+  typedef VideoFrame TableType;
+  omnigpu::fbs::VideoCodec codec = omnigpu::fbs::VideoCodec_Unknown;
+  uint64_t frame_id = 0;
+  uint32_t width = 0;
+  uint32_t height = 0;
+  uint64_t timestamp_ms = 0;
+  bool is_keyframe = false;
+  std::vector<uint8_t> data{};
+};
+
+struct VideoFrame FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef VideoFrameT NativeTableType;
+  typedef VideoFrameBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_CODEC = 4,
+    VT_FRAME_ID = 6,
+    VT_WIDTH = 8,
+    VT_HEIGHT = 10,
+    VT_TIMESTAMP_MS = 12,
+    VT_IS_KEYFRAME = 14,
+    VT_DATA = 16
+  };
+  omnigpu::fbs::VideoCodec codec() const {
+    return static_cast<omnigpu::fbs::VideoCodec>(GetField<int8_t>(VT_CODEC, 0));
+  }
+  uint64_t frame_id() const {
+    return GetField<uint64_t>(VT_FRAME_ID, 0);
+  }
+  uint32_t width() const {
+    return GetField<uint32_t>(VT_WIDTH, 0);
+  }
+  uint32_t height() const {
+    return GetField<uint32_t>(VT_HEIGHT, 0);
+  }
+  uint64_t timestamp_ms() const {
+    return GetField<uint64_t>(VT_TIMESTAMP_MS, 0);
+  }
+  bool is_keyframe() const {
+    return GetField<uint8_t>(VT_IS_KEYFRAME, 0) != 0;
+  }
+  const ::flatbuffers::Vector<uint8_t> *data() const {
+    return GetPointer<const ::flatbuffers::Vector<uint8_t> *>(VT_DATA);
+  }
+  template <bool B = false>
+  bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<int8_t>(verifier, VT_CODEC, 1) &&
+           VerifyField<uint64_t>(verifier, VT_FRAME_ID, 8) &&
+           VerifyField<uint32_t>(verifier, VT_WIDTH, 4) &&
+           VerifyField<uint32_t>(verifier, VT_HEIGHT, 4) &&
+           VerifyField<uint64_t>(verifier, VT_TIMESTAMP_MS, 8) &&
+           VerifyField<uint8_t>(verifier, VT_IS_KEYFRAME, 1) &&
+           VerifyOffset(verifier, VT_DATA) &&
+           verifier.VerifyVector(data()) &&
+           verifier.EndTable();
+  }
+  VideoFrameT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(VideoFrameT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<VideoFrame> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const VideoFrameT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct VideoFrameBuilder {
+  typedef VideoFrame Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_codec(omnigpu::fbs::VideoCodec codec) {
+    fbb_.AddElement<int8_t>(VideoFrame::VT_CODEC, static_cast<int8_t>(codec), 0);
+  }
+  void add_frame_id(uint64_t frame_id) {
+    fbb_.AddElement<uint64_t>(VideoFrame::VT_FRAME_ID, frame_id, 0);
+  }
+  void add_width(uint32_t width) {
+    fbb_.AddElement<uint32_t>(VideoFrame::VT_WIDTH, width, 0);
+  }
+  void add_height(uint32_t height) {
+    fbb_.AddElement<uint32_t>(VideoFrame::VT_HEIGHT, height, 0);
+  }
+  void add_timestamp_ms(uint64_t timestamp_ms) {
+    fbb_.AddElement<uint64_t>(VideoFrame::VT_TIMESTAMP_MS, timestamp_ms, 0);
+  }
+  void add_is_keyframe(bool is_keyframe) {
+    fbb_.AddElement<uint8_t>(VideoFrame::VT_IS_KEYFRAME, static_cast<uint8_t>(is_keyframe), 0);
+  }
+  void add_data(::flatbuffers::Offset<::flatbuffers::Vector<uint8_t>> data) {
+    fbb_.AddOffset(VideoFrame::VT_DATA, data);
+  }
+  explicit VideoFrameBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<VideoFrame> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<VideoFrame>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<VideoFrame> CreateVideoFrame(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    omnigpu::fbs::VideoCodec codec = omnigpu::fbs::VideoCodec_Unknown,
+    uint64_t frame_id = 0,
+    uint32_t width = 0,
+    uint32_t height = 0,
+    uint64_t timestamp_ms = 0,
+    bool is_keyframe = false,
+    ::flatbuffers::Offset<::flatbuffers::Vector<uint8_t>> data = 0) {
+  VideoFrameBuilder builder_(_fbb);
+  builder_.add_timestamp_ms(timestamp_ms);
+  builder_.add_frame_id(frame_id);
+  builder_.add_data(data);
+  builder_.add_height(height);
+  builder_.add_width(width);
+  builder_.add_is_keyframe(is_keyframe);
+  builder_.add_codec(codec);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<VideoFrame> CreateVideoFrameDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    omnigpu::fbs::VideoCodec codec = omnigpu::fbs::VideoCodec_Unknown,
+    uint64_t frame_id = 0,
+    uint32_t width = 0,
+    uint32_t height = 0,
+    uint64_t timestamp_ms = 0,
+    bool is_keyframe = false,
+    const std::vector<uint8_t> *data = nullptr) {
+  auto data__ = data ? _fbb.CreateVector<uint8_t>(*data) : 0;
+  return omnigpu::fbs::CreateVideoFrame(
+      _fbb,
+      codec,
+      frame_id,
+      width,
+      height,
+      timestamp_ms,
+      is_keyframe,
+      data__);
+}
+
+::flatbuffers::Offset<VideoFrame> CreateVideoFrame(::flatbuffers::FlatBufferBuilder &_fbb, const VideoFrameT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct MessageT : public ::flatbuffers::NativeTable {
   typedef Message TableType;
@@ -453,8 +2702,29 @@ struct Message FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const omnigpu::fbs::CommandMessage *payload_as_CommandMessage() const {
     return payload_type() == omnigpu::fbs::MessagePayload_CommandMessage ? static_cast<const omnigpu::fbs::CommandMessage *>(payload()) : nullptr;
   }
+  const omnigpu::fbs::BatchMessage *payload_as_BatchMessage() const {
+    return payload_type() == omnigpu::fbs::MessagePayload_BatchMessage ? static_cast<const omnigpu::fbs::BatchMessage *>(payload()) : nullptr;
+  }
   const omnigpu::fbs::DataMessage *payload_as_DataMessage() const {
     return payload_type() == omnigpu::fbs::MessagePayload_DataMessage ? static_cast<const omnigpu::fbs::DataMessage *>(payload()) : nullptr;
+  }
+  const omnigpu::fbs::CapabilitiesRequest *payload_as_CapabilitiesRequest() const {
+    return payload_type() == omnigpu::fbs::MessagePayload_CapabilitiesRequest ? static_cast<const omnigpu::fbs::CapabilitiesRequest *>(payload()) : nullptr;
+  }
+  const omnigpu::fbs::CapabilitiesResponse *payload_as_CapabilitiesResponse() const {
+    return payload_type() == omnigpu::fbs::MessagePayload_CapabilitiesResponse ? static_cast<const omnigpu::fbs::CapabilitiesResponse *>(payload()) : nullptr;
+  }
+  const omnigpu::fbs::ResourceCacheUpload *payload_as_ResourceCacheUpload() const {
+    return payload_type() == omnigpu::fbs::MessagePayload_ResourceCacheUpload ? static_cast<const omnigpu::fbs::ResourceCacheUpload *>(payload()) : nullptr;
+  }
+  const omnigpu::fbs::ResourceCacheEvictRequest *payload_as_ResourceCacheEvictRequest() const {
+    return payload_type() == omnigpu::fbs::MessagePayload_ResourceCacheEvictRequest ? static_cast<const omnigpu::fbs::ResourceCacheEvictRequest *>(payload()) : nullptr;
+  }
+  const omnigpu::fbs::ResourceCacheEvictResponse *payload_as_ResourceCacheEvictResponse() const {
+    return payload_type() == omnigpu::fbs::MessagePayload_ResourceCacheEvictResponse ? static_cast<const omnigpu::fbs::ResourceCacheEvictResponse *>(payload()) : nullptr;
+  }
+  const omnigpu::fbs::VideoFrame *payload_as_VideoFrame() const {
+    return payload_type() == omnigpu::fbs::MessagePayload_VideoFrame ? static_cast<const omnigpu::fbs::VideoFrame *>(payload()) : nullptr;
   }
   template <bool B = false>
   bool Verify(::flatbuffers::VerifierTemplate<B> &verifier) const {
@@ -473,8 +2743,36 @@ template<> inline const omnigpu::fbs::CommandMessage *Message::payload_as<omnigp
   return payload_as_CommandMessage();
 }
 
+template<> inline const omnigpu::fbs::BatchMessage *Message::payload_as<omnigpu::fbs::BatchMessage>() const {
+  return payload_as_BatchMessage();
+}
+
 template<> inline const omnigpu::fbs::DataMessage *Message::payload_as<omnigpu::fbs::DataMessage>() const {
   return payload_as_DataMessage();
+}
+
+template<> inline const omnigpu::fbs::CapabilitiesRequest *Message::payload_as<omnigpu::fbs::CapabilitiesRequest>() const {
+  return payload_as_CapabilitiesRequest();
+}
+
+template<> inline const omnigpu::fbs::CapabilitiesResponse *Message::payload_as<omnigpu::fbs::CapabilitiesResponse>() const {
+  return payload_as_CapabilitiesResponse();
+}
+
+template<> inline const omnigpu::fbs::ResourceCacheUpload *Message::payload_as<omnigpu::fbs::ResourceCacheUpload>() const {
+  return payload_as_ResourceCacheUpload();
+}
+
+template<> inline const omnigpu::fbs::ResourceCacheEvictRequest *Message::payload_as<omnigpu::fbs::ResourceCacheEvictRequest>() const {
+  return payload_as_ResourceCacheEvictRequest();
+}
+
+template<> inline const omnigpu::fbs::ResourceCacheEvictResponse *Message::payload_as<omnigpu::fbs::ResourceCacheEvictResponse>() const {
+  return payload_as_ResourceCacheEvictResponse();
+}
+
+template<> inline const omnigpu::fbs::VideoFrame *Message::payload_as<omnigpu::fbs::VideoFrame>() const {
+  return payload_as_VideoFrame();
 }
 
 struct MessageBuilder {
@@ -510,6 +2808,274 @@ inline ::flatbuffers::Offset<Message> CreateMessage(
 
 ::flatbuffers::Offset<Message> CreateMessage(::flatbuffers::FlatBufferBuilder &_fbb, const MessageT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
+inline CapabilitiesRequestT *CapabilitiesRequest::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<CapabilitiesRequestT>(new CapabilitiesRequestT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void CapabilitiesRequest::UnPackTo(CapabilitiesRequestT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = client_version(); _o->client_version = _e; }
+  { auto _e = preferred_width(); _o->preferred_width = _e; }
+  { auto _e = preferred_height(); _o->preferred_height = _e; }
+  { auto _e = auth_token(); if (_e) _o->auth_token = _e->str(); }
+  { auto _e = compute_mode(); _o->compute_mode = _e; }
+  { auto _e = large_buffers(); _o->large_buffers = _e; }
+}
+
+inline ::flatbuffers::Offset<CapabilitiesRequest> CreateCapabilitiesRequest(::flatbuffers::FlatBufferBuilder &_fbb, const CapabilitiesRequestT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CapabilitiesRequest::Pack(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<CapabilitiesRequest> CapabilitiesRequest::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const CapabilitiesRequestT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const CapabilitiesRequestT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _client_version = _o->client_version;
+  auto _preferred_width = _o->preferred_width;
+  auto _preferred_height = _o->preferred_height;
+  auto _auth_token = _o->auth_token.empty() ? 0 : _fbb.CreateString(_o->auth_token);
+  auto _compute_mode = _o->compute_mode;
+  auto _large_buffers = _o->large_buffers;
+  return omnigpu::fbs::CreateCapabilitiesRequest(
+      _fbb,
+      _client_version,
+      _preferred_width,
+      _preferred_height,
+      _auth_token,
+      _compute_mode,
+      _large_buffers);
+}
+
+inline CapabilitiesResponseT *CapabilitiesResponse::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<CapabilitiesResponseT>(new CapabilitiesResponseT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void CapabilitiesResponse::UnPackTo(CapabilitiesResponseT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = gpu_name(); if (_e) _o->gpu_name = _e->str(); }
+  { auto _e = driver_version(); _o->driver_version = _e; }
+  { auto _e = api_version(); _o->api_version = _e; }
+  { auto _e = max_memory_allocation(); _o->max_memory_allocation = _e; }
+  { auto _e = max_push_constants_size(); _o->max_push_constants_size = _e; }
+  { auto _e = max_bound_descriptor_sets(); _o->max_bound_descriptor_sets = _e; }
+  { auto _e = max_per_stage_resources(); _o->max_per_stage_resources = _e; }
+  { auto _e = max_image_dimension_2d(); _o->max_image_dimension_2d = _e; }
+  { auto _e = timestamp(); _o->timestamp = _e; }
+  { auto _e = vendor_id(); _o->vendor_id = _e; }
+  { auto _e = device_id(); _o->device_id = _e; }
+  { auto _e = device_type(); _o->device_type = _e; }
+  { auto _e = max_framebuffer_width(); _o->max_framebuffer_width = _e; }
+  { auto _e = max_framebuffer_height(); _o->max_framebuffer_height = _e; }
+  { auto _e = max_framebuffer_layers(); _o->max_framebuffer_layers = _e; }
+  { auto _e = max_memory_heaps(); _o->max_memory_heaps = _e; }
+  { auto _e = memory_heap_size_0(); _o->memory_heap_size_0 = _e; }
+  { auto _e = memory_heap_size_1(); _o->memory_heap_size_1 = _e; }
+  { auto _e = heap_0_flags(); _o->heap_0_flags = _e; }
+  { auto _e = heap_1_flags(); _o->heap_1_flags = _e; }
+  { auto _e = memory_type_count(); _o->memory_type_count = _e; }
+  { auto _e = max_sampler_anisotropy(); _o->max_sampler_anisotropy = _e; }
+  { auto _e = max_color_attachments(); _o->max_color_attachments = _e; }
+  { auto _e = max_bound_descriptor_sets_ext(); _o->max_bound_descriptor_sets_ext = _e; }
+  { auto _e = max_per_stage_descriptor_samplers(); _o->max_per_stage_descriptor_samplers = _e; }
+  { auto _e = max_per_stage_descriptor_uniform_buffers(); _o->max_per_stage_descriptor_uniform_buffers = _e; }
+  { auto _e = max_per_stage_descriptor_storage_buffers(); _o->max_per_stage_descriptor_storage_buffers = _e; }
+  { auto _e = max_per_stage_descriptor_sampled_images(); _o->max_per_stage_descriptor_sampled_images = _e; }
+  { auto _e = max_per_stage_descriptor_storage_images(); _o->max_per_stage_descriptor_storage_images = _e; }
+  { auto _e = max_per_stage_resources_ext(); _o->max_per_stage_resources_ext = _e; }
+  { auto _e = subgroup_size(); _o->subgroup_size = _e; }
+  { auto _e = timestamp_period(); _o->timestamp_period = _e; }
+  { auto _e = max_viewports(); _o->max_viewports = _e; }
+  { auto _e = max_viewport_dimensions_w(); _o->max_viewport_dimensions_w = _e; }
+  { auto _e = max_viewport_dimensions_h(); _o->max_viewport_dimensions_h = _e; }
+  { auto _e = max_fragment_output_attachments(); _o->max_fragment_output_attachments = _e; }
+  { auto _e = min_uniform_buffer_offset_alignment(); _o->min_uniform_buffer_offset_alignment = _e; }
+  { auto _e = min_storage_buffer_offset_alignment(); _o->min_storage_buffer_offset_alignment = _e; }
+  { auto _e = max_uniform_buffer_range(); _o->max_uniform_buffer_range = _e; }
+  { auto _e = max_storage_buffer_range(); _o->max_storage_buffer_range = _e; }
+  { auto _e = non_coherent_atom_size(); _o->non_coherent_atom_size = _e; }
+  { auto _e = buffer_image_granularity(); _o->buffer_image_granularity = _e; }
+  { auto _e = max_compute_work_group_count_x(); _o->max_compute_work_group_count_x = _e; }
+  { auto _e = max_compute_work_group_count_y(); _o->max_compute_work_group_count_y = _e; }
+  { auto _e = max_compute_work_group_count_z(); _o->max_compute_work_group_count_z = _e; }
+  { auto _e = max_compute_work_group_invocations(); _o->max_compute_work_group_invocations = _e; }
+  { auto _e = max_compute_shared_memory_size(); _o->max_compute_shared_memory_size = _e; }
+  { auto _e = max_clip_distances(); _o->max_clip_distances = _e; }
+  { auto _e = max_cull_distances(); _o->max_cull_distances = _e; }
+  { auto _e = max_combined_clip_and_cull_distances(); _o->max_combined_clip_and_cull_distances = _e; }
+  { auto _e = sample_counts(); _o->sample_counts = _e; }
+  { auto _e = max_samples(); _o->max_samples = _e; }
+  { auto _e = max_tessellation_factor(); _o->max_tessellation_factor = _e; }
+  { auto _e = framebuffer_color_sample_counts(); _o->framebuffer_color_sample_counts = _e; }
+  { auto _e = compute_queue_count(); _o->compute_queue_count = _e; }
+  { auto _e = supports_buffer_device_address(); _o->supports_buffer_device_address = _e; }
+  { auto _e = supported_subgroup_operations(); _o->supported_subgroup_operations = _e; }
+  { auto _e = dedicated_compute_queue(); _o->dedicated_compute_queue = _e; }
+  { auto _e = auth_required(); _o->auth_required = _e; }
+  { auto _e = buffer_manager_capable(); _o->buffer_manager_capable = _e; }
+  { auto _e = supports_16bit_storage(); _o->supports_16bit_storage = _e; }
+  { auto _e = supports_8bit_storage(); _o->supports_8bit_storage = _e; }
+  { auto _e = supports_float16_int8(); _o->supports_float16_int8 = _e; }
+  { auto _e = supports_cooperative_matrix(); _o->supports_cooperative_matrix = _e; }
+  { auto _e = coopmat_m(); _o->coopmat_m = _e; }
+  { auto _e = coopmat_n(); _o->coopmat_n = _e; }
+  { auto _e = coopmat_k(); _o->coopmat_k = _e; }
+  { auto _e = supports_integer_dot_product(); _o->supports_integer_dot_product = _e; }
+}
+
+inline ::flatbuffers::Offset<CapabilitiesResponse> CreateCapabilitiesResponse(::flatbuffers::FlatBufferBuilder &_fbb, const CapabilitiesResponseT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CapabilitiesResponse::Pack(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<CapabilitiesResponse> CapabilitiesResponse::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const CapabilitiesResponseT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const CapabilitiesResponseT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _gpu_name = _o->gpu_name.empty() ? 0 : _fbb.CreateString(_o->gpu_name);
+  auto _driver_version = _o->driver_version;
+  auto _api_version = _o->api_version;
+  auto _max_memory_allocation = _o->max_memory_allocation;
+  auto _max_push_constants_size = _o->max_push_constants_size;
+  auto _max_bound_descriptor_sets = _o->max_bound_descriptor_sets;
+  auto _max_per_stage_resources = _o->max_per_stage_resources;
+  auto _max_image_dimension_2d = _o->max_image_dimension_2d;
+  auto _timestamp = _o->timestamp;
+  auto _vendor_id = _o->vendor_id;
+  auto _device_id = _o->device_id;
+  auto _device_type = _o->device_type;
+  auto _max_framebuffer_width = _o->max_framebuffer_width;
+  auto _max_framebuffer_height = _o->max_framebuffer_height;
+  auto _max_framebuffer_layers = _o->max_framebuffer_layers;
+  auto _max_memory_heaps = _o->max_memory_heaps;
+  auto _memory_heap_size_0 = _o->memory_heap_size_0;
+  auto _memory_heap_size_1 = _o->memory_heap_size_1;
+  auto _heap_0_flags = _o->heap_0_flags;
+  auto _heap_1_flags = _o->heap_1_flags;
+  auto _memory_type_count = _o->memory_type_count;
+  auto _max_sampler_anisotropy = _o->max_sampler_anisotropy;
+  auto _max_color_attachments = _o->max_color_attachments;
+  auto _max_bound_descriptor_sets_ext = _o->max_bound_descriptor_sets_ext;
+  auto _max_per_stage_descriptor_samplers = _o->max_per_stage_descriptor_samplers;
+  auto _max_per_stage_descriptor_uniform_buffers = _o->max_per_stage_descriptor_uniform_buffers;
+  auto _max_per_stage_descriptor_storage_buffers = _o->max_per_stage_descriptor_storage_buffers;
+  auto _max_per_stage_descriptor_sampled_images = _o->max_per_stage_descriptor_sampled_images;
+  auto _max_per_stage_descriptor_storage_images = _o->max_per_stage_descriptor_storage_images;
+  auto _max_per_stage_resources_ext = _o->max_per_stage_resources_ext;
+  auto _subgroup_size = _o->subgroup_size;
+  auto _timestamp_period = _o->timestamp_period;
+  auto _max_viewports = _o->max_viewports;
+  auto _max_viewport_dimensions_w = _o->max_viewport_dimensions_w;
+  auto _max_viewport_dimensions_h = _o->max_viewport_dimensions_h;
+  auto _max_fragment_output_attachments = _o->max_fragment_output_attachments;
+  auto _min_uniform_buffer_offset_alignment = _o->min_uniform_buffer_offset_alignment;
+  auto _min_storage_buffer_offset_alignment = _o->min_storage_buffer_offset_alignment;
+  auto _max_uniform_buffer_range = _o->max_uniform_buffer_range;
+  auto _max_storage_buffer_range = _o->max_storage_buffer_range;
+  auto _non_coherent_atom_size = _o->non_coherent_atom_size;
+  auto _buffer_image_granularity = _o->buffer_image_granularity;
+  auto _max_compute_work_group_count_x = _o->max_compute_work_group_count_x;
+  auto _max_compute_work_group_count_y = _o->max_compute_work_group_count_y;
+  auto _max_compute_work_group_count_z = _o->max_compute_work_group_count_z;
+  auto _max_compute_work_group_invocations = _o->max_compute_work_group_invocations;
+  auto _max_compute_shared_memory_size = _o->max_compute_shared_memory_size;
+  auto _max_clip_distances = _o->max_clip_distances;
+  auto _max_cull_distances = _o->max_cull_distances;
+  auto _max_combined_clip_and_cull_distances = _o->max_combined_clip_and_cull_distances;
+  auto _sample_counts = _o->sample_counts;
+  auto _max_samples = _o->max_samples;
+  auto _max_tessellation_factor = _o->max_tessellation_factor;
+  auto _framebuffer_color_sample_counts = _o->framebuffer_color_sample_counts;
+  auto _compute_queue_count = _o->compute_queue_count;
+  auto _supports_buffer_device_address = _o->supports_buffer_device_address;
+  auto _supported_subgroup_operations = _o->supported_subgroup_operations;
+  auto _dedicated_compute_queue = _o->dedicated_compute_queue;
+  auto _auth_required = _o->auth_required;
+  auto _buffer_manager_capable = _o->buffer_manager_capable;
+  auto _supports_16bit_storage = _o->supports_16bit_storage;
+  auto _supports_8bit_storage = _o->supports_8bit_storage;
+  auto _supports_float16_int8 = _o->supports_float16_int8;
+  auto _supports_cooperative_matrix = _o->supports_cooperative_matrix;
+  auto _coopmat_m = _o->coopmat_m;
+  auto _coopmat_n = _o->coopmat_n;
+  auto _coopmat_k = _o->coopmat_k;
+  auto _supports_integer_dot_product = _o->supports_integer_dot_product;
+  return omnigpu::fbs::CreateCapabilitiesResponse(
+      _fbb,
+      _gpu_name,
+      _driver_version,
+      _api_version,
+      _max_memory_allocation,
+      _max_push_constants_size,
+      _max_bound_descriptor_sets,
+      _max_per_stage_resources,
+      _max_image_dimension_2d,
+      _timestamp,
+      _vendor_id,
+      _device_id,
+      _device_type,
+      _max_framebuffer_width,
+      _max_framebuffer_height,
+      _max_framebuffer_layers,
+      _max_memory_heaps,
+      _memory_heap_size_0,
+      _memory_heap_size_1,
+      _heap_0_flags,
+      _heap_1_flags,
+      _memory_type_count,
+      _max_sampler_anisotropy,
+      _max_color_attachments,
+      _max_bound_descriptor_sets_ext,
+      _max_per_stage_descriptor_samplers,
+      _max_per_stage_descriptor_uniform_buffers,
+      _max_per_stage_descriptor_storage_buffers,
+      _max_per_stage_descriptor_sampled_images,
+      _max_per_stage_descriptor_storage_images,
+      _max_per_stage_resources_ext,
+      _subgroup_size,
+      _timestamp_period,
+      _max_viewports,
+      _max_viewport_dimensions_w,
+      _max_viewport_dimensions_h,
+      _max_fragment_output_attachments,
+      _min_uniform_buffer_offset_alignment,
+      _min_storage_buffer_offset_alignment,
+      _max_uniform_buffer_range,
+      _max_storage_buffer_range,
+      _non_coherent_atom_size,
+      _buffer_image_granularity,
+      _max_compute_work_group_count_x,
+      _max_compute_work_group_count_y,
+      _max_compute_work_group_count_z,
+      _max_compute_work_group_invocations,
+      _max_compute_shared_memory_size,
+      _max_clip_distances,
+      _max_cull_distances,
+      _max_combined_clip_and_cull_distances,
+      _sample_counts,
+      _max_samples,
+      _max_tessellation_factor,
+      _framebuffer_color_sample_counts,
+      _compute_queue_count,
+      _supports_buffer_device_address,
+      _supported_subgroup_operations,
+      _dedicated_compute_queue,
+      _auth_required,
+      _buffer_manager_capable,
+      _supports_16bit_storage,
+      _supports_8bit_storage,
+      _supports_float16_int8,
+      _supports_cooperative_matrix,
+      _coopmat_m,
+      _coopmat_n,
+      _coopmat_k,
+      _supports_integer_dot_product);
+}
+
 inline CommandMessageT *CommandMessage::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
   auto _o = std::unique_ptr<CommandMessageT>(new CommandMessageT());
   UnPackTo(_o.get(), _resolver);
@@ -542,6 +3108,42 @@ inline ::flatbuffers::Offset<CommandMessage> CommandMessage::Pack(::flatbuffers:
       _args);
 }
 
+inline BatchMessageT::BatchMessageT(const BatchMessageT &o) {
+  commands.reserve(o.commands.size());
+  for (const auto &commands_ : o.commands) { commands.emplace_back((commands_) ? new omnigpu::fbs::CommandMessageT(*commands_) : nullptr); }
+}
+
+inline BatchMessageT &BatchMessageT::operator=(BatchMessageT o) FLATBUFFERS_NOEXCEPT {
+  std::swap(commands, o.commands);
+  return *this;
+}
+
+inline BatchMessageT *BatchMessage::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<BatchMessageT>(new BatchMessageT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void BatchMessage::UnPackTo(BatchMessageT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = commands(); if (_e) { _o->commands.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { if(_o->commands[_i]) { _e->Get(_i)->UnPackTo(_o->commands[_i].get(), _resolver); } else { _o->commands[_i] = std::unique_ptr<omnigpu::fbs::CommandMessageT>(_e->Get(_i)->UnPack(_resolver)); } } } else { _o->commands.resize(0); } }
+}
+
+inline ::flatbuffers::Offset<BatchMessage> CreateBatchMessage(::flatbuffers::FlatBufferBuilder &_fbb, const BatchMessageT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return BatchMessage::Pack(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<BatchMessage> BatchMessage::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const BatchMessageT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const BatchMessageT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _commands = _o->commands.size() ? _fbb.CreateVector<::flatbuffers::Offset<omnigpu::fbs::CommandMessage>> (_o->commands.size(), [](size_t i, _VectorArgs *__va) { return CreateCommandMessage(*__va->__fbb, __va->__o->commands[i].get(), __va->__rehasher); }, &_va ) : 0;
+  return omnigpu::fbs::CreateBatchMessage(
+      _fbb,
+      _commands);
+}
+
 inline DataMessageT *DataMessage::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
   auto _o = std::unique_ptr<DataMessageT>(new DataMessageT());
   UnPackTo(_o.get(), _resolver);
@@ -554,6 +3156,7 @@ inline void DataMessage::UnPackTo(DataMessageT *_o, const ::flatbuffers::resolve
   { auto _e = data_type(); _o->data_type = _e; }
   { auto _e = data_id(); _o->data_id = _e; }
   { auto _e = total_size(); _o->total_size = _e; }
+  { auto _e = offset(); _o->offset = _e; }
   { auto _e = payload(); if (_e) { _o->payload.resize(_e->size()); std::copy(_e->begin(), _e->end(), _o->payload.begin()); } }
 }
 
@@ -568,13 +3171,149 @@ inline ::flatbuffers::Offset<DataMessage> DataMessage::Pack(::flatbuffers::FlatB
   auto _data_type = _o->data_type;
   auto _data_id = _o->data_id;
   auto _total_size = _o->total_size;
+  auto _offset = _o->offset;
   auto _payload = _o->payload.size() ? _fbb.CreateVector(_o->payload) : 0;
   return omnigpu::fbs::CreateDataMessage(
       _fbb,
       _data_type,
       _data_id,
       _total_size,
+      _offset,
       _payload);
+}
+
+inline ResourceCacheUploadT *ResourceCacheUpload::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<ResourceCacheUploadT>(new ResourceCacheUploadT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void ResourceCacheUpload::UnPackTo(ResourceCacheUploadT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = resource_id(); _o->resource_id = _e; }
+  { auto _e = resource_type(); _o->resource_type = _e; }
+  { auto _e = data_size(); _o->data_size = _e; }
+  { auto _e = data(); if (_e) { _o->data.resize(_e->size()); std::copy(_e->begin(), _e->end(), _o->data.begin()); } }
+}
+
+inline ::flatbuffers::Offset<ResourceCacheUpload> CreateResourceCacheUpload(::flatbuffers::FlatBufferBuilder &_fbb, const ResourceCacheUploadT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return ResourceCacheUpload::Pack(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<ResourceCacheUpload> ResourceCacheUpload::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ResourceCacheUploadT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const ResourceCacheUploadT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _resource_id = _o->resource_id;
+  auto _resource_type = _o->resource_type;
+  auto _data_size = _o->data_size;
+  auto _data = _o->data.size() ? _fbb.CreateVector(_o->data) : 0;
+  return omnigpu::fbs::CreateResourceCacheUpload(
+      _fbb,
+      _resource_id,
+      _resource_type,
+      _data_size,
+      _data);
+}
+
+inline ResourceCacheEvictRequestT *ResourceCacheEvictRequest::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<ResourceCacheEvictRequestT>(new ResourceCacheEvictRequestT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void ResourceCacheEvictRequest::UnPackTo(ResourceCacheEvictRequestT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = resource_id(); _o->resource_id = _e; }
+}
+
+inline ::flatbuffers::Offset<ResourceCacheEvictRequest> CreateResourceCacheEvictRequest(::flatbuffers::FlatBufferBuilder &_fbb, const ResourceCacheEvictRequestT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return ResourceCacheEvictRequest::Pack(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<ResourceCacheEvictRequest> ResourceCacheEvictRequest::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ResourceCacheEvictRequestT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const ResourceCacheEvictRequestT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _resource_id = _o->resource_id;
+  return omnigpu::fbs::CreateResourceCacheEvictRequest(
+      _fbb,
+      _resource_id);
+}
+
+inline ResourceCacheEvictResponseT *ResourceCacheEvictResponse::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<ResourceCacheEvictResponseT>(new ResourceCacheEvictResponseT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void ResourceCacheEvictResponse::UnPackTo(ResourceCacheEvictResponseT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = resource_id(); _o->resource_id = _e; }
+  { auto _e = success(); _o->success = _e; }
+}
+
+inline ::flatbuffers::Offset<ResourceCacheEvictResponse> CreateResourceCacheEvictResponse(::flatbuffers::FlatBufferBuilder &_fbb, const ResourceCacheEvictResponseT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return ResourceCacheEvictResponse::Pack(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<ResourceCacheEvictResponse> ResourceCacheEvictResponse::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const ResourceCacheEvictResponseT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const ResourceCacheEvictResponseT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _resource_id = _o->resource_id;
+  auto _success = _o->success;
+  return omnigpu::fbs::CreateResourceCacheEvictResponse(
+      _fbb,
+      _resource_id,
+      _success);
+}
+
+inline VideoFrameT *VideoFrame::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<VideoFrameT>(new VideoFrameT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void VideoFrame::UnPackTo(VideoFrameT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = codec(); _o->codec = _e; }
+  { auto _e = frame_id(); _o->frame_id = _e; }
+  { auto _e = width(); _o->width = _e; }
+  { auto _e = height(); _o->height = _e; }
+  { auto _e = timestamp_ms(); _o->timestamp_ms = _e; }
+  { auto _e = is_keyframe(); _o->is_keyframe = _e; }
+  { auto _e = data(); if (_e) { _o->data.resize(_e->size()); std::copy(_e->begin(), _e->end(), _o->data.begin()); } }
+}
+
+inline ::flatbuffers::Offset<VideoFrame> CreateVideoFrame(::flatbuffers::FlatBufferBuilder &_fbb, const VideoFrameT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return VideoFrame::Pack(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<VideoFrame> VideoFrame::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const VideoFrameT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const VideoFrameT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _codec = _o->codec;
+  auto _frame_id = _o->frame_id;
+  auto _width = _o->width;
+  auto _height = _o->height;
+  auto _timestamp_ms = _o->timestamp_ms;
+  auto _is_keyframe = _o->is_keyframe;
+  auto _data = _o->data.size() ? _fbb.CreateVector(_o->data) : 0;
+  return omnigpu::fbs::CreateVideoFrame(
+      _fbb,
+      _codec,
+      _frame_id,
+      _width,
+      _height,
+      _timestamp_ms,
+      _is_keyframe,
+      _data);
 }
 
 inline MessageT *Message::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
@@ -616,8 +3355,36 @@ inline bool VerifyMessagePayload(::flatbuffers::VerifierTemplate<B> &verifier, c
       auto ptr = reinterpret_cast<const omnigpu::fbs::CommandMessage *>(obj);
       return verifier.VerifyTable(ptr);
     }
+    case MessagePayload_BatchMessage: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::BatchMessage *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
     case MessagePayload_DataMessage: {
       auto ptr = reinterpret_cast<const omnigpu::fbs::DataMessage *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case MessagePayload_CapabilitiesRequest: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::CapabilitiesRequest *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case MessagePayload_CapabilitiesResponse: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::CapabilitiesResponse *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case MessagePayload_ResourceCacheUpload: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::ResourceCacheUpload *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case MessagePayload_ResourceCacheEvictRequest: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::ResourceCacheEvictRequest *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case MessagePayload_ResourceCacheEvictResponse: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::ResourceCacheEvictResponse *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case MessagePayload_VideoFrame: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::VideoFrame *>(obj);
       return verifier.VerifyTable(ptr);
     }
     default: return true;
@@ -644,8 +3411,36 @@ inline void *MessagePayloadUnion::UnPack(const void *obj, MessagePayload type, c
       auto ptr = reinterpret_cast<const omnigpu::fbs::CommandMessage *>(obj);
       return ptr->UnPack(resolver);
     }
+    case MessagePayload_BatchMessage: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::BatchMessage *>(obj);
+      return ptr->UnPack(resolver);
+    }
     case MessagePayload_DataMessage: {
       auto ptr = reinterpret_cast<const omnigpu::fbs::DataMessage *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case MessagePayload_CapabilitiesRequest: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::CapabilitiesRequest *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case MessagePayload_CapabilitiesResponse: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::CapabilitiesResponse *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case MessagePayload_ResourceCacheUpload: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::ResourceCacheUpload *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case MessagePayload_ResourceCacheEvictRequest: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::ResourceCacheEvictRequest *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case MessagePayload_ResourceCacheEvictResponse: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::ResourceCacheEvictResponse *>(obj);
+      return ptr->UnPack(resolver);
+    }
+    case MessagePayload_VideoFrame: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::VideoFrame *>(obj);
       return ptr->UnPack(resolver);
     }
     default: return nullptr;
@@ -659,9 +3454,37 @@ inline ::flatbuffers::Offset<void> MessagePayloadUnion::Pack(::flatbuffers::Flat
       auto ptr = reinterpret_cast<const omnigpu::fbs::CommandMessageT *>(value);
       return CreateCommandMessage(_fbb, ptr, _rehasher).Union();
     }
+    case MessagePayload_BatchMessage: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::BatchMessageT *>(value);
+      return CreateBatchMessage(_fbb, ptr, _rehasher).Union();
+    }
     case MessagePayload_DataMessage: {
       auto ptr = reinterpret_cast<const omnigpu::fbs::DataMessageT *>(value);
       return CreateDataMessage(_fbb, ptr, _rehasher).Union();
+    }
+    case MessagePayload_CapabilitiesRequest: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::CapabilitiesRequestT *>(value);
+      return CreateCapabilitiesRequest(_fbb, ptr, _rehasher).Union();
+    }
+    case MessagePayload_CapabilitiesResponse: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::CapabilitiesResponseT *>(value);
+      return CreateCapabilitiesResponse(_fbb, ptr, _rehasher).Union();
+    }
+    case MessagePayload_ResourceCacheUpload: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::ResourceCacheUploadT *>(value);
+      return CreateResourceCacheUpload(_fbb, ptr, _rehasher).Union();
+    }
+    case MessagePayload_ResourceCacheEvictRequest: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::ResourceCacheEvictRequestT *>(value);
+      return CreateResourceCacheEvictRequest(_fbb, ptr, _rehasher).Union();
+    }
+    case MessagePayload_ResourceCacheEvictResponse: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::ResourceCacheEvictResponseT *>(value);
+      return CreateResourceCacheEvictResponse(_fbb, ptr, _rehasher).Union();
+    }
+    case MessagePayload_VideoFrame: {
+      auto ptr = reinterpret_cast<const omnigpu::fbs::VideoFrameT *>(value);
+      return CreateVideoFrame(_fbb, ptr, _rehasher).Union();
     }
     default: return 0;
   }
@@ -673,8 +3496,36 @@ inline MessagePayloadUnion::MessagePayloadUnion(const MessagePayloadUnion &u) : 
       value = new omnigpu::fbs::CommandMessageT(*reinterpret_cast<omnigpu::fbs::CommandMessageT *>(u.value));
       break;
     }
+    case MessagePayload_BatchMessage: {
+      value = new omnigpu::fbs::BatchMessageT(*reinterpret_cast<omnigpu::fbs::BatchMessageT *>(u.value));
+      break;
+    }
     case MessagePayload_DataMessage: {
       value = new omnigpu::fbs::DataMessageT(*reinterpret_cast<omnigpu::fbs::DataMessageT *>(u.value));
+      break;
+    }
+    case MessagePayload_CapabilitiesRequest: {
+      value = new omnigpu::fbs::CapabilitiesRequestT(*reinterpret_cast<omnigpu::fbs::CapabilitiesRequestT *>(u.value));
+      break;
+    }
+    case MessagePayload_CapabilitiesResponse: {
+      value = new omnigpu::fbs::CapabilitiesResponseT(*reinterpret_cast<omnigpu::fbs::CapabilitiesResponseT *>(u.value));
+      break;
+    }
+    case MessagePayload_ResourceCacheUpload: {
+      value = new omnigpu::fbs::ResourceCacheUploadT(*reinterpret_cast<omnigpu::fbs::ResourceCacheUploadT *>(u.value));
+      break;
+    }
+    case MessagePayload_ResourceCacheEvictRequest: {
+      value = new omnigpu::fbs::ResourceCacheEvictRequestT(*reinterpret_cast<omnigpu::fbs::ResourceCacheEvictRequestT *>(u.value));
+      break;
+    }
+    case MessagePayload_ResourceCacheEvictResponse: {
+      value = new omnigpu::fbs::ResourceCacheEvictResponseT(*reinterpret_cast<omnigpu::fbs::ResourceCacheEvictResponseT *>(u.value));
+      break;
+    }
+    case MessagePayload_VideoFrame: {
+      value = new omnigpu::fbs::VideoFrameT(*reinterpret_cast<omnigpu::fbs::VideoFrameT *>(u.value));
       break;
     }
     default:
@@ -689,8 +3540,43 @@ inline void MessagePayloadUnion::Reset() {
       delete ptr;
       break;
     }
+    case MessagePayload_BatchMessage: {
+      auto ptr = reinterpret_cast<omnigpu::fbs::BatchMessageT *>(value);
+      delete ptr;
+      break;
+    }
     case MessagePayload_DataMessage: {
       auto ptr = reinterpret_cast<omnigpu::fbs::DataMessageT *>(value);
+      delete ptr;
+      break;
+    }
+    case MessagePayload_CapabilitiesRequest: {
+      auto ptr = reinterpret_cast<omnigpu::fbs::CapabilitiesRequestT *>(value);
+      delete ptr;
+      break;
+    }
+    case MessagePayload_CapabilitiesResponse: {
+      auto ptr = reinterpret_cast<omnigpu::fbs::CapabilitiesResponseT *>(value);
+      delete ptr;
+      break;
+    }
+    case MessagePayload_ResourceCacheUpload: {
+      auto ptr = reinterpret_cast<omnigpu::fbs::ResourceCacheUploadT *>(value);
+      delete ptr;
+      break;
+    }
+    case MessagePayload_ResourceCacheEvictRequest: {
+      auto ptr = reinterpret_cast<omnigpu::fbs::ResourceCacheEvictRequestT *>(value);
+      delete ptr;
+      break;
+    }
+    case MessagePayload_ResourceCacheEvictResponse: {
+      auto ptr = reinterpret_cast<omnigpu::fbs::ResourceCacheEvictResponseT *>(value);
+      delete ptr;
+      break;
+    }
+    case MessagePayload_VideoFrame: {
+      auto ptr = reinterpret_cast<omnigpu::fbs::VideoFrameT *>(value);
       delete ptr;
       break;
     }

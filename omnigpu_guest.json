@@ -9,8 +9,9 @@
     "cache_ttl_seconds": 86400,
 
     "adaptive_batching": true,
-    "min_batch_commands": 1,
+    "min_batch_commands": 4,
     "min_batch_bytes": 1024,
     "max_batch_commands": 256,
-    "max_batch_interval_ms": 4
+    "max_batch_bytes": 524288,
+    "max_batch_interval_ms": 16
 }

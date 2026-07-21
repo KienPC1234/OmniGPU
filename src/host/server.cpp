@@ -139,6 +139,7 @@ void Server::run() {
                         clientIp, clientPort, nextSessionId_);
 
             tcp::set_tcp_nodelay(clientFd);
+            tcp::set_tcp_keepalive(clientFd);
             tcp::set_tcp_timeout(clientFd, config_.session_timeout_s);
 
             int sessionId = nextSessionId_++;

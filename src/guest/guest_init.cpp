@@ -11,6 +11,7 @@
 #include "common/gpu_caps_store.h"
 #include "common/logger.h"
 #include "omnigpu_protocol_generated.h"
+#include <cstdlib>
 #include <spdlog/spdlog.h>
 #include <atomic>
 #include <chrono>
@@ -75,8 +76,8 @@ bool do_handshake(Client& client, const std::string& auth_token) {
         return false;
 
     if (is_cached) {
-        // Already have cached capabilities, but must consume host response
-        // to keep TCP stream in sync for subsequent messages
+        // Must consume host response to keep TCP stream in sync.
+        // Also update ML support flags from host response (not in cache or stale).
         uint32_t resp_size = 0;
         if (client.receive_data(reinterpret_cast<uint8_t*>(&resp_size),
                                  sizeof(resp_size))) {
@@ -88,7 +89,22 @@ bool do_handshake(Client& client, const std::string& auth_token) {
             std::vector<uint8_t> buf(resp_size);
             if (!client.receive_data(buf.data(), resp_size)) return false;
             auto* root = protocol::verify_root(buf.data(), buf.size());
-            if (!root || root->payload_type() != fbs::MessagePayload_CapabilitiesResponse) {
+            if (root && root->payload_type() == fbs::MessagePayload_CapabilitiesResponse) {
+                auto* caps_resp = root->payload_as_CapabilitiesResponse();
+                if (caps_resp && caps_resp->gpu_name()) {
+                    caps::GpuCapabilities updated = cached_caps;
+                    updated.supports_16bit_storage = caps_resp->supports_16bit_storage();
+                    updated.supports_8bit_storage = caps_resp->supports_8bit_storage();
+                    updated.supports_float16_int8 = caps_resp->supports_float16_int8();
+                    updated.supports_cooperative_matrix = caps_resp->supports_cooperative_matrix();
+                    updated.coopmat_m = caps_resp->coopmat_m();
+                    updated.coopmat_n = caps_resp->coopmat_n();
+                    updated.coopmat_k = caps_resp->coopmat_k();
+                    updated.supports_integer_dot_product = caps_resp->supports_integer_dot_product();
+                    caps::store(updated);
+                    SPDLOG_INFO("Updated ML support flags from host response");
+                }
+            } else {
                 SPDLOG_WARN("Handshake: unexpected response type, ignoring");
             }
         }
@@ -169,6 +185,18 @@ bool do_handshake(Client& client, const std::string& auth_token) {
     gpu_caps.max_tessellation_factor = caps->max_tessellation_factor();
     gpu_caps.max_fragment_output_attachments = caps->max_fragment_output_attachments();
 
+    // ===== ML support flags (Phase 1) =====
+    gpu_caps.supports_16bit_storage = caps->supports_16bit_storage();
+    gpu_caps.supports_8bit_storage  = caps->supports_8bit_storage();
+    gpu_caps.supports_float16_int8  = caps->supports_float16_int8();
+
+    // ===== Cooperative matrix (Phase 2) =====
+    gpu_caps.supports_cooperative_matrix = caps->supports_cooperative_matrix();
+    gpu_caps.coopmat_m = caps->coopmat_m();
+    gpu_caps.coopmat_n = caps->coopmat_n();
+    gpu_caps.coopmat_k = caps->coopmat_k();
+    gpu_caps.supports_integer_dot_product = caps->supports_integer_dot_product();
+
     cache.save(gpu_caps);
     caps::store(gpu_caps);
 
@@ -190,6 +218,16 @@ bool initialize_guest_internal(const char* host_hint, uint16_t port_hint) {
     }
 #endif
 
+    // Workaround: set GGML_VK_FORCE_MAX_BUFFER_SIZE if not already set,
+    // to avoid maxBufferSize=0 from unhandled VkPhysicalDeviceMaintenance4Properties
+    if (!getenv("GGML_VK_FORCE_MAX_BUFFER_SIZE")) {
+#ifdef _WIN32
+        _putenv_s("GGML_VK_FORCE_MAX_BUFFER_SIZE", "8589934592");
+#else
+        setenv("GGML_VK_FORCE_MAX_BUFFER_SIZE", "8589934592", 0);
+#endif
+    }
+
     // Initialize hooks FIRST — must be available even without host connection
     SPDLOG_INFO("Initializing Vulkan hooks...");
     intercept::initialize_hooks();
@@ -208,125 +246,140 @@ bool initialize_guest(const char* host_hint, uint16_t port_hint) {
 }
 
 bool connect_to_host() {
-    static std::once_flag connect_flag;
-    static bool connect_result = false;
-    std::call_once(connect_flag, []() {
-        auto cfg = config::load();
-        std::string host = cfg.host;
-        uint16_t port = cfg.port;
+    static bool connected = false;
+    if (connected && g_client) return true;
 
-        SPDLOG_INFO("OmniGPU Guest connecting to {}:{} via TCP...", host, port);
+    auto cfg = config::load();
+    std::string host = cfg.host;
+    uint16_t port = cfg.port;
 
-        g_client = new Client(host, port);
-        if (!g_client->connect()) {
-            SPDLOG_ERROR("Failed to connect to {}:{} — check host address, port, and firewall", host, port);
-            delete g_client;
-            g_client = nullptr;
-            connect_result = false;
-            return;
-        }
+    SPDLOG_INFO("OmniGPU Guest connecting to {}:{} via TCP...", host, port);
 
-        if (!do_handshake(*g_client, cfg.auth_token)) {
-            SPDLOG_WARN("Handshake failed, continuing with defaults");
-        }
+    // Cleanup previous connection if any
+    if (g_client) {
+        delete g_client;
+        g_client = nullptr;
+    }
 
-        g_batch = new batch::CommandBatch(
-            g_client,
-            cfg.min_batch_commands,
-            cfg.min_batch_bytes,
-            true,
-            cfg.adaptive_batching,
-            cfg.max_batch_interval_ms);
+    g_client = new Client(host, port);
+    if (!g_client->connect()) {
+        SPDLOG_ERROR("Failed to connect to {}:{} — check host address, port, and firewall", host, port);
+        delete g_client;
+        g_client = nullptr;
+        connected = false;
+        return false;
+    }
 
-        if (cfg.adaptive_batching) {
-            SPDLOG_INFO("Adaptive batching enabled (interval={}ms, min_cmd={}, max_cmd={})",
-                         cfg.max_batch_interval_ms,
-                         cfg.min_batch_commands,
-                         cfg.max_batch_commands);
-        }
+    if (!do_handshake(*g_client, cfg.auth_token)) {
+        SPDLOG_ERROR("Handshake failed — host rejected connection or auth failed");
+        delete g_client;
+        g_client = nullptr;
+        connected = false;
+        return false;
+    }
 
-        // Enable command batching to forward Vulkan commands to the host
-        intercept::set_batch(g_batch);
+    g_batch = new batch::CommandBatch(
+        g_client,
+        cfg.min_batch_commands,
+        cfg.min_batch_bytes,
+        true,
+        cfg.adaptive_batching,
+        cfg.max_batch_interval_ms);
 
-        g_running = true;
-        g_recv_thread = new std::thread([]() {
-            SPDLOG_INFO("Receive thread started");
-            while (g_running) {
-                uint32_t msg_size = 0;
-                if (!g_client->receive_data(reinterpret_cast<uint8_t*>(&msg_size),
-                                             sizeof(msg_size))) {
-                    if (g_running) SPDLOG_ERROR("Receive thread: connection lost");
-                    g_client->set_sync_response(0);
-                    break;
-                }
-                msg_size = ntohl(msg_size);
-                if (msg_size > 64 * 1024 * 1024) {
-                    SPDLOG_ERROR("Receive thread: message size {} exceeds 64MB limit", msg_size);
-                    g_client->set_sync_response(0);
-                    break;
-                }
-                std::vector<uint8_t> buf(msg_size);
-                if (!g_client->receive_data(buf.data(), msg_size)) {
-                    SPDLOG_ERROR("Receive thread: failed to read message");
-                    g_client->set_sync_response(0);
-                    break;
-                }
-                auto* msg = protocol::verify_root(buf.data(), buf.size());
-                if (!msg) continue;
-                if (msg->payload_type() == fbs::MessagePayload_DataMessage) {
-                    auto* dm = msg->payload_as_DataMessage();
-                    if (!dm || !dm->payload()) continue;
+    if (cfg.adaptive_batching) {
+        SPDLOG_INFO("Adaptive batching enabled (interval={}ms, min_cmd={}, max_cmd={})",
+                     cfg.max_batch_interval_ms,
+                     cfg.min_batch_commands,
+                     cfg.max_batch_commands);
+    }
 
-                    if (dm->data_type() == fbs::DataType_StorageBuffer) {
-                        // Buffer readback: host sent GPU memory contents back
-                        uint64_t mem_key = dm->data_id();
-                        auto* payload = dm->payload();
-                        intercept::update_shadow_buffer(
-                            mem_key,
-                            payload ? payload->data() : nullptr,
-                            payload ? payload->size() : 0,
-                            dm->offset());
-                    } else if (dm->data_type() == fbs::DataType_Unknown) {
-                        uint64_t key = dm->data_id();
-                        auto* payload = dm->payload();
-                        if (payload) {
-                            if (payload->size() == sizeof(VkSubresourceLayout)) {
-                                intercept::write_layout_result(key, payload->data(), payload->size());
-                            } else {
-                                intercept::write_query_results(key, payload->data(), payload->size());
+    intercept::set_batch(g_batch);
+
+    g_running = true;
+    g_recv_thread = new std::thread([]() {
+        SPDLOG_INFO("Receive thread started");
+        while (g_running) {
+            uint32_t msg_size = 0;
+            if (!g_client->receive_data(reinterpret_cast<uint8_t*>(&msg_size),
+                                         sizeof(msg_size))) {
+                if (g_running) SPDLOG_ERROR("Receive thread: connection lost");
+                g_client->set_sync_response(0);
+                break;
+            }
+            msg_size = ntohl(msg_size);
+            if (msg_size > 64 * 1024 * 1024) {
+                SPDLOG_ERROR("Receive thread: message size {} exceeds 64MB limit", msg_size);
+                g_client->set_sync_response(0);
+                break;
+            }
+            std::vector<uint8_t> buf(msg_size);
+            if (!g_client->receive_data(buf.data(), msg_size)) {
+                SPDLOG_ERROR("Receive thread: failed to read message");
+                g_client->set_sync_response(0);
+                break;
+            }
+            auto* msg = protocol::verify_root(buf.data(), buf.size());
+            if (!msg) continue;
+            if (msg->payload_type() == fbs::MessagePayload_DataMessage) {
+                auto* dm = msg->payload_as_DataMessage();
+                if (!dm || !dm->payload()) continue;
+
+                if (dm->data_type() == fbs::DataType_StorageBuffer) {
+                    uint64_t mem_key = dm->data_id();
+                    auto* payload = dm->payload();
+                    intercept::update_shadow_buffer(
+                        mem_key,
+                        payload ? payload->data() : nullptr,
+                        payload ? payload->size() : 0,
+                        dm->offset());
+                } else if (dm->data_type() == fbs::DataType_Unknown) {
+                    uint64_t key = dm->data_id();
+                    auto* payload = dm->payload();
+                    if (payload) {
+                        if (payload->size() == sizeof(VkSubresourceLayout)) {
+                            intercept::write_layout_result(key, payload->data(), payload->size());
+                            g_client->set_sync_response(VK_SUCCESS);
+                        } else {
+                            intercept::write_query_results(key, payload->data(), payload->size());
+                            // Extract the sync response value from the first 8 bytes
+                            uint64_t resp_val = VK_SUCCESS;
+                            if (payload->size() >= sizeof(uint64_t)) {
+                                std::memcpy(&resp_val, payload->data(), sizeof(uint64_t));
                             }
+                            g_client->set_sync_response(resp_val);
                         }
                     }
-                } else if (msg->payload_type() == fbs::MessagePayload_VideoFrame) {
-                    auto* vf = msg->payload_as_VideoFrame();
-                    if (vf && g_decoder) {
-                        auto* payload = vf->data();
-                        g_decoder->decode(
-                            static_cast<video::Codec>(vf->codec()),
-                            vf->is_keyframe(),
-                            payload ? payload->data() : nullptr,
-                            payload ? payload->size() : 0,
-                            vf->frame_id(), vf->timestamp_ms(),
-                            vf->width(), vf->height());
-                    }
+                }
+            } else if (msg->payload_type() == fbs::MessagePayload_VideoFrame) {
+                auto* vf = msg->payload_as_VideoFrame();
+                if (vf && g_decoder) {
+                    auto* payload = vf->data();
+                    g_decoder->decode(
+                        static_cast<video::Codec>(vf->codec()),
+                        vf->is_keyframe(),
+                        payload ? payload->data() : nullptr,
+                        payload ? payload->size() : 0,
+                        vf->frame_id(), vf->timestamp_ms(),
+                        vf->width(), vf->height());
                 }
             }
-            SPDLOG_INFO("Receive thread stopped");
-        });
-        connect_result = true;
-
-        g_decoder = video::create_decoder();
-        if (g_decoder) {
-            g_decoder->init();
-            g_decoder->set_frame_callback([](video::DecodedFrame frame) {
-                SPDLOG_DEBUG("Decoded frame: id={}, {}x{}, rgba={} bytes",
-                             frame.frame_id, frame.width, frame.height,
-                             frame.rgba_pixels.size());
-            });
-            SPDLOG_INFO("Video decoder initialized (hw={})", g_decoder->hardware_accelerated());
         }
+        SPDLOG_INFO("Receive thread stopped");
     });
-    return connect_result;
+
+    g_decoder = video::create_decoder();
+    if (g_decoder) {
+        g_decoder->init();
+        g_decoder->set_frame_callback([](video::DecodedFrame frame) {
+            SPDLOG_DEBUG("Decoded frame: id={}, {}x{}, rgba={} bytes",
+                         frame.frame_id, frame.width, frame.height,
+                         frame.rgba_pixels.size());
+        });
+        SPDLOG_INFO("Video decoder initialized (hw={})", g_decoder->hardware_accelerated());
+    }
+
+    connected = true;
+    return true;
 }
 
 Client* get_client() {
@@ -336,19 +389,25 @@ Client* get_client() {
 void shutdown_guest() {
     g_running = false;
 
-    // Close socket first to unblock recv() in the receive thread
-    if (g_client) {
-        tcp::close_socket(g_client->socket());
+    // Flush any pending commands before shutdown
+    if (g_batch) {
+        g_batch->force_flush();
     }
 
+    // Gracefully shutdown socket to unblock recv() in receive thread
+    if (g_client && g_client->socket() != INVALID_SOCKET) {
+        ::shutdown(g_client->socket(), SD_BOTH);
+    }
+
+    // Join receive thread (now unblocked by shutdown)
     if (g_recv_thread) {
         if (g_recv_thread->joinable()) g_recv_thread->join();
         delete g_recv_thread;
         g_recv_thread = nullptr;
     }
 
+    // Now safe to destroy batch and decoder
     if (g_batch) {
-        g_batch->force_flush();
         delete g_batch;
         g_batch = nullptr;
     }
@@ -360,6 +419,8 @@ void shutdown_guest() {
     }
 
     intercept::shutdown_hooks();
+
+    // Close socket after threads are done
     if (g_client) {
         g_client->disconnect();
         delete g_client;

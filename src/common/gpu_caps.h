@@ -67,6 +67,18 @@ struct GpuCapabilities {
     uint32_t compute_queue_count = 1;
     uint32_t supported_subgroup_operations = 0;
 
+    // ===== ML support flags (Phase 1) =====
+    bool supports_16bit_storage       = false;
+    bool supports_8bit_storage        = false;
+    bool supports_float16_int8        = false;
+
+    // ===== Cooperative matrix (Phase 2) =====
+    bool supports_cooperative_matrix   = false;
+    uint32_t coopmat_m = 16;  // tile size M (rows of A)
+    uint32_t coopmat_n = 16;  // tile size N (cols of B)
+    uint32_t coopmat_k = 16;  // tile size K (inner dimension)
+    bool supports_integer_dot_product = false;
+
     [[nodiscard]] bool valid() const { return !gpu_name.empty(); }
 };
 

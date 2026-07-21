@@ -33,6 +33,9 @@ bool recv_all(SOCKET fd, uint8_t* buffer, size_t size);
 // Set socket timeout (seconds). 0 = no timeout.
 bool set_tcp_timeout(SOCKET fd, uint32_t timeout_s);
 
+// Enable TCP keepalive with 10s idle, 3s interval, 3 probes.
+bool set_tcp_keepalive(SOCKET fd);
+
 std::string last_error();
 
 } // namespace omnigpu::tcp

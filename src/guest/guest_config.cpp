@@ -60,10 +60,13 @@ GuestConfig load(const std::string& path) {
             if (j.contains("cache_ttl_seconds")) cfg.cache_ttl_seconds = j["cache_ttl_seconds"].get<uint64_t>();
             if (j.contains("adaptive_batching")) cfg.adaptive_batching = j["adaptive_batching"].get<bool>();
             if (j.contains("max_batch_interval_ms")) cfg.max_batch_interval_ms = j["max_batch_interval_ms"].get<uint32_t>();
+            if (j.contains("min_batch_commands")) cfg.min_batch_commands = j["min_batch_commands"].get<uint32_t>();
+            if (j.contains("min_batch_bytes")) cfg.min_batch_bytes = j["min_batch_bytes"].get<uint32_t>();
 
-            SPDLOG_INFO("Loaded config from {}: host={}:{}, adaptive={}",
+            SPDLOG_INFO("Loaded config from {}: host={}:{}, adaptive={}, interval={}ms, min_cmd={}, min_bytes={}",
                         cfg_path, cfg.host, cfg.port,
-                        cfg.adaptive_batching);
+                        cfg.adaptive_batching, cfg.max_batch_interval_ms,
+                        cfg.min_batch_commands, cfg.min_batch_bytes);
         } catch (const std::exception& e) {
             SPDLOG_WARN("Failed to parse config {}: {}", cfg_path, e.what());
         }

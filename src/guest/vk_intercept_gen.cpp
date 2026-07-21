@@ -8,6 +8,8 @@
 #include "vulkan_serializer.h"
 #include "vulkan_struct_serializer.h"
 #include "command_batch.h"
+#include "client.h"
+#include "guest_init.h"
 #include <vulkan/vulkan.h>
 #include <fmt/core.h>
 #include <spdlog/spdlog.h>
@@ -26,6 +28,12 @@ namespace {
 std::unordered_map<std::string, void*>& get_original_fns() {
     static std::unordered_map<std::string, void*> fns;
     return fns;
+}
+
+// Track per-template total pData byte size for vkUpdateDescriptorSetWithTemplate
+std::unordered_map<uint64_t, uint64_t>& get_template_data_sizes() {
+    static std::unordered_map<uint64_t, uint64_t> sizes;
+    return sizes;
 }
 
 std::unordered_map<std::string, void*>& get_hook_fns() {
@@ -1496,7 +1504,7 @@ void VKAPI_PTR vkCmdResetEvent2_hook(VkCommandBuffer commandBuffer, VkEvent even
     serializer::VulkanSerializer ser;
     ser.write_handle((uint64_t)(commandBuffer));
     ser.write_handle((uint64_t)(event));
-    ser.write_u32(static_cast<uint32_t>(stageMask));
+    ser.write_u64(static_cast<uint64_t>(stageMask));
 
     // Append to batch
     if (g_batch) {
@@ -2427,7 +2435,7 @@ void VKAPI_PTR vkCmdUpdateBuffer_hook(VkCommandBuffer commandBuffer, VkBuffer ds
     ser.write_handle((uint64_t)(dstBuffer));
     ser.write_u64(static_cast<uint64_t>(dstOffset));
     ser.write_u64(static_cast<uint64_t>(dataSize));
-    ser.write_raw(reinterpret_cast<const void*>(pData), dataSize);
+    ser.write_raw(reinterpret_cast<const void*>(pData), static_cast<size_t>(dataSize));
 
     // Append to batch
     if (g_batch) {
@@ -2560,7 +2568,7 @@ void VKAPI_PTR vkCmdWriteTimestamp2_hook(VkCommandBuffer commandBuffer, VkPipeli
     // Serialize arguments
     serializer::VulkanSerializer ser;
     ser.write_handle((uint64_t)(commandBuffer));
-    ser.write_u32(static_cast<uint32_t>(stage));
+    ser.write_u64(static_cast<uint64_t>(stage));
     ser.write_handle((uint64_t)(queryPool));
     ser.write_u32(static_cast<uint32_t>(query));
 
@@ -2815,6 +2823,17 @@ VkResult VKAPI_PTR vkCreateDescriptorUpdateTemplate_hook(VkDevice device, const 
         if (pDescriptorUpdateTemplate) *pDescriptorUpdateTemplate = handle_from_u64<VkDescriptorUpdateTemplate>(next_fake_handle());
     } else {
         res = original(device, pCreateInfo, pAllocator, pDescriptorUpdateTemplate);
+    }
+
+    // Compute total pData size for later use by vkUpdateDescriptorSetWithTemplate
+    if (pCreateInfo && pDescriptorUpdateTemplate && *pDescriptorUpdateTemplate) {
+        uint64_t totalSize = 0;
+        for (uint32_t i = 0; i < pCreateInfo->descriptorUpdateEntryCount; i++) {
+            auto& e = pCreateInfo->pDescriptorUpdateEntries[i];
+            uint64_t end = e.offset + static_cast<uint64_t>(e.descriptorCount) * e.stride;
+            if (end > totalSize) totalSize = end;
+        }
+        get_template_data_sizes()[(uint64_t)(*pDescriptorUpdateTemplate)] = totalSize;
     }
 
     // Serialize arguments (after original is called, so output handles are valid!)
@@ -3251,10 +3270,79 @@ VkResult VKAPI_PTR vkCreateRenderPass2_hook(VkDevice device, const VkRenderPassC
         res = original(device, pCreateInfo, pAllocator, pRenderPass);
     }
 
-    // Serialize arguments (after original is called, so output handles are valid!)
+    // Serialize arguments — convert VkRenderPassCreateInfo2 → VkRenderPassCreateInfo
     serializer::VulkanSerializer ser;
     ser.write_handle((uint64_t)(device));
-    ser.write_raw(pCreateInfo, sizeof(*pCreateInfo));
+    if (pCreateInfo) {
+        // Build v1 struct from v2 data
+        VkRenderPassCreateInfo v1{};
+        v1.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        v1.flags = pCreateInfo->flags;
+        v1.attachmentCount = pCreateInfo->attachmentCount;
+        std::vector<VkAttachmentDescription> atts(v1.attachmentCount);
+        for (uint32_t i = 0; i < v1.attachmentCount; i++) {
+            auto& a2 = pCreateInfo->pAttachments[i];
+            atts[i].flags = a2.flags;
+            atts[i].format = a2.format;
+            atts[i].samples = a2.samples;
+            atts[i].loadOp = a2.loadOp;
+            atts[i].storeOp = a2.storeOp;
+            atts[i].stencilLoadOp = a2.stencilLoadOp;
+            atts[i].stencilStoreOp = a2.stencilStoreOp;
+            atts[i].initialLayout = a2.initialLayout;
+            atts[i].finalLayout = a2.finalLayout;
+        }
+        v1.pAttachments = atts.data();
+        v1.subpassCount = pCreateInfo->subpassCount;
+        std::vector<VkSubpassDescription> subs(v1.subpassCount);
+        std::vector<VkAttachmentReference> colRefs;
+        std::vector<VkAttachmentReference> dsRefs;
+        std::vector<VkAttachmentReference> inputRefs;
+        std::vector<VkAttachmentReference> resolveRefs;
+        std::vector<VkAttachmentReference> depthRefs;
+        for (uint32_t i = 0; i < v1.subpassCount; i++) {
+            auto& s2 = pCreateInfo->pSubpasses[i];
+            subs[i].flags = s2.flags;
+            subs[i].pipelineBindPoint = s2.pipelineBindPoint;
+            // Convert VkAttachmentReference2 → VkAttachmentReference
+            auto convertRefs = [&](const VkAttachmentReference2* src, uint32_t count, std::vector<VkAttachmentReference>& dst) {
+                if (!src || count == 0) return dst.data();
+                dst.resize(count);
+                for (uint32_t j = 0; j < count; j++)
+                    dst[j] = {src[j].attachment, src[j].layout};
+                return dst.data();
+            };
+            subs[i].inputAttachmentCount = s2.inputAttachmentCount;
+            subs[i].pInputAttachments = convertRefs(s2.pInputAttachments, s2.inputAttachmentCount, inputRefs);
+            subs[i].colorAttachmentCount = s2.colorAttachmentCount;
+            subs[i].pColorAttachments = convertRefs(s2.pColorAttachments, s2.colorAttachmentCount, colRefs);
+            subs[i].pResolveAttachments = convertRefs(s2.pResolveAttachments, s2.colorAttachmentCount, resolveRefs);
+            if (s2.pDepthStencilAttachment) {
+                depthRefs.resize(1);
+                depthRefs[0] = {s2.pDepthStencilAttachment->attachment, s2.pDepthStencilAttachment->layout};
+                subs[i].pDepthStencilAttachment = depthRefs.data();
+            } else {
+                subs[i].pDepthStencilAttachment = nullptr;
+            }
+            subs[i].preserveAttachmentCount = s2.preserveAttachmentCount;
+            subs[i].pPreserveAttachments = s2.pPreserveAttachments;
+        }
+        v1.pSubpasses = subs.data();
+        v1.dependencyCount = pCreateInfo->dependencyCount;
+        std::vector<VkSubpassDependency> deps(v1.dependencyCount);
+        for (uint32_t i = 0; i < v1.dependencyCount; i++) {
+            auto& d2 = pCreateInfo->pDependencies[i];
+            deps[i].srcSubpass = d2.srcSubpass;
+            deps[i].dstSubpass = d2.dstSubpass;
+            deps[i].srcStageMask = d2.srcStageMask;
+            deps[i].dstStageMask = d2.dstStageMask;
+            deps[i].srcAccessMask = d2.srcAccessMask;
+            deps[i].dstAccessMask = d2.dstAccessMask;
+            deps[i].dependencyFlags = d2.dependencyFlags;
+        }
+        v1.pDependencies = deps.data();
+        serializer::write_VkRenderPassCreateInfo(ser, &v1);
+    }
     ser.write_raw(pAllocator, sizeof(*pAllocator));
     ser.write_handle((uint64_t)(pRenderPass ? *pRenderPass : 0));
 
@@ -4511,12 +4599,18 @@ void VKAPI_PTR vkTrimCommandPool_hook(VkDevice device, VkCommandPool commandPool
 void VKAPI_PTR vkUpdateDescriptorSetWithTemplate_hook(VkDevice device, VkDescriptorSet descriptorSet, VkDescriptorUpdateTemplate descriptorUpdateTemplate, const void* pData) {
     SPDLOG_TRACE("Intercepted: {}", "vkUpdateDescriptorSetWithTemplate");
 
-    // Serialize arguments
+    // Serialize arguments — use actual template data size instead of hardcoded 4096
     serializer::VulkanSerializer ser;
     ser.write_handle((uint64_t)(device));
     ser.write_handle((uint64_t)(descriptorSet));
     ser.write_handle((uint64_t)(descriptorUpdateTemplate));
-    ser.write_raw(reinterpret_cast<const void*>(pData), 4096);
+    auto& sizes = get_template_data_sizes();
+    auto it = sizes.find((uint64_t)(descriptorUpdateTemplate));
+    uint64_t dataSize = (it != sizes.end()) ? it->second : 0;
+    ser.write_u64(dataSize);
+    if (pData && dataSize > 0) {
+        ser.write_raw(pData, static_cast<size_t>(dataSize));
+    }
 
     // Append to batch
     if (g_batch) {
@@ -4576,30 +4670,21 @@ void VKAPI_PTR vkUpdateDescriptorSets_hook(VkDevice device, uint32_t descriptorW
 VkResult VKAPI_PTR vkWaitSemaphores_hook(VkDevice device, const VkSemaphoreWaitInfo* pWaitInfo, uint64_t timeout) {
     SPDLOG_TRACE("Intercepted: {}", "vkWaitSemaphores");
 
-    // Serialize arguments
-    serializer::VulkanSerializer ser;
-    ser.write_handle((uint64_t)(device));
-    serializer::write_VkSemaphoreWaitInfo(ser, pWaitInfo);
-    ser.write_u64(static_cast<uint64_t>(timeout));
+    // Flush pending commands first
+    auto* batch = get_batch();
+    if (batch) batch->flush();
 
-    // Append to batch
-    if (g_batch) {
-        auto builder = protocol::build_command(
-            fbs::FunctionId_vkWaitSemaphores,
-            next_request_id(),
-            ser.data(),
-            ser.size()
-        );
-        g_batch->append(builder);
+    // Send sync_query to host: host blocks on real vkWaitSemaphores, returns result
+    auto* client = init::get_client();
+    if (client) {
+        serializer::VulkanSerializer ser;
+        ser.write_handle((uint64_t)(device));
+        serializer::write_VkSemaphoreWaitInfo(ser, pWaitInfo);
+        ser.write_u64(static_cast<uint64_t>(timeout));
+        uint64_t res = client->sync_query_ext(0x8f, ser.data(), ser.size());
+        return static_cast<VkResult>(res);
     }
-
-    // Call original (safe with null check)
-    auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkSemaphoreWaitInfo* pWaitInfo, uint64_t timeout)>(get_original_fns()["vkWaitSemaphores"]);
-
-    if (!original) {
-        return {};
-    }
-    return original(device, pWaitInfo, timeout);
+    return VK_SUCCESS;
 }
 
 // ---------------------------------------------------------------------------

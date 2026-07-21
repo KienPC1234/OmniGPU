@@ -6,7 +6,6 @@
 #include "command_dispatcher.h"
 #include "config.h"
 #include "multi_gpu_compute.h"
-#include "renderer.h"
 #include "video_encoder.h"
 #include <atomic>
 #include <chrono>

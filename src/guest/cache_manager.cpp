@@ -104,6 +104,16 @@ bool CacheManager::load(caps::GpuCapabilities& caps) const {
         caps.max_tessellation_factor = data.value("max_tessellation_factor", 64U);
         caps.max_fragment_output_attachments = data.value("max_fragment_output_attachments", 8U);
 
+        // ML support fields (Phase 1 + 2)
+        caps.supports_16bit_storage = data.value("supports_16bit_storage", false);
+        caps.supports_8bit_storage  = data.value("supports_8bit_storage", false);
+        caps.supports_float16_int8  = data.value("supports_float16_int8", false);
+        caps.supports_cooperative_matrix = data.value("supports_cooperative_matrix", false);
+        caps.coopmat_m = data.value("coopmat_m", 16U);
+        caps.coopmat_n = data.value("coopmat_n", 16U);
+        caps.coopmat_k = data.value("coopmat_k", 16U);
+        caps.supports_integer_dot_product = data.value("supports_integer_dot_product", false);
+
         SPDLOG_INFO("Loaded cached GPU caps for {}: {}", cache_key_,
                     caps.gpu_name);
         return true;
@@ -170,6 +180,16 @@ bool CacheManager::save(const caps::GpuCapabilities& caps) {
         entry["max_combined_clip_and_cull_distances"] = caps.max_combined_clip_and_cull_distances;
         entry["max_tessellation_factor"] = caps.max_tessellation_factor;
         entry["max_fragment_output_attachments"] = caps.max_fragment_output_attachments;
+
+        // ML support fields (Phase 1 + 2)
+        entry["supports_16bit_storage"] = caps.supports_16bit_storage;
+        entry["supports_8bit_storage"]  = caps.supports_8bit_storage;
+        entry["supports_float16_int8"]  = caps.supports_float16_int8;
+        entry["supports_cooperative_matrix"] = caps.supports_cooperative_matrix;
+        entry["coopmat_m"] = caps.coopmat_m;
+        entry["coopmat_n"] = caps.coopmat_n;
+        entry["coopmat_k"] = caps.coopmat_k;
+        entry["supports_integer_dot_product"] = caps.supports_integer_dot_product;
 
         j[cache_key_] = entry;
 

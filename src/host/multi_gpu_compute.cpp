@@ -24,8 +24,10 @@ bool MultiGpuCompute::ensure_device_per_gpu(GpuManager& gpuMgr, ComputeUnit& uni
             unit.dedicatedMemory += static_cast<int64_t>(memProps.memoryHeaps[i].size);
     }
 
+    SPDLOG_INFO("MultiGpuCompute: ensure_device_per_gpu GPU={}", gpuIndex);
     uint32_t qfCount = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(unit.physDevice, &qfCount, nullptr);
+    SPDLOG_INFO("MultiGpuCompute: queue families={}", qfCount);
     std::vector<VkQueueFamilyProperties> qfProps(qfCount);
     vkGetPhysicalDeviceQueueFamilyProperties(unit.physDevice, &qfCount, qfProps.data());
 
@@ -42,6 +44,7 @@ bool MultiGpuCompute::ensure_device_per_gpu(GpuManager& gpuMgr, ComputeUnit& uni
         return false;
     }
     unit.queueFamily = static_cast<uint32_t>(computeQF);
+    SPDLOG_INFO("MultiGpuCompute: compute QF={}", unit.queueFamily);
 
     float priority = 1.0f;
     VkDeviceQueueCreateInfo qci{};
@@ -50,6 +53,11 @@ bool MultiGpuCompute::ensure_device_per_gpu(GpuManager& gpuMgr, ComputeUnit& uni
     qci.queueCount = 1;
     qci.pQueuePriorities = &priority;
 
+    VkPhysicalDeviceVulkan11Features features11{};
+    features11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+    features11.storageBuffer16BitAccess = VK_TRUE;
+    features11.uniformAndStorageBuffer16BitAccess = VK_TRUE;
+
     VkPhysicalDeviceVulkan12Features features12{};
     features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
     features12.bufferDeviceAddress = VK_TRUE;
@@ -57,17 +65,34 @@ bool MultiGpuCompute::ensure_device_per_gpu(GpuManager& gpuMgr, ComputeUnit& uni
     features12.scalarBlockLayout = VK_TRUE;
     features12.timelineSemaphore = VK_TRUE;
     features12.hostQueryReset = VK_TRUE;
+    features12.shaderFloat16 = VK_TRUE;
+    features12.shaderInt8 = VK_TRUE;
+    features12.storageBuffer8BitAccess = VK_TRUE;
+    features12.uniformAndStorageBuffer8BitAccess = VK_TRUE;
 
     VkPhysicalDeviceVulkan13Features features13{};
     features13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
     features13.synchronization2 = VK_TRUE;
     features13.maintenance4 = VK_TRUE;
-    features13.pNext = &features12;
+    features13.shaderIntegerDotProduct = VK_TRUE;
+
+    VkPhysicalDeviceCooperativeMatrixFeaturesKHR coopMat{};
+    coopMat.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR;
+    coopMat.cooperativeMatrix = VK_TRUE;
+
+    VkPhysicalDeviceShaderIntegerDotProductFeaturesKHR intDot{};
+    intDot.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_FEATURES_KHR;
+    intDot.shaderIntegerDotProduct = VK_TRUE;
 
     VkDeviceCreateInfo dci{};
     dci.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     dci.queueCreateInfoCount = 1;
     dci.pQueueCreateInfos = &qci;
+    // Chain: dci → features13 → features12 → features11 → coopMat → intDot
+    features11.pNext = &coopMat;
+    coopMat.pNext = &intDot;
+    features12.pNext = &features11;
+    features13.pNext = &features12;
     dci.pNext = &features13;
 
     VkPhysicalDeviceFeatures features{};
@@ -79,12 +104,15 @@ bool MultiGpuCompute::ensure_device_per_gpu(GpuManager& gpuMgr, ComputeUnit& uni
     features.shaderStorageImageExtendedFormats = VK_TRUE;
     dci.pEnabledFeatures = &features;
 
+    SPDLOG_INFO("MultiGpuCompute: calling vkCreateDevice...");
     VkResult res = vkCreateDevice(unit.physDevice, &dci, nullptr, &unit.device);
+    SPDLOG_INFO("MultiGpuCompute: vkCreateDevice done, res={}", static_cast<int>(res));
     if (res != VK_SUCCESS) {
         SPDLOG_ERROR("MultiGpuCompute: GPU {} device creation failed: {}", gpuIndex, static_cast<int>(res));
         return false;
     }
 
+    SPDLOG_INFO("MultiGpuCompute: calling vkGetDeviceQueue...");
     vkGetDeviceQueue(unit.device, unit.queueFamily, 0, &unit.queue);
 
     VkCommandPoolCreateInfo cpci{};

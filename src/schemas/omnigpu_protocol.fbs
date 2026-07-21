@@ -366,6 +366,18 @@ table CapabilitiesResponse {
   dedicated_compute_queue: bool = false;
   auth_required: bool = false;
   buffer_manager_capable: bool = true;
+
+  // ===== ML support flags (Phase 1) =====
+  supports_16bit_storage: bool = false;
+  supports_8bit_storage: bool = false;
+  supports_float16_int8: bool = false;
+
+  // ===== Cooperative matrix (Phase 2) =====
+  supports_cooperative_matrix: bool = false;
+  coopmat_m: uint32 = 16;
+  coopmat_n: uint32 = 16;
+  coopmat_k: uint32 = 16;
+  supports_integer_dot_product: bool = false;
 }
 
 // ---------------------------------------------------------------------------

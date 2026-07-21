@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -8,6 +10,9 @@
 #include <vulkan/vulkan.h>
 
 namespace omnigpu::host {
+
+// Maximum array elements to prevent OOM in deserializer
+inline constexpr size_t kMaxArrayElements = 1 << 20; // ~1M elements
 
 // Reads back the binary format written by guest VulkanSerializer.
 class VulkanDeserializer {
@@ -23,17 +28,24 @@ public:
     VkBool32   read_bool();
 
     // Read raw bytes (size already known from context)
-    void       read_raw(void* out, size_t bytes);
+    // Returns false if insufficient data (stream desync / truncated)
+    bool       read_raw(void* out, size_t bytes);
 
     // Read a size-prefixed string
     std::string read_string();
 
     // Read an array into a vector with a known count
+    // Returns empty vector if count exceeds kMaxArrayElements
     template<typename T>
     std::vector<T> read_array(uint32_t count) {
+        if (count > kMaxArrayElements) {
+            error_ = true;
+            skip(static_cast<size_t>(count) * sizeof(T));
+            return {};
+        }
         std::vector<T> vec(count);
-        if (count > 0) {
-            read_raw(vec.data(), count * sizeof(T));
+        if (count > 0 && !read_raw(vec.data(), static_cast<size_t>(count) * sizeof(T))) {
+            return {};
         }
         return vec;
     }
@@ -44,12 +56,13 @@ public:
     // Position tracking
     size_t pos() const { return pos_; }
     size_t remaining() const { return size_ - pos_; }
-    bool   ok() const { return pos_ <= size_; }
+    bool   ok() const { return !error_ && pos_ <= size_; }
 
 private:
     const uint8_t* data_;
     size_t size_;
     size_t pos_;
+    bool error_ = false;
 };
 
 } // namespace omnigpu::host

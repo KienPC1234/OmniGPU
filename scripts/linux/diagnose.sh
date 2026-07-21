@@ -32,23 +32,23 @@ else
     warnings=$((warnings + 1))
 fi
 
-# Check port 50051
+# Check port 9443 (OmniGPU host default)
 if command -v ss &> /dev/null; then
-    port_active=$(ss -tlnp | grep -q ":50051" && echo "yes" || echo "no")
+    port_active=$(ss -tlnp | grep -q ":9443" && echo "yes" || echo "no")
 elif command -v netstat &> /dev/null; then
-    port_active=$(netstat -tlnp | grep -q ":50051" && echo "yes" || echo "no")
+    port_active=$(netstat -tlnp | grep -q ":9443" && echo "yes" || echo "no")
 else
     port_active="unknown"
 fi
 
 if [ "$port_active" = "yes" ]; then
-    echo -e "  ${GREEN}[OK] TCP Port 50051 is active and listening${NC}"
+    echo -e "  ${GREEN}[OK] TCP Port 9443 is active and listening${NC}"
 elif [ "$port_active" = "no" ]; then
     if [ -n "$host_pid" ]; then
-        echo -e "  ${RED}[ERROR] omnigpu_host is running, but port 50051 is not listening!${NC}"
+        echo -e "  ${RED}[ERROR] omnigpu_host is running, but port 9443 is not listening!${NC}"
         errors=$((errors + 1))
     else
-        echo -e "  ${GRAY}[--] Port 50051 is inactive (server stopped)${NC}"
+        echo -e "  ${GRAY}[--] Port 9443 is inactive (server stopped)${NC}"
     fi
 fi
 

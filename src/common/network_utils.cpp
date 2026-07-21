@@ -48,6 +48,27 @@ bool set_tcp_nodelay(SOCKET fd) {
     return true;
 }
 
+bool set_tcp_keepalive(SOCKET fd) {
+#ifdef _WIN32
+    char yes = 1;
+    if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &yes, sizeof(yes)) != 0) {
+        SPDLOG_ERROR("SO_KEEPALIVE failed: {}", last_error());
+        return false;
+    }
+#else
+    int yes = 1;
+    if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &yes, sizeof(yes)) != 0) {
+        SPDLOG_ERROR("SO_KEEPALIVE failed: {}", last_error());
+        return false;
+    }
+    int idle = 10, interval = 3, count = 3;
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(interval));
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count));
+#endif
+    return true;
+}
+
 bool send_all(SOCKET fd, const uint8_t* data, size_t size) {
     while (size > 0) {
 #ifdef _WIN32

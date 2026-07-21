@@ -190,7 +190,7 @@ bool BufferManager::upload(uint64_t bufferId, const void* data,
         fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         vkCreateFence(device_, &fci, nullptr, &fence);
         vkQueueSubmit(queue_, 1, &si, fence);
-        vkWaitForFences(device_, 1, &fence, VK_TRUE, UINT64_MAX);
+        vkWaitForFences(device_, 1, &fence, VK_TRUE, 5000000000ULL);
 
         vkDestroyFence(device_, fence, nullptr);
         vkFreeCommandBuffers(device_, cmdPool_, 1, &cmd);
@@ -249,7 +249,7 @@ bool BufferManager::download(uint64_t bufferId, void* outData,
         fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         vkCreateFence(device_, &fci, nullptr, &fence);
         vkQueueSubmit(queue_, 1, &si, fence);
-        vkWaitForFences(device_, 1, &fence, VK_TRUE, UINT64_MAX);
+        vkWaitForFences(device_, 1, &fence, VK_TRUE, 5000000000ULL);
 
         void* mapped;
         if (vkMapMemory(device_, buf.stagingMemory, offset, size, 0, &mapped) == VK_SUCCESS) {

@@ -67,22 +67,31 @@ bool Client::receive_data(uint8_t* buffer, size_t size) {
 }
 
 uint64_t Client::sync_query(uint64_t func_id, uint64_t arg) {
-    std::lock_guard<std::mutex> send_lock(send_mutex_);
-
-    {
-        std::lock_guard<std::mutex> slock(sync_mutex_);
-        has_sync_response_ = false;
-        sync_response_val_ = 0;
+    // Prevent concurrent sync queries (single in-flight at a time)
+    if (sync_in_flight_.exchange(true)) {
+        SPDLOG_WARN("sync_query: concurrent sync query detected, returning 0");
+        return 0;
     }
 
-    uint32_t net_sz = htonl(16);
-    uint8_t req[20];
-    std::memcpy(req, &net_sz, 4);
-    std::memcpy(req + 4, &func_id, 8);
-    std::memcpy(req + 12, &arg, 8);
-    if (!send_data(req, sizeof(req))) {
-        SPDLOG_ERROR("sync_query: send failed");
-        return 0;
+    {
+        std::lock_guard<std::mutex> send_lock(send_mutex_);
+
+        {
+            std::lock_guard<std::mutex> slock(sync_mutex_);
+            has_sync_response_ = false;
+            sync_response_val_ = 0;
+        }
+
+        uint32_t net_sz = htonl(16);
+        uint8_t req[20];
+        std::memcpy(req, &net_sz, 4);
+        std::memcpy(req + 4, &func_id, 8);
+        std::memcpy(req + 12, &arg, 8);
+        if (!send_data(req, sizeof(req))) {
+            sync_in_flight_ = false;
+            SPDLOG_ERROR("sync_query: send failed");
+            return 0;
+        }
     }
 
     std::unique_lock<std::mutex> slock(sync_mutex_);
@@ -90,8 +99,55 @@ uint64_t Client::sync_query(uint64_t func_id, uint64_t arg) {
         return has_sync_response_;
     });
 
+    sync_in_flight_ = false;
+
     if (!success) {
         SPDLOG_ERROR("sync_query: timed out waiting for response");
+        return 0;
+    }
+
+    return sync_response_val_;
+}
+
+uint64_t Client::sync_query_ext(uint64_t func_id, const uint8_t* extra, size_t extra_size) {
+    // Prevent concurrent sync queries
+    if (sync_in_flight_.exchange(true)) {
+        SPDLOG_WARN("sync_query_ext: concurrent sync query detected, returning 0");
+        return 0;
+    }
+
+    {
+        std::lock_guard<std::mutex> send_lock(send_mutex_);
+
+        {
+            std::lock_guard<std::mutex> slock(sync_mutex_);
+            has_sync_response_ = false;
+            sync_response_val_ = 0;
+        }
+
+        uint32_t payload_size = static_cast<uint32_t>(8 + extra_size);
+        uint32_t net_sz = htonl(payload_size);
+        std::vector<uint8_t> req(4 + payload_size);
+        std::memcpy(req.data(), &net_sz, 4);
+        std::memcpy(req.data() + 4, &func_id, 8);
+        if (extra_size > 0)
+            std::memcpy(req.data() + 12, extra, extra_size);
+        if (!send_data(req.data(), req.size())) {
+            sync_in_flight_ = false;
+            SPDLOG_ERROR("sync_query_ext: send failed");
+            return 0;
+        }
+    }
+
+    std::unique_lock<std::mutex> slock(sync_mutex_);
+    bool success = sync_cv_.wait_for(slock, std::chrono::seconds(5), [this]() {
+        return has_sync_response_;
+    });
+
+    sync_in_flight_ = false;
+
+    if (!success) {
+        SPDLOG_ERROR("sync_query_ext: timed out waiting for response");
         return 0;
     }
 

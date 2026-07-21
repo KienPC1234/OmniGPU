@@ -43,9 +43,12 @@ else()
   add_compile_options(-Wall -Wextra)
 endif()
 
-# Enable exception handling for Clang/clang-cl to satisfy clang-tidy
+# Enable exception handling
+# clang-cl uses MSVC-style /EHsc, regular Clang uses -fexceptions
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-fexceptions)
+  if(NOT CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+    add_compile_options(-fexceptions)
+  endif()
 endif()
 
 option(OMNIGPU_BUILD_TESTS "Build tests" ON)

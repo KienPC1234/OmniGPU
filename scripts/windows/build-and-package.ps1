@@ -20,8 +20,18 @@ $ThirdParty = "$ProjectRoot\third_party"
 # ============================================================================
 # Step 1: Build 64-bit
 # ============================================================================
-if (-not $SkipBuild) {
+# Locate Visual Studio installation via vswhere, with hardcoded fallback
+$vcvars = ""
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+if (Test-Path $vswhere) {
+    $vsPath = & $vswhere -latest -property installationPath
+    if ($vsPath) { $vcvars = "$vsPath\VC\Auxiliary\Build\vcvarsall.bat" }
+}
+if (-not $vcvars -or !(Test-Path $vcvars)) {
     $vcvars = "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvarsall.bat"
+}
+
+if (-not $SkipBuild) {
     Write-Host "=== [1/6] Building 64-bit ===" -ForegroundColor Cyan
     $cmds = @(
         "`"$vcvars`" x64",
@@ -83,7 +93,15 @@ Get-ChildItem "$Bin64\*.dll" | ForEach-Object {
 }
 
 # MSVC runtime DLLs (required by omnigpu_guest.dll, must be alongside it)
-$msvcRedist = "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Redist\MSVC\14.51.36231\x64\Microsoft.VC145.CRT"
+$msvcRedist = ""
+if ($vsPath) {
+    $crtDir = Get-ChildItem "$vsPath\VC\Redist\MSVC\*\x64\Microsoft.VC145.CRT" -ErrorAction SilentlyContinue |
+              Select-Object -First 1 -ExpandProperty FullName
+    if ($crtDir) { $msvcRedist = $crtDir }
+}
+if (-not $msvcRedist -or !(Test-Path $msvcRedist)) {
+    $msvcRedist = "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Redist\MSVC\14.51.36231\x64\Microsoft.VC145.CRT"
+}
 if (Test-Path $msvcRedist) {
     Get-ChildItem "$msvcRedist\*.dll" | ForEach-Object {
         Copy-Item -Path $_.FullName -Destination "$DistDir\x64" -Force
@@ -108,7 +126,15 @@ if (Test-Path "$Bin32\omnigpu_guest.dll") {
         }
     }
     # MSVC runtime x86 DLLs
-    $msvcRedist32 = "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Redist\MSVC\14.51.36231\x86\Microsoft.VC145.CRT"
+    $msvcRedist32 = ""
+    if ($vsPath) {
+        $crtDir32 = Get-ChildItem "$vsPath\VC\Redist\MSVC\*\x86\Microsoft.VC145.CRT" -ErrorAction SilentlyContinue |
+                    Select-Object -First 1 -ExpandProperty FullName
+        if ($crtDir32) { $msvcRedist32 = $crtDir32 }
+    }
+    if (-not $msvcRedist32 -or !(Test-Path $msvcRedist32)) {
+        $msvcRedist32 = "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Redist\MSVC\14.51.36231\x86\Microsoft.VC145.CRT"
+    }
     if (Test-Path $msvcRedist32) {
         Get-ChildItem "$msvcRedist32\*.dll" | ForEach-Object {
             Copy-Item -Path $_.FullName -Destination "$DistDir\x86" -Force

@@ -2,6 +2,7 @@
     "_comment": "OmniGPU Host Configuration — Compute-First",
 
     "port": 9443,
+    "jpeg_quality": 85,
 
     "multi_gpu_enabled": true,
     "render_width": 1920,

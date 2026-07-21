@@ -3,12 +3,44 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#include <limits.h>
+#endif
+
 namespace omnigpu {
 
+static std::string exe_directory() {
+#ifdef _WIN32
+    char buf[MAX_PATH];
+    GetModuleFileNameA(nullptr, buf, sizeof(buf));
+    std::string path(buf);
+    auto pos = path.find_last_of("\\/");
+    return (pos != std::string::npos) ? path.substr(0, pos) : ".";
+#else
+    char buf[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (len > 0) {
+        buf[len] = '\0';
+        std::string path(buf);
+        auto pos = path.find_last_of('/');
+        return (pos != std::string::npos) ? path.substr(0, pos) : ".";
+    }
+    return ".";
+#endif
+}
+
 bool load_config(HostConfig& config) {
-    std::ifstream file(config.config_path);
+    std::string config_path = config.config_path;
+    // Resolve relative path against executable directory
+    if (config_path.find_first_of("\\/") == std::string::npos || config_path[0] == '.') {
+        config_path = exe_directory() + "/" + config_path;
+    }
+    std::ifstream file(config_path);
     if (!file.is_open()) {
-        SPDLOG_INFO("Config file '{}' not found, using defaults", config.config_path);
+        SPDLOG_INFO("Config file '{}' not found, using defaults", config_path);
         return true;
     }
 

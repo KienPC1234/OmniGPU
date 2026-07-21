@@ -191,6 +191,9 @@ public:
     using SendDataFn = std::function<bool(uint64_t buffer_id, const uint8_t* data, size_t size, VkDeviceSize offset)>;
     void set_send_data_callback(SendDataFn fn) { sendDataFn_ = fn; }
 
+    // Public accessor for cached function pointers (needed by Session)
+    void* get_pfn_semaphore_counter_value() const { return pfnGetSemaphoreCounterValue_; }
+
 private:
     using HandlerFn = std::function<void(CommandDispatcher&, VulkanDeserializer&)>;
     std::unordered_map<int, HandlerFn> handlers_;

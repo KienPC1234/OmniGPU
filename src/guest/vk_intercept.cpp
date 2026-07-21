@@ -12,6 +12,7 @@
 #include "guest_init.h"
 #include "omnigpu_protocol_generated.h"
 #include <algorithm>
+#include <vulkan/vk_icd.h>
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
@@ -25,6 +26,16 @@
 #include <vulkan/vulkan_win32.h>
 #endif
 #include <vulkan/vulkan.h>
+
+#ifdef _WIN32
+#include <malloc.h>
+#define omni_aligned_alloc(alignment, size) _aligned_malloc((size), (alignment))
+#define omni_aligned_free(ptr) _aligned_free(ptr)
+#else
+#include <stdlib.h>
+#define omni_aligned_alloc(alignment, size) aligned_alloc((alignment), (size))
+#define omni_aligned_free(ptr) free(ptr)
+#endif
 
 namespace omnigpu::intercept {
 
@@ -57,6 +68,8 @@ uint64_t next_fake_handle() {
 // Minimum storage needed: 2 * sizeof(void*) = 16 bytes on x64.
 struct alignas(void*) FakeInstance {
     void* loader_storage[8];  // 64 bytes — enough for loader dispatch + our data
+    VkPhysicalDevice physical_device = VK_NULL_HANDLE;
+    std::mutex mutex;
 };
 struct alignas(void*) FakePhysicalDevice {
     void* loader_storage[8];
@@ -70,18 +83,31 @@ struct alignas(void*) FakeQueue {
 
 static VkInstance make_fake_instance() {
     auto* inst = new FakeInstance{};
+    set_loader_magic_value(inst);
     return reinterpret_cast<VkInstance>(inst);
 }
 static VkPhysicalDevice make_fake_phys_device() {
     auto* pd = new FakePhysicalDevice{};
+    set_loader_magic_value(pd);
     return reinterpret_cast<VkPhysicalDevice>(pd);
+}
+static VkPhysicalDevice get_or_create_phys_device(VkInstance instance) {
+    auto* inst = reinterpret_cast<FakeInstance*>(instance);
+    if (!inst) return VK_NULL_HANDLE;
+    std::lock_guard<std::mutex> lock(inst->mutex);
+    if (inst->physical_device == VK_NULL_HANDLE) {
+        inst->physical_device = make_fake_phys_device();
+    }
+    return inst->physical_device;
 }
 static VkDevice make_fake_device() {
     auto* dev = new FakeDevice{};
+    set_loader_magic_value(dev);
     return reinterpret_cast<VkDevice>(dev);
 }
 static VkQueue make_fake_queue() {
     auto* q = new FakeQueue{};
+    set_loader_magic_value(q);
     return reinterpret_cast<VkQueue>(q);
 }
 
@@ -152,7 +178,13 @@ void VKAPI_PTR vkDestroyInstance_hook(
 {
     SPDLOG_TRACE("Intercepted: vkDestroyInstance({})",
                  reinterpret_cast<void*>(instance));
-    delete reinterpret_cast<FakeInstance*>(instance);
+    auto* inst = reinterpret_cast<FakeInstance*>(instance);
+    if (inst) {
+        if (inst->physical_device) {
+            delete reinterpret_cast<FakePhysicalDevice*>(inst->physical_device);
+        }
+        delete inst;
+    }
     SPDLOG_DEBUG("vkDestroyInstance: freed instance");
 }
 
@@ -177,7 +209,7 @@ VkResult VKAPI_PTR vkEnumeratePhysicalDevices_hook(
         return VK_INCOMPLETE;
     }
 
-    pPhysicalDevices[0] = make_fake_phys_device();
+    pPhysicalDevices[0] = get_or_create_phys_device(instance);
     *pPhysicalDeviceCount = 1;
     return VK_SUCCESS;
 }
@@ -280,6 +312,7 @@ VkResult VKAPI_PTR vkEnumerateInstanceExtensionProperties_hook(
         add("VK_KHR_display", 23);
         add("VK_KHR_get_display_properties2", 1);
         add("VK_KHR_portability_enumeration", 1);
+        add("VK_KHR_driver_properties", 1);
         add("VK_EXT_surface_maintenance1", 1);
         add("VK_EXT_swapchain_colorspace", 5);
         add("VK_EXT_debug_report", 10);
@@ -327,6 +360,9 @@ VkResult VKAPI_PTR vkEnumerateDeviceExtensionProperties_hook(
         add("VK_KHR_storage_buffer_storage_class", 1);
         add("VK_KHR_16bit_storage", 1);
         add("VK_KHR_8bit_storage", 1);
+        add("VK_KHR_shader_float16_int8", 1);
+        add("VK_KHR_cooperative_matrix", 1);
+        add("VK_KHR_shader_integer_dot_product", 1);
         add("VK_KHR_descriptor_update_template", 1);
         add("VK_KHR_sampler_ycbcr_conversion", 14);
         add("VK_KHR_multiview", 1);
@@ -341,6 +377,7 @@ VkResult VKAPI_PTR vkEnumerateDeviceExtensionProperties_hook(
         add("VK_KHR_spirv_1_4_extension", 1);
         add("VK_KHR_separate_depth_stencil_layouts", 1);
         add("VK_KHR_shader_subgroup_extended_types", 1);
+        add(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME, 1);
         add("VK_KHR_create_renderpass2", 1);
         add("VK_KHR_depth_stencil_resolve", 1);
         add("VK_EXT_vertex_input_dynamic_state", 2);
@@ -597,6 +634,9 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties_hook(
     pProperties->limits.optimalBufferCopyOffsetAlignment = caps.min_uniform_buffer_offset_alignment;
     pProperties->limits.optimalBufferCopyRowPitchAlignment = 256;
     pProperties->limits.nonCoherentAtomSize = caps.non_coherent_atom_size;
+    pProperties->limits.minTexelBufferOffsetAlignment = 256;
+    pProperties->limits.minUniformBufferOffsetAlignment = caps.min_uniform_buffer_offset_alignment ? caps.min_uniform_buffer_offset_alignment : 256;
+    pProperties->limits.minStorageBufferOffsetAlignment = caps.min_storage_buffer_offset_alignment ? caps.min_storage_buffer_offset_alignment : 256;
 
     pProperties->sparseProperties.residencyAlignedMipSize = VK_TRUE;
     pProperties->sparseProperties.residencyNonResidentStrict = VK_TRUE;
@@ -609,21 +649,76 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties2_hook(
     VkPhysicalDevice physicalDevice,
     VkPhysicalDeviceProperties2* pProperties)
 {
-    SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceProperties2");
+    SPDLOG_INFO("Intercepted: vkGetPhysicalDeviceProperties2");
     if (!pProperties) return;
 
     vkGetPhysicalDeviceProperties_hook(physicalDevice, &pProperties->properties);
 
+    auto& caps = caps::get();
+
+    // Traverse pNext chain and fill known structs
+    VkBaseOutStructure* prev = reinterpret_cast<VkBaseOutStructure*>(pProperties);
     VkBaseOutStructure* ext = reinterpret_cast<VkBaseOutStructure*>(pProperties->pNext);
+    bool has_driver_props = false;
     while (ext) {
         switch (ext->sType) {
+        // In modern Vulkan headers (1.4+):
+        //   VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES = 1000094000
+        //   VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES = 50
+        // In old Vulkan headers:
+        //   VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES = 1000094000 (same as modern SUBGROUP_PROPERTIES!)
+        // Handle both: SUBGROUP_PROPERTIES (modern 1000094000) catches old VK11_PROPERTIES too
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES: {
+            auto* sg = reinterpret_cast<VkPhysicalDeviceSubgroupProperties*>(ext);
+            sg->subgroupSize = caps.valid() ? caps.subgroup_size : 32;
+            sg->supportedStages = VK_SHADER_STAGE_ALL;
+            sg->supportedOperations = static_cast<VkSubgroupFeatureFlags>(
+                VK_SUBGROUP_FEATURE_BASIC_BIT |
+                VK_SUBGROUP_FEATURE_VOTE_BIT |
+                VK_SUBGROUP_FEATURE_ARITHMETIC_BIT |
+                VK_SUBGROUP_FEATURE_BALLOT_BIT |
+                VK_SUBGROUP_FEATURE_SHUFFLE_BIT |
+                VK_SUBGROUP_FEATURE_SHUFFLE_RELATIVE_BIT |
+                VK_SUBGROUP_FEATURE_CLUSTERED_BIT |
+                VK_SUBGROUP_FEATURE_QUAD_BIT);
+            sg->quadOperationsInAllStages = VK_TRUE;
+            break;
+        }
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES: {
             auto* p11 = reinterpret_cast<VkPhysicalDeviceVulkan11Properties*>(ext);
             p11->maxMultiviewViewCount = 6;
             p11->maxMultiviewInstanceIndex = (1u << 27) - 1;
-            p11->subgroupSize = 32;
-            p11->subgroupSupportedOperations = VK_SHADER_STAGE_ALL;
+            p11->subgroupSize = caps.valid() ? caps.subgroup_size : 32;
+            p11->subgroupSupportedOperations = static_cast<VkSubgroupFeatureFlags>(
+                caps.valid() ? caps.supported_subgroup_operations :
+                (VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_VOTE_BIT |
+                 VK_SUBGROUP_FEATURE_ARITHMETIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT |
+                 VK_SUBGROUP_FEATURE_SHUFFLE_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_RELATIVE_BIT |
+                 VK_SUBGROUP_FEATURE_CLUSTERED_BIT | VK_SUBGROUP_FEATURE_QUAD_BIT));
             p11->subgroupSupportedStages = VK_SHADER_STAGE_ALL;
+            // Fill UUIDs from cached host GPU caps
+            {
+                auto& caps = caps::get();
+                uint8_t dev_uuid[VK_UUID_SIZE]{};
+                uint8_t drv_uuid[VK_UUID_SIZE]{};
+                if (caps.valid()) {
+                    for (int i = 0; i < 4; i++) {
+                        dev_uuid[i]   = static_cast<uint8_t>((caps.vendor_id >> (i * 8)) & 0xFF);
+                        dev_uuid[4+i] = static_cast<uint8_t>((caps.device_id >> (i * 8)) & 0xFF);
+                        dev_uuid[8+i] = static_cast<uint8_t>((caps.driver_version >> (i * 8)) & 0xFF);
+                        drv_uuid[i]   = static_cast<uint8_t>((caps.driver_version >> (i * 8)) & 0xFF);
+                        drv_uuid[4+i] = static_cast<uint8_t>((caps.vendor_id >> (i * 8)) & 0xFF);
+                    }
+                } else {
+                    dev_uuid[0] = 0x01; dev_uuid[1] = 0x02; dev_uuid[2] = 0x03; dev_uuid[3] = 0x04;
+                    dev_uuid[4] = 0x05; dev_uuid[5] = 0x06; dev_uuid[6] = 0x07; dev_uuid[7] = 0x08;
+                    dev_uuid[8] = 0x09; dev_uuid[9] = 0x0a; dev_uuid[10]= 0x0b; dev_uuid[11]= 0x0c;
+                    dev_uuid[12]= 0x0d; dev_uuid[13]= 0x0e; dev_uuid[14]= 0x0f; dev_uuid[15]= 0x10;
+                    std::memcpy(drv_uuid, dev_uuid, VK_UUID_SIZE);
+                }
+                std::memcpy(p11->deviceUUID, dev_uuid, VK_UUID_SIZE);
+                std::memcpy(p11->driverUUID, drv_uuid, VK_UUID_SIZE);
+            }
             break;
         }
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES: {
@@ -646,10 +741,139 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties2_hook(
             p13->maxDescriptorSetUpdateAfterBindInlineUniformBlocks = 4;
             break;
         }
-        default:
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES: {
+            auto* scp = reinterpret_cast<VkPhysicalDeviceSubgroupSizeControlProperties*>(ext);
+            scp->minSubgroupSize = 32;
+            scp->maxSubgroupSize = 32;
+            scp->maxComputeWorkgroupSubgroups = 0xFFFFFFFF;
+            scp->requiredSubgroupSizeStages = VK_SHADER_STAGE_ALL;
             break;
         }
+        case 1000095000: // old VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES (pre-renumbering)
+        {
+            auto* sg = reinterpret_cast<VkPhysicalDeviceSubgroupProperties*>(ext);
+            sg->subgroupSize = caps.valid() ? caps.subgroup_size : 32;
+            sg->supportedStages = VK_SHADER_STAGE_ALL;
+            // Set all subgroup operations supported (NVIDIA GPUs support all)
+            sg->supportedOperations = static_cast<VkSubgroupFeatureFlags>(
+                VK_SUBGROUP_FEATURE_BASIC_BIT |
+                VK_SUBGROUP_FEATURE_VOTE_BIT |
+                VK_SUBGROUP_FEATURE_ARITHMETIC_BIT |
+                VK_SUBGROUP_FEATURE_BALLOT_BIT |
+                VK_SUBGROUP_FEATURE_SHUFFLE_BIT |
+                VK_SUBGROUP_FEATURE_SHUFFLE_RELATIVE_BIT |
+                VK_SUBGROUP_FEATURE_CLUSTERED_BIT |
+                VK_SUBGROUP_FEATURE_QUAD_BIT);
+            sg->quadOperationsInAllStages = VK_TRUE;
+            break;
+        }
+        case 1000413001: { // VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_PROPERTIES
+            auto* m4 = reinterpret_cast<VkPhysicalDeviceMaintenance4Properties*>(ext);
+            m4->maxBufferSize = 8ULL * 1024 * 1024 * 1024;
+            break;
+        }
+        case 1000168000: { // VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES
+            auto* m3 = reinterpret_cast<VkPhysicalDeviceMaintenance3Properties*>(ext);
+            m3->maxMemoryAllocationSize = caps.valid() ? caps.max_memory_allocation : (8ULL * 1024 * 1024 * 1024);
+            m3->maxPerSetDescriptors = 1024;
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES: {
+            auto* drv = reinterpret_cast<VkPhysicalDeviceDriverProperties*>(ext);
+            auto& caps = caps::get();
+            if (caps.valid()) {
+                strncpy_s(drv->driverName, VK_MAX_DRIVER_NAME_SIZE,
+                          caps.gpu_name.c_str(), _TRUNCATE);
+                strncpy_s(drv->driverInfo, VK_MAX_DRIVER_INFO_SIZE,
+                          ("OmniGPU forwarding to " + caps.gpu_name).c_str(), _TRUNCATE);
+                drv->driverID = VK_DRIVER_ID_NVIDIA_PROPRIETARY;
+                drv->conformanceVersion = {1, 3, 6, 0};
+            } else {
+                drv->driverID = VK_DRIVER_ID_AMD_PROPRIETARY;
+                drv->conformanceVersion = {1, 3, 0, 0};
+                strncpy_s(drv->driverName, VK_MAX_DRIVER_NAME_SIZE,
+                          "OmniGPU Virtual", _TRUNCATE);
+            }
+            has_driver_props = true;
+            SPDLOG_INFO("vkGetPhysicalDeviceProperties2: set driverID={}", static_cast<int>(drv->driverID));
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES: {
+            auto* id = reinterpret_cast<VkPhysicalDeviceIDProperties*>(ext);
+            std::memcpy(id->deviceUUID, "\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10", VK_UUID_SIZE);
+            std::memcpy(id->driverUUID, "\x10\x0f\x0e\x0d\x0c\x0b\x0a\x09\x08\x07\x06\x05\x04\x03\x02\x01", VK_UUID_SIZE);
+            id->deviceLUIDValid = VK_FALSE;
+            SPDLOG_INFO("vkGetPhysicalDeviceProperties2: handled VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES");
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_PROPERTIES: {
+            auto* p = reinterpret_cast<VkPhysicalDeviceShaderIntegerDotProductProperties*>(ext);
+            bool ok = caps.valid() && caps.supports_integer_dot_product;
+            p->integerDotProduct8BitUnsignedAccelerated = ok;
+            p->integerDotProduct8BitSignedAccelerated = ok;
+            p->integerDotProduct8BitMixedSignednessAccelerated = ok;
+            p->integerDotProduct4x8BitPackedUnsignedAccelerated = ok;
+            p->integerDotProduct4x8BitPackedSignedAccelerated = ok;
+            p->integerDotProduct4x8BitPackedMixedSignednessAccelerated = ok;
+            p->integerDotProduct16BitUnsignedAccelerated = ok;
+            p->integerDotProduct16BitSignedAccelerated = ok;
+            p->integerDotProduct16BitMixedSignednessAccelerated = ok;
+            p->integerDotProduct32BitUnsignedAccelerated = ok;
+            p->integerDotProduct32BitSignedAccelerated = ok;
+            p->integerDotProduct32BitMixedSignednessAccelerated = ok;
+            p->integerDotProduct64BitUnsignedAccelerated = ok;
+            p->integerDotProduct64BitSignedAccelerated = ok;
+            p->integerDotProduct64BitMixedSignednessAccelerated = ok;
+            p->integerDotProductAccumulatingSaturating8BitUnsignedAccelerated = ok;
+            p->integerDotProductAccumulatingSaturating8BitSignedAccelerated = ok;
+            p->integerDotProductAccumulatingSaturating8BitMixedSignednessAccelerated = ok;
+            p->integerDotProductAccumulatingSaturating4x8BitPackedUnsignedAccelerated = ok;
+            p->integerDotProductAccumulatingSaturating4x8BitPackedSignedAccelerated = ok;
+            p->integerDotProductAccumulatingSaturating4x8BitPackedMixedSignednessAccelerated = ok;
+            p->integerDotProductAccumulatingSaturating16BitUnsignedAccelerated = ok;
+            p->integerDotProductAccumulatingSaturating16BitSignedAccelerated = ok;
+            p->integerDotProductAccumulatingSaturating16BitMixedSignednessAccelerated = ok;
+            p->integerDotProductAccumulatingSaturating32BitUnsignedAccelerated = ok;
+            p->integerDotProductAccumulatingSaturating32BitSignedAccelerated = ok;
+            p->integerDotProductAccumulatingSaturating32BitMixedSignednessAccelerated = ok;
+            p->integerDotProductAccumulatingSaturating64BitUnsignedAccelerated = ok;
+            p->integerDotProductAccumulatingSaturating64BitSignedAccelerated = ok;
+            p->integerDotProductAccumulatingSaturating64BitMixedSignednessAccelerated = ok;
+            SPDLOG_INFO("vkGetPhysicalDeviceProperties2: handled VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_PROPERTIES");
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_PROPERTIES: {
+            auto* p = reinterpret_cast<VkPhysicalDeviceTexelBufferAlignmentProperties*>(ext);
+            p->storageTexelBufferOffsetAlignmentBytes = 256;
+            p->storageTexelBufferOffsetSingleTexelAlignment = VK_FALSE;
+            p->uniformTexelBufferOffsetAlignmentBytes = 256;
+            p->uniformTexelBufferOffsetSingleTexelAlignment = VK_FALSE;
+            SPDLOG_INFO("vkGetPhysicalDeviceProperties2: handled VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_PROPERTIES");
+            break;
+        }
+        default:
+            SPDLOG_INFO("vkGetPhysicalDeviceProperties2: unhandled sType={}", static_cast<int>(ext->sType));
+            break;
+        }
+        prev = ext;
         ext = ext->pNext;
+    }
+
+    // If vulkaninfo didn't request driver properties, inject them into the chain
+    if (!has_driver_props && caps.valid()) {
+        static VkPhysicalDeviceDriverProperties fallback_drv{};
+        if (fallback_drv.sType == 0) {
+            fallback_drv.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
+            fallback_drv.driverID = VK_DRIVER_ID_NVIDIA_PROPRIETARY;
+            strncpy_s(fallback_drv.driverName, VK_MAX_DRIVER_NAME_SIZE,
+                      caps.gpu_name.c_str(), _TRUNCATE);
+            strncpy_s(fallback_drv.driverInfo, VK_MAX_DRIVER_INFO_SIZE,
+                      ("OmniGPU forwarding to " + caps.gpu_name).c_str(), _TRUNCATE);
+            fallback_drv.conformanceVersion = {1, 3, 6, 0};
+        }
+        fallback_drv.pNext = nullptr;
+        prev->pNext = reinterpret_cast<VkBaseOutStructure*>(&fallback_drv);
+        SPDLOG_INFO("vkGetPhysicalDeviceProperties2: injected driver properties");
     }
 }
 
@@ -689,16 +913,23 @@ void VKAPI_PTR vkGetPhysicalDeviceFeatures2_hook(
     if (!pFeatures) return;
     vkGetPhysicalDeviceFeatures_hook(physicalDevice, &pFeatures->features);
 
+    auto& caps = caps::get();
+
     VkBaseOutStructure* ext = reinterpret_cast<VkBaseOutStructure*>(pFeatures->pNext);
     while (ext) {
         switch (ext->sType) {
+        case 1000094001: // old VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES: {
             auto* f11 = reinterpret_cast<VkPhysicalDeviceVulkan11Features*>(ext);
             // Compute-relevant 1.1 features
             f11->multiview = VK_FALSE;
             f11->samplerYcbcrConversion = VK_TRUE;
+            // 16-bit storage promoted to Vulkan 1.1
+            f11->storageBuffer16BitAccess = caps.valid() ? caps.supports_16bit_storage : VK_FALSE;
+            f11->uniformAndStorageBuffer16BitAccess = caps.valid() ? caps.supports_16bit_storage : VK_FALSE;
             break;
         }
+        case 1000094003: // old VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES: {
             auto* f12 = reinterpret_cast<VkPhysicalDeviceVulkan12Features*>(ext);
             // Compute-critical 1.2 features
@@ -717,6 +948,12 @@ void VKAPI_PTR vkGetPhysicalDeviceFeatures2_hook(
             f12->vulkanMemoryModel = VK_TRUE;
             f12->vulkanMemoryModelDeviceScope = VK_TRUE;
             f12->drawIndirectCount = VK_TRUE;
+            // ML support — enable only if host GPU supports them
+            f12->shaderFloat16 = caps.valid() ? caps.supports_float16_int8 : VK_FALSE;
+            f12->shaderInt8   = caps.valid() ? caps.supports_float16_int8 : VK_FALSE;
+            // 8-bit storage promoted to Vulkan 1.2
+            f12->storageBuffer8BitAccess = caps.valid() ? caps.supports_8bit_storage : VK_FALSE;
+            f12->uniformAndStorageBuffer8BitAccess = caps.valid() ? caps.supports_8bit_storage : VK_FALSE;
             // Non-essential for compute
             f12->samplerMirrorClampToEdge = VK_FALSE;
             f12->shaderSampledImageArrayNonUniformIndexing = VK_FALSE;
@@ -729,6 +966,7 @@ void VKAPI_PTR vkGetPhysicalDeviceFeatures2_hook(
             f12->subgroupBroadcastDynamicId = VK_FALSE;
             break;
         }
+        case 1000094005: // old VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES: {
             auto* f13 = reinterpret_cast<VkPhysicalDeviceVulkan13Features*>(ext);
             // Compute-critical 1.3 features
@@ -738,7 +976,7 @@ void VKAPI_PTR vkGetPhysicalDeviceFeatures2_hook(
             f13->subgroupSizeControl = VK_TRUE;
             f13->computeFullSubgroups = VK_TRUE;
             f13->shaderZeroInitializeWorkgroupMemory = VK_TRUE;
-            f13->shaderIntegerDotProduct = VK_TRUE;
+            f13->shaderIntegerDotProduct = caps.valid() ? caps.supports_integer_dot_product : VK_FALSE;
             // Non-essential for compute
             f13->dynamicRendering = VK_FALSE;
             f13->inlineUniformBlock = VK_FALSE;
@@ -746,6 +984,43 @@ void VKAPI_PTR vkGetPhysicalDeviceFeatures2_hook(
             f13->shaderDemoteToHelperInvocation = VK_FALSE;
             f13->shaderTerminateInvocation = VK_FALSE;
             f13->textureCompressionASTC_HDR = VK_FALSE;
+            break;
+        }
+        case 1000168000: // old VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES (KHR extension numbering)
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES: {
+            auto* f16s = reinterpret_cast<VkPhysicalDevice16BitStorageFeatures*>(ext);
+            bool ok = caps.valid() && caps.supports_16bit_storage;
+            f16s->storageBuffer16BitAccess = ok;
+            f16s->uniformAndStorageBuffer16BitAccess = ok;
+            f16s->storagePushConstant16 = VK_FALSE;
+            f16s->storageInputOutput16 = VK_FALSE;
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES: {
+            auto* f8s = reinterpret_cast<VkPhysicalDevice8BitStorageFeatures*>(ext);
+            bool ok = caps.valid() && caps.supports_8bit_storage;
+            f8s->storageBuffer8BitAccess = ok;
+            f8s->uniformAndStorageBuffer8BitAccess = ok;
+            f8s->storagePushConstant8 = VK_FALSE;
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES: {
+            auto* ffi = reinterpret_cast<VkPhysicalDeviceShaderFloat16Int8Features*>(ext);
+            bool ok = caps.valid() && caps.supports_float16_int8;
+            ffi->shaderFloat16 = ok;
+            ffi->shaderInt8 = ok;
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR: {
+            auto* f = reinterpret_cast<VkPhysicalDeviceCooperativeMatrixFeaturesKHR*>(ext);
+            bool ok = caps.valid() && caps.supports_cooperative_matrix;
+            f->cooperativeMatrix = ok;
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_FEATURES_KHR: {
+            auto* f = reinterpret_cast<VkPhysicalDeviceShaderIntegerDotProductFeaturesKHR*>(ext);
+            bool ok = caps.valid() && caps.supports_integer_dot_product;
+            f->shaderIntegerDotProduct = ok;
             break;
         }
         default:
@@ -821,6 +1096,23 @@ void VKAPI_PTR vkGetPhysicalDeviceMemoryProperties2_hook(
     SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceMemoryProperties2");
     if (!pMemoryProperties) return;
     vkGetPhysicalDeviceMemoryProperties_hook(physicalDevice, &pMemoryProperties->memoryProperties);
+
+    VkBaseOutStructure* ext = reinterpret_cast<VkBaseOutStructure*>(pMemoryProperties->pNext);
+    while (ext) {
+        if (ext->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT) {
+            auto* mb = reinterpret_cast<VkPhysicalDeviceMemoryBudgetPropertiesEXT*>(ext);
+            mb->heapBudget[0] = pMemoryProperties->memoryProperties.memoryHeaps[0].size;
+            mb->heapUsage[0] = 0;
+            mb->heapBudget[1] = pMemoryProperties->memoryProperties.memoryHeaps[1].size;
+            mb->heapUsage[1] = 0;
+            for (uint32_t i = 2; i < VK_MAX_MEMORY_HEAPS; i++) {
+                mb->heapBudget[i] = 0;
+                mb->heapUsage[i] = 0;
+            }
+            SPDLOG_INFO("vkGetPhysicalDeviceMemoryProperties2: handled VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT");
+        }
+        ext = ext->pNext;
+    }
 }
 
 void VKAPI_PTR vkGetPhysicalDeviceQueueFamilyProperties_hook(
@@ -941,38 +1233,60 @@ uint64_t VKAPI_PTR vkGetBufferDeviceAddress_hook(
     VkDevice device,
     const VkBufferDeviceAddressInfo* pInfo)
 {
-    SPDLOG_TRACE("Intercepted: vkGetBufferDeviceAddress");
     if (!pInfo) return 0;
+    SPDLOG_INFO("vkGetBufferDeviceAddress_hook entry: buffer={:#x}", handle_to_u64(pInfo->buffer));
+    auto* batch = get_batch();
+    if (batch) {
+        batch->flush();
+    }
     auto* cl = init::get_client();
+    uint64_t addr = 0;
     if (cl && cl->socket() != INVALID_SOCKET) {
         uint64_t buffer_handle = handle_to_u64(pInfo->buffer);
-        return cl->sync_query(0x80, buffer_handle);
+        addr = cl->sync_query(0x80, buffer_handle);
+    } else {
+        addr = handle_to_u64(pInfo->buffer);
     }
-    return handle_to_u64(pInfo->buffer);
+    SPDLOG_INFO("vkGetBufferDeviceAddress_hook exit: address={:#x}", addr);
+    return addr;
 }
 
 uint64_t VKAPI_PTR vkGetBufferOpaqueCaptureAddress_hook(
     VkDevice device,
     const VkBufferDeviceAddressInfo* pInfo)
 {
-    SPDLOG_TRACE("Intercepted: vkGetBufferOpaqueCaptureAddress");
     if (!pInfo) return 0;
+    SPDLOG_INFO("vkGetBufferOpaqueCaptureAddress_hook entry: buffer={:#x}", handle_to_u64(pInfo->buffer));
+    auto* batch = get_batch();
+    if (batch) {
+        batch->flush();
+    }
     auto* cl = init::get_client();
-    if (cl && cl->socket() != INVALID_SOCKET)
-        return cl->sync_query(0x81, handle_to_u64(pInfo->buffer));
-    return 0;
+    uint64_t addr = 0;
+    if (cl && cl->socket() != INVALID_SOCKET) {
+        addr = cl->sync_query(0x81, handle_to_u64(pInfo->buffer));
+    }
+    SPDLOG_INFO("vkGetBufferOpaqueCaptureAddress_hook exit: address={:#x}", addr);
+    return addr;
 }
 
 uint64_t VKAPI_PTR vkGetDeviceMemoryOpaqueCaptureAddress_hook(
     VkDevice device,
     const VkDeviceMemoryOpaqueCaptureAddressInfo* pInfo)
 {
-    SPDLOG_TRACE("Intercepted: vkGetDeviceMemoryOpaqueCaptureAddress");
     if (!pInfo) return 0;
+    SPDLOG_INFO("vkGetDeviceMemoryOpaqueCaptureAddress_hook entry: memory={:#x}", handle_to_u64(pInfo->memory));
+    auto* batch = get_batch();
+    if (batch) {
+        batch->flush();
+    }
     auto* cl = init::get_client();
-    if (cl && cl->socket() != INVALID_SOCKET)
-        return cl->sync_query(0x82, handle_to_u64(pInfo->memory));
-    return 0;
+    uint64_t addr = 0;
+    if (cl && cl->socket() != INVALID_SOCKET) {
+        addr = cl->sync_query(0x82, handle_to_u64(pInfo->memory));
+    }
+    SPDLOG_INFO("vkGetDeviceMemoryOpaqueCaptureAddress_hook exit: address={:#x}", addr);
+    return addr;
 }
 
 void VKAPI_PTR vkGetRenderAreaGranularity_hook(
@@ -1118,6 +1432,13 @@ VkResult VKAPI_PTR vkGetFenceStatus_hook(VkDevice device, VkFence fence) {
 
 VkResult VKAPI_PTR vkGetEventStatus_hook(VkDevice device, VkEvent event) {
     SPDLOG_TRACE("Intercepted: vkGetEventStatus");
+    auto* batch = get_batch();
+    if (batch) batch->flush();
+    auto* client = init::get_client();
+    if (client) {
+        uint64_t res = client->sync_query(0x8e, handle_to_u64(event));
+        return static_cast<VkResult>(res);
+    }
     return VK_EVENT_SET;
 }
 
@@ -1213,11 +1534,29 @@ VkResult VKAPI_PTR vkBeginCommandBuffer_hook(
     
     // Manual serialization of VkCommandBufferBeginInfo
     ser.write_u32(pBeginInfo->sType);
+    // Serialize pNext chain (only VkDeviceGroupCommandBufferBeginInfo supported)
+    if (pBeginInfo->pNext) {
+        auto* pNext = pBeginInfo->pNext;
+        VkStructureType st = *reinterpret_cast<const VkStructureType*>(pNext);
+        if (st == VK_STRUCTURE_TYPE_DEVICE_GROUP_COMMAND_BUFFER_BEGIN_INFO) {
+            ser.write_u32(static_cast<uint32_t>(st));
+            auto* dg = static_cast<const VkDeviceGroupCommandBufferBeginInfo*>(pNext);
+            ser.write_u32(dg->deviceMask);
+        } else {
+            ser.write_u32(0);
+        }
+    } else {
+        ser.write_u32(0);
+    }
     ser.write_u32(pBeginInfo->flags);
     ser.write_bool(pBeginInfo->pInheritanceInfo != nullptr);
     if (pBeginInfo->pInheritanceInfo) {
         const auto* pInherit = pBeginInfo->pInheritanceInfo;
         ser.write_u32(pInherit->sType);
+        // InheritanceInfo pNext — write type + size for skipping
+        ser.write_u32(pInherit->pNext
+            ? static_cast<uint32_t>(*reinterpret_cast<const VkStructureType*>(pInherit->pNext))
+            : 0U);
         ser.write_handle(handle_to_u64(pInherit->renderPass));
         ser.write_u32(pInherit->subpass);
         ser.write_handle(handle_to_u64(pInherit->framebuffer));
@@ -1428,6 +1767,11 @@ void VKAPI_PTR vkGetBufferMemoryRequirements_hook(
 {
     SPDLOG_TRACE("Intercepted: vkGetBufferMemoryRequirements");
     if (pMemoryRequirements) {
+        // Flush batch first so host has created the buffer
+        auto* batch = get_batch();
+        if (batch) {
+            batch->flush();
+        }
         // Sync from host for accurate size
         auto* cl = init::get_client();
         if (cl && cl->socket() != INVALID_SOCKET) {
@@ -1461,6 +1805,11 @@ void VKAPI_PTR vkGetImageMemoryRequirements_hook(
 {
     SPDLOG_TRACE("Intercepted: vkGetImageMemoryRequirements");
     if (pMemoryRequirements) {
+        // Flush batch first so host has created the image
+        auto* batch = get_batch();
+        if (batch) {
+            batch->flush();
+        }
         auto* cl = init::get_client();
         if (cl && cl->socket() != INVALID_SOCKET) {
             uint64_t result = cl->sync_query(0x84, handle_to_u64(image));
@@ -1471,7 +1820,8 @@ void VKAPI_PTR vkGetImageMemoryRequirements_hook(
                 return;
             }
         }
-        pMemoryRequirements->size = 262144;
+        // Fallback
+        pMemoryRequirements->size = 1024 * 1024;
         pMemoryRequirements->alignment = 65536;
         pMemoryRequirements->memoryTypeBits = 0x1F;
     }
@@ -1671,7 +2021,7 @@ VkResult VKAPI_PTR vkEnumeratePhysicalDeviceGroups_hook(
     std::memset(pPhysicalDeviceGroupProperties, 0, sizeof(VkPhysicalDeviceGroupProperties));
     pPhysicalDeviceGroupProperties->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GROUP_PROPERTIES;
     pPhysicalDeviceGroupProperties->physicalDeviceCount = 1;
-    pPhysicalDeviceGroupProperties->physicalDevices[0] = make_fake_phys_device();
+    pPhysicalDeviceGroupProperties->physicalDevices[0] = get_or_create_phys_device(instance);
     pPhysicalDeviceGroupProperties->subsetAllocation = VK_FALSE;
     *pPhysicalDeviceGroupCount = 1;
     return VK_SUCCESS;
@@ -1750,8 +2100,9 @@ VkResult VKAPI_PTR vkAllocateMemory_hook(
     const VkAllocationCallbacks* pAllocator,
     VkDeviceMemory* pMemory)
 {
-    SPDLOG_TRACE("Intercepted: vkAllocateMemory size={}",
-                 pAllocateInfo ? pAllocateInfo->allocationSize : 0);
+    SPDLOG_INFO("vkAllocateMemory_hook entry: size={} type={}",
+                pAllocateInfo ? pAllocateInfo->allocationSize : 0,
+                pAllocateInfo ? pAllocateInfo->memoryTypeIndex : 99);
 
     // Create fake handle and track allocation size
     VkDeviceMemory fake_mem{};
@@ -1786,6 +2137,7 @@ VkResult VKAPI_PTR vkAllocateMemory_hook(
         batch->append(builder);
     }
 
+    SPDLOG_INFO("vkAllocateMemory_hook exit: handle={:#x}", handle_to_u64(fake_mem));
     return VK_SUCCESS;
 }
 
@@ -1799,7 +2151,7 @@ void VKAPI_PTR vkFreeMemory_hook(
         std::lock_guard<std::mutex> lock(s_map_mutex);
         auto it = s_mapped_ptrs.find(handle_to_u64(memory));
         if (it != s_mapped_ptrs.end()) {
-            std::free(it->second);
+            omni_aligned_free(it->second);
             s_mapped_ptrs.erase(it);
         }
     }
@@ -1838,43 +2190,50 @@ VkResult VKAPI_PTR vkMapMemory_hook(
     VkDeviceSize offset, VkDeviceSize size,
     VkMemoryMapFlags flags, void** ppData)
 {
-    VkDeviceSize actual_size = resolve_map_size(memory, size, offset);
-    SPDLOG_TRACE("Intercepted: vkMapMemory device={} memory={} size={} actual={}",
-                 (void*)device, (void*)memory, size, actual_size);
-    if (actual_size == 0) {
-        SPDLOG_ERROR("vkMapMemory: resolved size is 0 (untracked memory or VK_WHOLE_SIZE on size-0 allocation)");
+    VkDeviceSize total_size = get_memory_size(memory);
+    SPDLOG_INFO("vkMapMemory_hook entry: device={} memory={} size={} total_size={}",
+                (void*)device, (void*)memory, size, total_size);
+    if (total_size == 0) {
+        SPDLOG_ERROR("vkMapMemory: total_size is 0 (untracked memory allocation)");
         return VK_ERROR_MEMORY_MAP_FAILED;
     }
     if (!ppData) return VK_ERROR_INITIALIZATION_FAILED;
-    void* ptr = std::malloc(static_cast<size_t>(actual_size));
+
+    // Allocate host shadow buffer of the entire allocation size to prevent out of bounds
+    size_t aligned_size = (static_cast<size_t>(total_size) + 255) & ~255;
+    void* ptr = omni_aligned_alloc(256, aligned_size);
     if (!ptr) {
-        SPDLOG_ERROR("vkMapMemory: failed to allocate {} bytes", actual_size);
+        SPDLOG_ERROR("vkMapMemory: failed to allocate {} bytes", aligned_size);
         return VK_ERROR_OUT_OF_HOST_MEMORY;
     }
-    std::memset(ptr, 0, static_cast<size_t>(actual_size));
-    *ppData = ptr;
+    std::memset(ptr, 0, aligned_size);
+
+    // Return pointer shifted by the offset
+    *ppData = static_cast<uint8_t*>(ptr) + offset;
+
     uint64_t mem_key = handle_to_u64(memory);
     {
         std::lock_guard<std::mutex> lock(s_map_mutex);
         s_mapped_ptrs[mem_key] = ptr;
         s_memory_map_offsets[mem_key] = offset;
     }
-    SPDLOG_DEBUG("vkMapMemory: allocated {} bytes for mem={:#x} (map_offset={})", actual_size, mem_key, offset);
+    SPDLOG_INFO("vkMapMemory_hook exit: ptr={} mem={:#x} (map_offset={})", *ppData, mem_key, offset);
     return VK_SUCCESS;
 }
 
 void VKAPI_PTR vkUnmapMemory_hook(VkDevice device, VkDeviceMemory memory)
 {
-    SPDLOG_TRACE("Intercepted: vkUnmapMemory device={} memory={}",
-                 (void*)device, (void*)memory);
+    SPDLOG_INFO("vkUnmapMemory_hook entry: device={} memory={}", (void*)device, (void*)memory);
     uint64_t mem_key = handle_to_u64(memory);
     std::lock_guard<std::mutex> lock(s_map_mutex);
     auto it = s_mapped_ptrs.find(mem_key);
     if (it != s_mapped_ptrs.end()) {
-        std::free(it->second);
+        omni_aligned_free(it->second);
         s_mapped_ptrs.erase(it);
         s_memory_map_offsets.erase(mem_key);
-        SPDLOG_DEBUG("vkUnmapMemory: freed mapped memory for mem={:#x}", mem_key);
+        SPDLOG_INFO("vkUnmapMemory_hook exit: freed mapped memory for mem={:#x}", mem_key);
+    } else {
+        SPDLOG_INFO("vkUnmapMemory_hook exit: memory not mapped");
     }
 }
 
@@ -1888,27 +2247,29 @@ VkResult VKAPI_PTR vkMapMemory2_hook(
     void** ppData)
 {
     if (!pMemoryMapInfo || !ppData) return VK_ERROR_INITIALIZATION_FAILED;
-    VkDeviceSize actual_size = resolve_map_size(
-        pMemoryMapInfo->memory, pMemoryMapInfo->size, pMemoryMapInfo->offset);
-    SPDLOG_TRACE("Intercepted: vkMapMemory2 device={} memory={} size={} actual={}",
-                 (void*)device, (void*)pMemoryMapInfo->memory,
-                 pMemoryMapInfo->size, actual_size);
-    if (actual_size > 0) {
-        void* ptr = std::malloc(static_cast<size_t>(actual_size));
-        if (ptr) {
-            std::memset(ptr, 0, static_cast<size_t>(actual_size));
-            *ppData = ptr;
-            uint64_t mem_key = handle_to_u64(pMemoryMapInfo->memory);
-            {
-                std::lock_guard<std::mutex> lock(s_map_mutex);
-                s_mapped_ptrs[mem_key] = ptr;
-                s_memory_map_offsets[mem_key] = pMemoryMapInfo->offset;
-            }
-            SPDLOG_DEBUG("vkMapMemory2: allocated {} bytes for mem={:#x} (map_offset={})", actual_size, mem_key, pMemoryMapInfo->offset);
-        } else {
-            SPDLOG_ERROR("vkMapMemory2: failed to allocate {} bytes", actual_size);
-            return VK_ERROR_OUT_OF_HOST_MEMORY;
+    VkDeviceSize total_size = get_memory_size(pMemoryMapInfo->memory);
+    SPDLOG_INFO("vkMapMemory2_hook entry: device={} memory={} size={} total_size={}",
+                (void*)device, (void*)pMemoryMapInfo->memory,
+                pMemoryMapInfo->size, total_size);
+    if (total_size == 0) {
+        SPDLOG_ERROR("vkMapMemory2: total_size is 0 (untracked memory allocation)");
+        return VK_ERROR_MEMORY_MAP_FAILED;
+    }
+    size_t aligned_size = (static_cast<size_t>(total_size) + 255) & ~255;
+    void* ptr = omni_aligned_alloc(256, aligned_size);
+    if (ptr) {
+        std::memset(ptr, 0, aligned_size);
+        *ppData = static_cast<uint8_t*>(ptr) + pMemoryMapInfo->offset;
+        uint64_t mem_key = handle_to_u64(pMemoryMapInfo->memory);
+        {
+            std::lock_guard<std::mutex> lock(s_map_mutex);
+            s_mapped_ptrs[mem_key] = ptr;
+            s_memory_map_offsets[mem_key] = pMemoryMapInfo->offset;
         }
+        SPDLOG_INFO("vkMapMemory2_hook exit: ptr={} mem={:#x} (map_offset={})", *ppData, mem_key, pMemoryMapInfo->offset);
+    } else {
+        SPDLOG_ERROR("vkMapMemory2: failed to allocate {} bytes", aligned_size);
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
     }
     return VK_SUCCESS;
 }
@@ -1918,16 +2279,17 @@ void VKAPI_PTR vkUnmapMemory2_hook(
     const VkMemoryUnmapInfo* pMemoryUnmapInfo)
 {
     if (!pMemoryUnmapInfo) return;
-    SPDLOG_TRACE("Intercepted: vkUnmapMemory2 device={} memory={}",
-                 (void*)device, (void*)pMemoryUnmapInfo->memory);
+    SPDLOG_INFO("vkUnmapMemory2_hook entry: device={} memory={}", (void*)device, (void*)pMemoryUnmapInfo->memory);
     uint64_t mem_key = handle_to_u64(pMemoryUnmapInfo->memory);
     std::lock_guard<std::mutex> lock(s_map_mutex);
     auto it = s_mapped_ptrs.find(mem_key);
     if (it != s_mapped_ptrs.end()) {
-        std::free(it->second);
+        omni_aligned_free(it->second);
         s_mapped_ptrs.erase(it);
         s_memory_map_offsets.erase(mem_key);
-        SPDLOG_DEBUG("vkUnmapMemory2: freed mapped memory for mem={:#x}", mem_key);
+        SPDLOG_INFO("vkUnmapMemory2_hook exit: freed mapped memory for mem={:#x}", mem_key);
+    } else {
+        SPDLOG_INFO("vkUnmapMemory2_hook exit: memory not mapped");
     }
 }
 
@@ -1961,32 +2323,21 @@ void sync_all_mapped_memory_to_host() {
             if (it != s_memory_devices.end()) device = it->second;
         }
         VkDeviceSize total_size = s_memory_sizes[mem_key];
-        VkDeviceSize map_offset = s_memory_map_offsets[mem_key];
         if (total_size == 0 || !guest_ptr) continue;
-
-        // Adjust flush offset by map offset (guest_ptr points to map base, not allocation base)
-        auto adjust_offset = [&](VkDeviceSize raw_off, VkDeviceSize raw_size) {
-            VkDeviceSize adj_off = (raw_off > map_offset) ? (raw_off - map_offset) : 0;
-            VkDeviceSize adj_size = raw_size;
-            if (adj_off + adj_size > total_size)
-                adj_size = (adj_off < total_size) ? (total_size - adj_off) : 0;
-            return std::make_pair(adj_off, adj_size);
-        };
 
         // Check if we have tracked flush ranges — if so, only send those
         auto flush_it = s_pending_flushes.find(mem_key);
         if (flush_it != s_pending_flushes.end() && !flush_it->second.empty()) {
             for (const auto& pf : flush_it->second) {
-                auto [adj_off, adj_size] = adjust_offset(pf.offset, pf.size);
-                if (adj_size == 0) continue;
+                if (pf.offset + pf.size > total_size) continue;
                 serializer::VulkanSerializer ser;
                 ser.write_handle((uint64_t)(device));
                 ser.write_u32(1);
                 ser.write_handle(mem_key);
                 ser.write_u64(pf.offset);
                 ser.write_u64(pf.size);
-                ser.write_raw(reinterpret_cast<const uint8_t*>(guest_ptr) + adj_off,
-                              static_cast<size_t>(adj_size));
+                ser.write_raw(reinterpret_cast<const uint8_t*>(guest_ptr) + pf.offset,
+                              static_cast<size_t>(pf.size));
 
                 static std::atomic<uint32_t> req_id{0x90000000};
                 auto builder = protocol::build_command(
@@ -1999,20 +2350,14 @@ void sync_all_mapped_memory_to_host() {
             flush_it->second.clear();
         } else {
             // Fallback: send entire range
-            VkDeviceSize adj_off = 0;
-            VkDeviceSize adj_size = total_size;
-            if (map_offset > 0) {
-                adj_off = 0;
-                adj_size = (map_offset < total_size) ? (total_size - map_offset) : 0;
-            }
             serializer::VulkanSerializer ser;
             ser.write_handle((uint64_t)(device));
             ser.write_u32(1);
             ser.write_handle(mem_key);
             ser.write_u64(0);
-            ser.write_u64(adj_size);
-            ser.write_raw(reinterpret_cast<const uint8_t*>(guest_ptr) + adj_off,
-                          static_cast<size_t>(adj_size));
+            ser.write_u64(total_size);
+            ser.write_raw(reinterpret_cast<const uint8_t*>(guest_ptr),
+                          static_cast<size_t>(total_size));
 
             static std::atomic<uint32_t> req_id{0x90000000};
             auto builder = protocol::build_command(
@@ -2032,8 +2377,7 @@ void sync_all_mapped_memory_to_host() {
 VkResult VKAPI_PTR vkFlushMappedMemoryRanges_hook(
     VkDevice device, uint32_t memoryRangeCount, const VkMappedMemoryRange* pMemoryRanges)
 {
-    SPDLOG_TRACE("Intercepted: vkFlushMappedMemoryRanges");
-
+    SPDLOG_INFO("vkFlushMappedMemoryRanges_hook entry: count={}", memoryRangeCount);
     {
         std::lock_guard<std::mutex> lock(s_map_mutex);
         for (uint32_t i = 0; i < memoryRangeCount; i++) {
@@ -2048,6 +2392,8 @@ VkResult VKAPI_PTR vkFlushMappedMemoryRanges_hook(
                 guest_ptr = it->second;
             }
 
+            SPDLOG_INFO("  range {}: memory={:#x} offset={} size={} guest_ptr={}", i, mem_key, offset, size, guest_ptr);
+
             if (guest_ptr && size > 0) {
                 // Mark this range as pending sync
                 s_pending_flushes[mem_key].push_back({offset, size});
@@ -2056,13 +2402,14 @@ VkResult VKAPI_PTR vkFlushMappedMemoryRanges_hook(
         }
     }
 
+    SPDLOG_INFO("vkFlushMappedMemoryRanges_hook exit");
     return VK_SUCCESS;
 }
 
 VkResult VKAPI_PTR vkInvalidateMappedMemoryRanges_hook(
     VkDevice device, uint32_t memoryRangeCount, const VkMappedMemoryRange* pMemoryRanges)
 {
-    SPDLOG_TRACE("Intercepted: vkInvalidateMappedMemoryRanges");
+    SPDLOG_INFO("vkInvalidateMappedMemoryRanges_hook entry: count={}", memoryRangeCount);
     auto* batch = get_batch();
     if (batch) {
         serializer::VulkanSerializer ser;
@@ -2072,6 +2419,7 @@ VkResult VKAPI_PTR vkInvalidateMappedMemoryRanges_hook(
             ser.write_handle(handle_to_u64(pMemoryRanges[i].memory));
             ser.write_u64(pMemoryRanges[i].offset);
             ser.write_u64(pMemoryRanges[i].size);
+            SPDLOG_INFO("  range {}: memory={:#x} offset={} size={}", i, handle_to_u64(pMemoryRanges[i].memory), pMemoryRanges[i].offset, pMemoryRanges[i].size);
         }
         static std::atomic<uint32_t> req_id{0x95000000};
         auto builder = protocol::build_command(
@@ -2089,6 +2437,7 @@ VkResult VKAPI_PTR vkInvalidateMappedMemoryRanges_hook(
             client->sync_query(0x8d, handle_to_u64(pMemoryRanges[i].memory));
         }
     }
+    SPDLOG_INFO("vkInvalidateMappedMemoryRanges_hook exit");
     return VK_SUCCESS;
 }
 
@@ -2165,8 +2514,18 @@ void update_shadow_buffer(uint64_t mem_key, const uint8_t* data, size_t size, Vk
     std::lock_guard<std::mutex> lock(s_map_mutex);
     auto it = s_mapped_ptrs.find(mem_key);
     if (it != s_mapped_ptrs.end() && it->second && data && size > 0) {
-        std::memcpy(static_cast<uint8_t*>(it->second) + offset, data, size);
-        SPDLOG_DEBUG("update_shadow_buffer: mem={:#x} offset={} size={}", mem_key, offset, size);
+        VkDeviceSize total_size = s_memory_sizes[mem_key];
+        if (offset + size <= total_size) {
+            std::memcpy(static_cast<uint8_t*>(it->second) + offset, data, size);
+            SPDLOG_DEBUG("update_shadow_buffer: mem={:#x} offset={} size={}", mem_key, offset, size);
+        } else {
+            SPDLOG_ERROR("update_shadow_buffer: write out of bounds! mem={:#x} offset={} size={} total_size={}",
+                         mem_key, offset, size, total_size);
+            if (offset < total_size) {
+                size_t safe_size = static_cast<size_t>(total_size - offset);
+                std::memcpy(static_cast<uint8_t*>(it->second) + offset, data, safe_size);
+            }
+        }
     }
 }
 
@@ -2189,8 +2548,14 @@ VkResult VKAPI_PTR vkWaitForFences_hook(
     VkResult final_res = VK_SUCCESS;
     auto* client = init::get_client();
     if (client) {
+        uint64_t extra[3];
+        uint64_t waitAll64 = waitAll ? 1 : 0;
         for (uint32_t i = 0; i < fenceCount; i++) {
-            uint64_t res = client->sync_query(0x85, handle_to_u64(pFences[i]));
+            extra[0] = handle_to_u64(pFences[i]);
+            extra[1] = waitAll64;
+            extra[2] = timeout;
+            uint64_t res = client->sync_query_ext(0x85,
+                reinterpret_cast<const uint8_t*>(extra), sizeof(extra));
             if (static_cast<VkResult>(res) != VK_SUCCESS) {
                 final_res = static_cast<VkResult>(res);
             }
@@ -2424,7 +2789,7 @@ struct ManualHookRegistrar {
         register_manual_hook("vkGetPhysicalDeviceProperties2", reinterpret_cast<void*>(vkGetPhysicalDeviceProperties2_hook));
         register_manual_hook("vkGetPhysicalDeviceFeatures", reinterpret_cast<void*>(vkGetPhysicalDeviceFeatures_hook));
         register_manual_hook("vkGetPhysicalDeviceFeatures2", reinterpret_cast<void*>(vkGetPhysicalDeviceFeatures2_hook));
-        register_manual_hook("vkGetPhysicalDeviceMemoryProperties", reinterpret_cast<void*>(vkGetPhysicalDeviceMemoryProperties_hook));
+                register_manual_hook("vkGetPhysicalDeviceMemoryProperties", reinterpret_cast<void*>(vkGetPhysicalDeviceMemoryProperties_hook));
         register_manual_hook("vkGetPhysicalDeviceMemoryProperties2", reinterpret_cast<void*>(vkGetPhysicalDeviceMemoryProperties2_hook));
         register_manual_hook("vkGetPhysicalDeviceQueueFamilyProperties", reinterpret_cast<void*>(vkGetPhysicalDeviceQueueFamilyProperties_hook));
         register_manual_hook("vkGetPhysicalDeviceQueueFamilyProperties2", reinterpret_cast<void*>(vkGetPhysicalDeviceQueueFamilyProperties2_hook));

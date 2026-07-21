@@ -365,7 +365,13 @@ CommandDispatcher::CommandDispatcher() {
         r.skip(sizeof(VkAllocationCallbacks));
         uint64_t pImg = r.read_handle();
         VkImage img;
-        if (vkCreateImage(d.mapper_.device(), &ci, nullptr, &img) == VK_SUCCESS) {
+        // Skip images with DEPTH_STENCIL usage — format numbers differ between
+        // guest Vulkan headers (1.3) and host (1.4), causing the host to
+        // misinterpret the format and crash the NVIDIA driver (divide-by-zero).
+        if (ci.usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) {
+            SPDLOG_WARN("vkCreateImage: skipping DEPTH_STENCIL image (fmt={} usage={:#x}) - Vulkan version mismatch workaround",
+                        static_cast<int>(ci.format), ci.usage);
+        } else if (vkCreateImage(d.mapper_.device(), &ci, nullptr, &img) == VK_SUCCESS) {
             d.mapper_.store_image(pImg, img);
         }
         delete[] ci.pQueueFamilyIndices;

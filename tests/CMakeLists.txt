@@ -5,6 +5,7 @@ add_executable(omnigpu_tests
   test_guest.cpp
   test_network.cpp
   ${CMAKE_SOURCE_DIR}/src/guest/vulkan_serializer.cpp
+  ${CMAKE_SOURCE_DIR}/src/host/vulkan_deserializer.cpp
 )
 
 target_include_directories(omnigpu_tests PRIVATE
