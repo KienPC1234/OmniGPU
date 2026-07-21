@@ -80,6 +80,7 @@ uint64_t Client::sync_query(uint64_t func_id, uint64_t arg) {
             std::lock_guard<std::mutex> slock(sync_mutex_);
             has_sync_response_ = false;
             sync_response_val_ = 0;
+            sync_response_data_.clear();
         }
 
         uint32_t net_sz = htonl(16);
@@ -123,6 +124,7 @@ uint64_t Client::sync_query_ext(uint64_t func_id, const uint8_t* extra, size_t e
             std::lock_guard<std::mutex> slock(sync_mutex_);
             has_sync_response_ = false;
             sync_response_val_ = 0;
+            sync_response_data_.clear();
         }
 
         uint32_t payload_size = static_cast<uint32_t>(8 + extra_size);
@@ -157,8 +159,66 @@ uint64_t Client::sync_query_ext(uint64_t func_id, const uint8_t* extra, size_t e
 void Client::set_sync_response(uint64_t val) {
     std::lock_guard<std::mutex> lock(sync_mutex_);
     sync_response_val_ = val;
+    sync_response_data_.clear();
     has_sync_response_ = true;
     sync_cv_.notify_all();
+}
+
+void Client::set_sync_response_buf(const uint8_t* data, size_t size) {
+    std::lock_guard<std::mutex> lock(sync_mutex_);
+    sync_response_data_.assign(data, data + size);
+    if (size >= sizeof(uint64_t)) {
+        std::memcpy(&sync_response_val_, data, sizeof(uint64_t));
+    }
+    has_sync_response_ = true;
+    sync_cv_.notify_all();
+}
+
+bool Client::sync_query_buf(uint64_t func_id, uint64_t arg, uint8_t* out_buf, size_t out_size) {
+    if (sync_in_flight_.exchange(true)) {
+        SPDLOG_WARN("sync_query_buf: concurrent sync query detected, returning false");
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> send_lock(send_mutex_);
+
+        {
+            std::lock_guard<std::mutex> slock(sync_mutex_);
+            has_sync_response_ = false;
+            sync_response_val_ = 0;
+            sync_response_data_.clear();
+        }
+
+        uint32_t net_sz = htonl(16);
+        uint8_t req[20];
+        std::memcpy(req, &net_sz, 4);
+        std::memcpy(req + 4, &func_id, 8);
+        std::memcpy(req + 12, &arg, 8);
+        if (!send_data(req, sizeof(req))) {
+            sync_in_flight_ = false;
+            SPDLOG_ERROR("sync_query_buf: send failed");
+            return false;
+        }
+    }
+
+    std::unique_lock<std::mutex> slock(sync_mutex_);
+    bool success = sync_cv_.wait_for(slock, std::chrono::seconds(5), [this]() {
+        return has_sync_response_;
+    });
+
+    sync_in_flight_ = false;
+
+    if (!success) {
+        SPDLOG_ERROR("sync_query_buf: timed out waiting for response");
+        return false;
+    }
+
+    size_t copy_size = std::min(sync_response_data_.size(), out_size);
+    if (copy_size > 0 && out_buf) {
+        std::memcpy(out_buf, sync_response_data_.data(), copy_size);
+    }
+    return copy_size > 0;
 }
 
 } // namespace omnigpu

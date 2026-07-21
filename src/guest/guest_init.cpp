@@ -227,9 +227,24 @@ bool initialize_guest_internal(const char* host_hint, uint16_t port_hint) {
         setenv("GGML_VK_FORCE_MAX_BUFFER_SIZE", "8589934592", 0);
 #endif
     }
+    if (!getenv("GGML_VK_FORCE_MAX_ALLOCATION_SIZE")) {
+#ifdef _WIN32
+        _putenv_s("GGML_VK_FORCE_MAX_ALLOCATION_SIZE", "8589934592");
+#else
+        setenv("GGML_VK_FORCE_MAX_ALLOCATION_SIZE", "8589934592", 0);
+#endif
+    }
+    if (!getenv("GGML_VK_SUBALLOCATION_BLOCK_SIZE")) {
+#ifdef _WIN32
+        _putenv_s("GGML_VK_SUBALLOCATION_BLOCK_SIZE", "1073741824");
+#else
+        setenv("GGML_VK_SUBALLOCATION_BLOCK_SIZE", "1073741824", 0);
+#endif
+    }
 
     // Initialize hooks FIRST — must be available even without host connection
     SPDLOG_INFO("Initializing Vulkan hooks...");
+    SPDLOG_INFO("BUILD: sync_all_safety_v2 max_256mb");  // Marker
     intercept::initialize_hooks();
 
     SPDLOG_INFO("Guest initialized (deferred host connection). Pipeline: OpenGL/OpenCL/Vulkan → omniGPU → Host GPU");
@@ -338,15 +353,10 @@ bool connect_to_host() {
                     if (payload) {
                         if (payload->size() == sizeof(VkSubresourceLayout)) {
                             intercept::write_layout_result(key, payload->data(), payload->size());
-                            g_client->set_sync_response(VK_SUCCESS);
+                            g_client->set_sync_response_buf(payload->data(), payload->size());
                         } else {
                             intercept::write_query_results(key, payload->data(), payload->size());
-                            // Extract the sync response value from the first 8 bytes
-                            uint64_t resp_val = VK_SUCCESS;
-                            if (payload->size() >= sizeof(uint64_t)) {
-                                std::memcpy(&resp_val, payload->data(), sizeof(uint64_t));
-                            }
-                            g_client->set_sync_response(resp_val);
+                            g_client->set_sync_response_buf(payload->data(), payload->size());
                         }
                     }
                 }

@@ -65,6 +65,7 @@ void CommandBatch::flush() {
         std::lock_guard<std::mutex> lock(client_->send_mutex());
         for (const auto& cmd : batch) {
             uint32_t net_size = htonl(static_cast<uint32_t>(cmd.size()));
+            SPDLOG_INFO("Batch flush: sending cmd size={}", cmd.size());
             if (!client_->send_data(
                     reinterpret_cast<const uint8_t*>(&net_size),
                     sizeof(net_size))) {

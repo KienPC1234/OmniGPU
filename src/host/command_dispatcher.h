@@ -212,6 +212,7 @@ private:
     bool inRenderPass_ = false;
 
     VkFence pendingSubmitFence_ = VK_NULL_HANDLE;
+    uint64_t pendingSubmitFenceGuestHandle_ = 0;
     bool hasPendingSubmit_ = false;
 
     // VRAM budget tracking

@@ -51,6 +51,7 @@ CommandDispatcher::CommandDispatcher() {
         VkResult res = vkQueueSubmit(q, count, submits.data(), fence);
         if (res == VK_SUCCESS) {
             d.pendingSubmitFence_ = fence;
+            d.pendingSubmitFenceGuestHandle_ = guestFence;
             d.hasPendingSubmit_ = true;
             SPDLOG_DEBUG("  vkQueueSubmit ({} submits) -> submitted, fence={}",
                          count, (void*)fence);
@@ -826,14 +827,17 @@ CommandDispatcher::CommandDispatcher() {
     REGISTER(fbs::FunctionId_vkWaitForFences, [](auto& d, auto& r) {
         r.read_handle(); // device
         uint32_t count = r.read_u32();
-        std::vector<VkFence> fences(count);
+        std::vector<VkFence> fences;
+        fences.reserve(count);
         for (uint32_t i = 0; i < count; i++) {
             uint64_t gFence = r.read_handle();
-            fences[i] = d.mapper_.get_fence(gFence);
+            auto f = d.mapper_.get_fence(gFence);
+            if (f) fences.push_back(f);  // skip NULL (destroyed/removed) fences
         }
         VkBool32 waitAll = r.read_bool();
         uint64_t timeout = r.read_u64();
-        VkResult res = vkWaitForFences(d.mapper_.device(), count, fences.data(), waitAll, timeout);
+        VkResult res = fences.empty() ? VK_SUCCESS :
+            vkWaitForFences(d.mapper_.device(), (uint32_t)fences.size(), fences.data(), waitAll, timeout);
         if (res != VK_SUCCESS) {
             SPDLOG_WARN("vkWaitForFences: timeout or error (count={}, timeout={}ms, res={})",
                         count, timeout, static_cast<int>(res));
@@ -842,13 +846,15 @@ CommandDispatcher::CommandDispatcher() {
     REGISTER(fbs::FunctionId_vkResetFences, [](auto& d, auto& r) {
         r.read_handle(); // device
         uint32_t count = r.read_u32();
-        std::vector<VkFence> fences(count);
+        std::vector<VkFence> fences;
+        fences.reserve(count);
         for (uint32_t i = 0; i < count; i++) {
             uint64_t gFence = r.read_handle();
-            fences[i] = d.mapper_.get_fence(gFence);
+            auto f = d.mapper_.get_fence(gFence);
+            if (f) fences.push_back(f);  // skip NULL (destroyed/removed) fences
         }
         if (!fences.empty())
-            vkResetFences(d.mapper_.device(), count, fences.data());
+            vkResetFences(d.mapper_.device(), (uint32_t)fences.size(), fences.data());
     });
 
     // --- Semaphore ---
@@ -1762,6 +1768,7 @@ CommandDispatcher::CommandDispatcher() {
             : VK_ERROR_EXTENSION_NOT_PRESENT;
         if (res == VK_SUCCESS) {
             d.pendingSubmitFence_ = fence;
+            d.pendingSubmitFenceGuestHandle_ = guestFence;
             d.hasPendingSubmit_ = true;
             SPDLOG_DEBUG("  vkQueueSubmit2 ({} submits) -> submitted, fence={}",
                          count, (void*)fence);
@@ -2601,8 +2608,18 @@ bool CommandDispatcher::flush_and_readback(std::vector<uint8_t>& out_pixels) {
     if (hasPendingSubmit_ && pendingSubmitFence_ != VK_NULL_HANDLE) {
         vkWaitForFences(dev, 1, &pendingSubmitFence_, VK_TRUE, UINT64_MAX);
         vkDestroyFence(dev, pendingSubmitFence_, nullptr);
+        // Remove from mapper so sync queries don't use dangling pointer
+        if (pendingSubmitFenceGuestHandle_ != 0) {
+            mapper_.remove_fence(pendingSubmitFenceGuestHandle_);
+            pendingSubmitFenceGuestHandle_ = 0;
+        }
         pendingSubmitFence_ = VK_NULL_HANDLE;
         hasPendingSubmit_ = false;
+    }
+
+    // For compute-only workloads (no framebuffer), skip readback
+    if (readbackMemory_ == VK_NULL_HANDLE) {
+        return true;
     }
 
     // Copy render target pixels to readback buffer
@@ -2616,10 +2633,6 @@ bool CommandDispatcher::flush_and_readback(std::vector<uint8_t>& out_pixels) {
     VkDeviceSize size = fbWidth_ * fbHeight_ * 4;
     out_pixels.resize(static_cast<size_t>(size));
 
-    if (readbackMemory_ == VK_NULL_HANDLE) {
-        SPDLOG_ERROR("flush_and_readback: readbackMemory_ not allocated (framebuffer not set up)");
-        return false;
-    }
     void* mapped = nullptr;
     VkResult res = vkMapMemory(dev, readbackMemory_, 0, VK_WHOLE_SIZE, 0, &mapped);
     if (res == VK_SUCCESS && mapped) {

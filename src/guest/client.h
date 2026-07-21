@@ -22,7 +22,9 @@ public:
 
     uint64_t sync_query(uint64_t func_id, uint64_t arg);
     uint64_t sync_query_ext(uint64_t func_id, const uint8_t* extra, size_t extra_size);
+    bool sync_query_buf(uint64_t func_id, uint64_t arg, uint8_t* out_buf, size_t out_size);
     void set_sync_response(uint64_t val);
+    void set_sync_response_buf(const uint8_t* data, size_t size);
 
     SOCKET socket() const { return socket_; }
     const std::string& host() const { return host_; }
@@ -41,6 +43,7 @@ private:
     std::condition_variable sync_cv_;
     bool has_sync_response_ = false;
     uint64_t sync_response_val_ = 0;
+    std::vector<uint8_t> sync_response_data_;
     std::atomic<bool> sync_in_flight_{false};
 };
 

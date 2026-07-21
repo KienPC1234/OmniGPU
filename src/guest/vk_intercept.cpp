@@ -385,6 +385,10 @@ VkResult VKAPI_PTR vkEnumerateDeviceExtensionProperties_hook(
         add("VK_EXT_extended_dynamic_state", 1);
         add("VK_EXT_extended_dynamic_state2", 1);
         add("VK_EXT_tooling_info", 1);
+        add("VK_KHR_buffer_device_address", 1);
+        add("VK_KHR_push_descriptor", 2);
+        add("VK_KHR_maintenance5", 1);
+        add("VK_KHR_maintenance6", 1);
     }
     uint32_t count = static_cast<uint32_t>(device_extensions.size());
 
@@ -631,18 +635,66 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties_hook(
     pProperties->limits.lineWidthRange[1] = 8.0f;
     pProperties->limits.strictLines = VK_TRUE;
     pProperties->limits.standardSampleLocations = VK_TRUE;
-    pProperties->limits.optimalBufferCopyOffsetAlignment = caps.min_uniform_buffer_offset_alignment;
-    pProperties->limits.optimalBufferCopyRowPitchAlignment = 256;
-    pProperties->limits.nonCoherentAtomSize = caps.non_coherent_atom_size;
+    pProperties->limits.optimalBufferCopyOffsetAlignment = 1; // Match NVIDIA
+    pProperties->limits.optimalBufferCopyRowPitchAlignment = 1; // Match NVIDIA
+    pProperties->limits.nonCoherentAtomSize = caps.non_coherent_atom_size ? caps.non_coherent_atom_size : 64; // Match NVIDIA (0x40)
     pProperties->limits.minTexelBufferOffsetAlignment = 256;
-    pProperties->limits.minUniformBufferOffsetAlignment = caps.min_uniform_buffer_offset_alignment ? caps.min_uniform_buffer_offset_alignment : 256;
-    pProperties->limits.minStorageBufferOffsetAlignment = caps.min_storage_buffer_offset_alignment ? caps.min_storage_buffer_offset_alignment : 256;
+    pProperties->limits.minUniformBufferOffsetAlignment = caps.min_uniform_buffer_offset_alignment ? caps.min_uniform_buffer_offset_alignment : 64; // Match NVIDIA (0x40)
+    pProperties->limits.minStorageBufferOffsetAlignment = caps.min_storage_buffer_offset_alignment ? caps.min_storage_buffer_offset_alignment : 16; // Match NVIDIA (0x10)
 
     pProperties->sparseProperties.residencyAlignedMipSize = VK_TRUE;
     pProperties->sparseProperties.residencyNonResidentStrict = VK_TRUE;
     pProperties->sparseProperties.residencyStandard2DBlockShape = VK_TRUE;
     pProperties->sparseProperties.residencyStandard2DMultisampleBlockShape = VK_TRUE;
     pProperties->sparseProperties.residencyStandard3DBlockShape = VK_TRUE;
+
+    // Critical: minMemoryMapAlignment — used by host buffer allocator as divisor
+    pProperties->limits.minMemoryMapAlignment = 64;
+
+    // Store minStorageBufferOffsetAlignment for diagnostic access
+    static VkDeviceSize s_last_min_storage_align = 0;
+    s_last_min_storage_align = pProperties->limits.minStorageBufferOffsetAlignment;
+
+    // Diagnostic: log key alignment/divisor properties
+    static bool diag_logged = false;
+    if (!diag_logged) {
+        diag_logged = true;
+        FILE* diag = fopen("C:\\Users\\test\\AppData\\Local\\Temp\\omnigpu_diag.txt", "a");
+        if (diag) {
+            fprintf(diag, "--- Device Limits ---\n");
+            fprintf(diag, "minStorageBufferOffsetAlignment: %llu\n",
+                    (unsigned long long)pProperties->limits.minStorageBufferOffsetAlignment);
+            fprintf(diag, "minUniformBufferOffsetAlignment: %llu\n",
+                    (unsigned long long)pProperties->limits.minUniformBufferOffsetAlignment);
+            fprintf(diag, "nonCoherentAtomSize: %llu\n",
+                    (unsigned long long)pProperties->limits.nonCoherentAtomSize);
+            fprintf(diag, "optimalBufferCopyOffsetAlignment: %llu\n",
+                    (unsigned long long)pProperties->limits.optimalBufferCopyOffsetAlignment);
+            fprintf(diag, "bufferImageGranularity: %llu\n",
+                    (unsigned long long)pProperties->limits.bufferImageGranularity);
+            fprintf(diag, "maxComputeWorkGroupInvocations: %u\n",
+                    pProperties->limits.maxComputeWorkGroupInvocations);
+            fprintf(diag, "maxComputeSharedMemorySize: %u\n",
+                    pProperties->limits.maxComputeSharedMemorySize);
+            fprintf(diag, "maxComputeWorkGroupCount: [%u, %u, %u]\n",
+                    pProperties->limits.maxComputeWorkGroupCount[0],
+                    pProperties->limits.maxComputeWorkGroupCount[1],
+                    pProperties->limits.maxComputeWorkGroupCount[2]);
+            fprintf(diag, "maxComputeWorkGroupSize: [%u, %u, %u]\n",
+                    pProperties->limits.maxComputeWorkGroupSize[0],
+                    pProperties->limits.maxComputeWorkGroupSize[1],
+                    pProperties->limits.maxComputeWorkGroupSize[2]);
+            fprintf(diag, "maxPushConstantsSize: %u\n",
+                    pProperties->limits.maxPushConstantsSize);
+            fprintf(diag, "maxBoundDescriptorSets: %u\n",
+                    pProperties->limits.maxBoundDescriptorSets);
+            fprintf(diag, "minTexelBufferOffsetAlignment: %llu\n",
+                    (unsigned long long)pProperties->limits.minTexelBufferOffsetAlignment);
+            fprintf(diag, "timestampPeriod: %f\n",
+                    pProperties->limits.timestampPeriod);
+            fclose(diag);
+        }
+    }
 }
 
 void VKAPI_PTR vkGetPhysicalDeviceProperties2_hook(
@@ -767,7 +819,7 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties2_hook(
             sg->quadOperationsInAllStages = VK_TRUE;
             break;
         }
-        case 1000413001: { // VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_PROPERTIES
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_PROPERTIES: {
             auto* m4 = reinterpret_cast<VkPhysicalDeviceMaintenance4Properties*>(ext);
             m4->maxBufferSize = 8ULL * 1024 * 1024 * 1024;
             break;
@@ -849,6 +901,35 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties2_hook(
             p->uniformTexelBufferOffsetAlignmentBytes = 256;
             p->uniformTexelBufferOffsetSingleTexelAlignment = VK_FALSE;
             SPDLOG_INFO("vkGetPhysicalDeviceProperties2: handled VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_PROPERTIES");
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_PROPERTIES: {
+            auto* p14 = reinterpret_cast<VkPhysicalDeviceVulkan14Properties*>(ext);
+            p14->lineSubPixelPrecisionBits = 8;
+            p14->maxVertexAttribDivisor = 0xFFFFFFFF;
+            p14->supportsNonZeroFirstInstance = VK_TRUE;
+            p14->maxPushDescriptors = 32;
+            p14->dynamicRenderingLocalReadDepthStencilAttachments = VK_TRUE;
+            p14->dynamicRenderingLocalReadMultisampledAttachments = VK_TRUE;
+            p14->earlyFragmentMultisampleCoverageAfterSampleCounting = VK_TRUE;
+            p14->earlyFragmentSampleMaskTestBeforeSampleCounting = VK_TRUE;
+            p14->depthStencilSwizzleOneSupport = VK_TRUE;
+            p14->polygonModePointSize = VK_TRUE;
+            p14->nonStrictSinglePixelWideLinesUseParallelogram = VK_TRUE;
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR: {
+            auto* pd = reinterpret_cast<VkPhysicalDevicePushDescriptorPropertiesKHR*>(ext);
+            pd->maxPushDescriptors = 32;
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_PROPERTIES_KHR: {
+            auto* m5 = reinterpret_cast<VkPhysicalDeviceMaintenance5PropertiesKHR*>(ext);
+            m5->earlyFragmentMultisampleCoverageAfterSampleCounting = VK_TRUE;
+            m5->earlyFragmentSampleMaskTestBeforeSampleCounting = VK_TRUE;
+            m5->depthStencilSwizzleOneSupport = VK_TRUE;
+            m5->polygonModePointSize = VK_TRUE;
+            m5->nonStrictSinglePixelWideLinesUseParallelogram = VK_TRUE;
             break;
         }
         default:
@@ -1017,10 +1098,48 @@ void VKAPI_PTR vkGetPhysicalDeviceFeatures2_hook(
             f->cooperativeMatrix = ok;
             break;
         }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES: {
+            auto* f4 = reinterpret_cast<VkPhysicalDeviceMaintenance4Features*>(ext);
+            f4->maintenance4 = VK_TRUE;
+            break;
+        }
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_INTEGER_DOT_PRODUCT_FEATURES_KHR: {
             auto* f = reinterpret_cast<VkPhysicalDeviceShaderIntegerDotProductFeaturesKHR*>(ext);
             bool ok = caps.valid() && caps.supports_integer_dot_product;
             f->shaderIntegerDotProduct = ok;
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES: {
+            auto* f14 = reinterpret_cast<VkPhysicalDeviceVulkan14Features*>(ext);
+            f14->globalPriorityQuery = VK_FALSE;
+            f14->shaderSubgroupRotate = VK_TRUE;
+            f14->shaderExpectAssume = VK_TRUE;
+            f14->shaderFloatControls2 = VK_TRUE;
+            f14->shaderSubgroupRotateClustered = VK_TRUE;
+            f14->pushDescriptor = VK_TRUE;
+            f14->dynamicRenderingLocalRead = VK_TRUE;
+            f14->maintenance5 = VK_TRUE;
+            f14->pipelineProtectedAccess = VK_FALSE;
+            f14->pipelineRobustness = VK_TRUE;
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR: {
+            auto* f5 = reinterpret_cast<VkPhysicalDeviceMaintenance5FeaturesKHR*>(ext);
+            f5->maintenance5 = VK_TRUE;
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES: {
+            auto* fbda = reinterpret_cast<VkPhysicalDeviceBufferDeviceAddressFeatures*>(ext);
+            fbda->bufferDeviceAddress = VK_TRUE;
+            fbda->bufferDeviceAddressCaptureReplay = VK_FALSE;
+            fbda->bufferDeviceAddressMultiDevice = VK_FALSE;
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_EXT: {
+            auto* fbda = reinterpret_cast<VkPhysicalDeviceBufferDeviceAddressFeatures*>(ext);
+            fbda->bufferDeviceAddress = VK_TRUE;
+            fbda->bufferDeviceAddressCaptureReplay = VK_FALSE;
+            fbda->bufferDeviceAddressMultiDevice = VK_FALSE;
             break;
         }
         default:
@@ -1248,6 +1367,9 @@ uint64_t VKAPI_PTR vkGetBufferDeviceAddress_hook(
         addr = handle_to_u64(pInfo->buffer);
     }
     SPDLOG_INFO("vkGetBufferDeviceAddress_hook exit: address={:#x}", addr);
+    // Diagnostics: write to file to verify we survive past this point
+    FILE* diag = fopen("C:\\Users\\test\\AppData\\Local\\Temp\\omnigpu_diag.txt", "a");
+    if (diag) { fprintf(diag, "OK: BDA done\n"); fclose(diag); }
     return addr;
 }
 
@@ -1772,14 +1894,23 @@ void VKAPI_PTR vkGetBufferMemoryRequirements_hook(
         if (batch) {
             batch->flush();
         }
-        // Sync from host for accurate size
+        // Sync from host for full memory requirements
         auto* cl = init::get_client();
         if (cl && cl->socket() != INVALID_SOCKET) {
-            uint64_t result = cl->sync_query(0x83, handle_to_u64(buffer));
-            if (result != 0) {
-                pMemoryRequirements->size = result;
-                pMemoryRequirements->alignment = 256;
-                pMemoryRequirements->memoryTypeBits = 0x1F; // bits 0-4 = our 5 memory types
+            VkMemoryRequirements mr{};
+            if (cl->sync_query_buf(0x83, handle_to_u64(buffer),
+                                   reinterpret_cast<uint8_t*>(&mr), sizeof(mr)) &&
+                mr.size != 0) {
+                if (mr.alignment == 0) {
+                    SPDLOG_ERROR("vkGetBufferMemoryRequirements: host returned alignment=0 for buffer={:#x}, size={}, using fallback 256",
+                                 handle_to_u64(buffer), mr.size);
+                    mr.alignment = 256;
+                }
+                pMemoryRequirements->size = mr.size;
+                pMemoryRequirements->alignment = mr.alignment;
+                pMemoryRequirements->memoryTypeBits = 0x1F; // guest's own type bits
+                SPDLOG_INFO("vkGetBufferMemoryRequirements: buffer={:#x}, size={}, alignment={}",
+                            handle_to_u64(buffer), mr.size, mr.alignment);
                 return;
             }
         }
@@ -1861,9 +1992,47 @@ void VKAPI_PTR vkGetDeviceBufferMemoryRequirements_hook(
     SPDLOG_TRACE("Intercepted: vkGetDeviceBufferMemoryRequirements");
     if (pMemoryRequirements && pInfo && pInfo->pCreateInfo) {
         pMemoryRequirements->sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2;
-        pMemoryRequirements->memoryRequirements.size = pInfo->pCreateInfo->size;
-        pMemoryRequirements->memoryRequirements.alignment = 64;
-        pMemoryRequirements->memoryRequirements.memoryTypeBits = 0xFFFFFFFF;
+
+        // Create a temporary buffer so the host can report real requirements
+        VkBuffer tempBuf = VK_NULL_HANDLE;
+        VkResult cres = vkCreateBuffer_hook(device, pInfo->pCreateInfo, nullptr, &tempBuf);
+        if (cres != VK_SUCCESS || tempBuf == VK_NULL_HANDLE) {
+            // Fallback: use create info values directly
+            pMemoryRequirements->memoryRequirements.size = pInfo->pCreateInfo->size;
+            pMemoryRequirements->memoryRequirements.alignment = 256;
+            pMemoryRequirements->memoryRequirements.memoryTypeBits = 0x1F;
+            return;
+        }
+
+        // Flush so host creates the buffer
+        auto* batch = get_batch();
+        if (batch) batch->flush();
+
+        // Query host for full memory requirements
+        auto* cl = init::get_client();
+        bool queried = false;
+        if (cl && cl->socket() != INVALID_SOCKET) {
+            VkMemoryRequirements mr{};
+            if (cl->sync_query_buf(0x83, handle_to_u64(tempBuf),
+                                   reinterpret_cast<uint8_t*>(&mr), sizeof(mr)) &&
+                mr.size != 0) {
+                pMemoryRequirements->memoryRequirements.size = mr.size;
+                pMemoryRequirements->memoryRequirements.alignment = mr.alignment;
+                pMemoryRequirements->memoryRequirements.memoryTypeBits = 0x1F;
+                queried = true;
+            }
+        }
+
+        if (!queried) {
+            pMemoryRequirements->memoryRequirements.size = pInfo->pCreateInfo->size;
+            pMemoryRequirements->memoryRequirements.alignment = 256;
+            pMemoryRequirements->memoryRequirements.memoryTypeBits = 0x1F;
+        }
+
+        // Destroy the temporary buffer
+        vkDestroyBuffer_hook(device, tempBuf, nullptr);
+        // Flush so host destroys the temp buffer
+        if (batch) batch->flush();
     }
 }
 
@@ -2100,9 +2269,11 @@ VkResult VKAPI_PTR vkAllocateMemory_hook(
     const VkAllocationCallbacks* pAllocator,
     VkDeviceMemory* pMemory)
 {
-    SPDLOG_INFO("vkAllocateMemory_hook entry: size={} type={}",
-                pAllocateInfo ? pAllocateInfo->allocationSize : 0,
-                pAllocateInfo ? pAllocateInfo->memoryTypeIndex : 99);
+    uint64_t alloc_size = pAllocateInfo ? pAllocateInfo->allocationSize : 0;
+    uint32_t alloc_type = pAllocateInfo ? pAllocateInfo->memoryTypeIndex : 99;
+    SPDLOG_INFO("vkAllocateMemory_hook entry: size={} type={}", alloc_size, alloc_type);
+    FILE* diag = fopen("C:\\Users\\test\\AppData\\Local\\Temp\\omnigpu_diag.txt", "a");
+    if (diag) { fprintf(diag, "Alloc: size=%llu type=%u\n", (unsigned long long)alloc_size, (unsigned)alloc_type); fclose(diag); }
 
     // Create fake handle and track allocation size
     VkDeviceMemory fake_mem{};
@@ -2193,6 +2364,9 @@ VkResult VKAPI_PTR vkMapMemory_hook(
     VkDeviceSize total_size = get_memory_size(memory);
     SPDLOG_INFO("vkMapMemory_hook entry: device={} memory={} size={} total_size={}",
                 (void*)device, (void*)memory, size, total_size);
+    FILE* diag = fopen("C:\\Users\\test\\AppData\\Local\\Temp\\omnigpu_diag.txt", "a");
+    if (diag) { fprintf(diag, "Map: mem=%p size=%llu total=%llu\n",
+        (void*)memory, (unsigned long long)size, (unsigned long long)total_size); fclose(diag); }
     if (total_size == 0) {
         SPDLOG_ERROR("vkMapMemory: total_size is 0 (untracked memory allocation)");
         return VK_ERROR_MEMORY_MAP_FAILED;
@@ -2204,6 +2378,7 @@ VkResult VKAPI_PTR vkMapMemory_hook(
     void* ptr = omni_aligned_alloc(256, aligned_size);
     if (!ptr) {
         SPDLOG_ERROR("vkMapMemory: failed to allocate {} bytes", aligned_size);
+        if (diag) { fprintf(diag, "Map FAILED: out of memory for %zu bytes\n", aligned_size); fclose(diag); }
         return VK_ERROR_OUT_OF_HOST_MEMORY;
     }
     std::memset(ptr, 0, aligned_size);
@@ -2317,13 +2492,31 @@ void sync_all_mapped_memory_to_host() {
 
         if (!is_coherent && !is_dirty) continue;
 
+        // Coherent memory (HOST_COHERENT) is automatically synced by GPU.
+        // Only sync if there are explicit flush ranges (non-coherent or dirty).
+        if (is_coherent && !is_dirty) continue;
+
         VkDevice device = VK_NULL_HANDLE;
         {
             auto it = s_memory_devices.find(mem_key);
-            if (it != s_memory_devices.end()) device = it->second;
+            if (it == s_memory_devices.end()) {
+                SPDLOG_WARN("sync_all: skipping mem={:#x} — not tracked in s_memory_devices", mem_key);
+                continue;
+            }
+            device = it->second;
         }
-        VkDeviceSize total_size = s_memory_sizes[mem_key];
-        if (total_size == 0 || !guest_ptr) continue;
+        // Use find() instead of operator[] to avoid creating entries for non-memory handles
+        auto size_it = s_memory_sizes.find(mem_key);
+        if (size_it == s_memory_sizes.end()) {
+            SPDLOG_WARN("sync_all: skipping mem={:#x} — not tracked in s_memory_sizes", mem_key);
+            continue;
+        }
+        VkDeviceSize total_size = size_it->second;
+        if (total_size == 0 || total_size > 256ULL * 1024 * 1024 || !guest_ptr) {
+            SPDLOG_WARN("sync_all: skipping mem={:#x} — invalid total_size={} guest_ptr={}",
+                        mem_key, total_size, fmt::ptr(guest_ptr));
+            continue;
+        }
 
         // Check if we have tracked flush ranges — if so, only send those
         auto flush_it = s_pending_flushes.find(mem_key);
@@ -2350,6 +2543,8 @@ void sync_all_mapped_memory_to_host() {
             flush_it->second.clear();
         } else {
             // Fallback: send entire range
+            SPDLOG_INFO("sync_all: flush fallback mem={:#x} total_size={} guest_ptr={}",
+                        mem_key, total_size, fmt::ptr(guest_ptr));
             serializer::VulkanSerializer ser;
             ser.write_handle((uint64_t)(device));
             ser.write_u32(1);
@@ -2445,6 +2640,8 @@ VkResult VKAPI_PTR vkQueueSubmit_hook(
     VkQueue queue, uint32_t submitCount, const VkSubmitInfo* pSubmits, VkFence fence)
 {
     SPDLOG_TRACE("Intercepted: vkQueueSubmit");
+    FILE* diag = fopen("C:\\Users\\test\\AppData\\Local\\Temp\\omnigpu_diag.txt", "a");
+    if (diag) { fprintf(diag, "QueueSubmit called\n"); fclose(diag); }
 
     // Sync all mapped memory writes first
     sync_all_mapped_memory_to_host();

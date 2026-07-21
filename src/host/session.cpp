@@ -106,7 +106,7 @@ bool Session::recv_message(std::vector<uint8_t>& buffer, bool is_first) {
         if (is_first && (err == WSAETIMEDOUT || err == WSAEWOULDBLOCK)) {
             SPDLOG_ERROR("Session #{}: timed out waiting for first command (handshake lost?)", sessionId_);
         }
-        SPDLOG_INFO("Session::recv_message failed to read message size");
+        SPDLOG_INFO("Session::recv_message failed to read message size, errno={}, is_first={}", err, is_first);
         return false;
     }
 
@@ -252,27 +252,27 @@ void Session::handle_client() {
 
     SPDLOG_INFO("Session #{} entering main loop", sessionId_);
     bool firstMsg = true;
+    try {
     while (running_) {
         std::vector<uint8_t> msgBuffer;
-        SPDLOG_INFO("Session #{}: calling recv_message", sessionId_);
+        SPDLOG_INFO("Session #{}: calling recv_message (loop iter, running={})", sessionId_, running_.load());
         if (!recv_message(msgBuffer, firstMsg)) {
             break;
         }
         firstMsg = false;
         SPDLOG_INFO("Session #{}: message received, size={}", sessionId_, msgBuffer.size());
 
-        // Check for synchronous query (16-byte non-FlatBuffer messages)
-        if (msgBuffer.size() == 16) {
+        // Check for synchronous query (any size >= 16, func_id in range 0x80-0x8F)
+        if (msgBuffer.size() >= 16) {
             uint64_t query_type = 0;
-            uint64_t query_arg = 0;
             std::memcpy(&query_type, msgBuffer.data(), 8);
+            if (query_type >= 0x80 && query_type <= 0x8F) {
+            uint64_t query_arg = 0;
             std::memcpy(&query_arg, msgBuffer.data() + 8, 8);
 
-            auto respond = [&](uint64_t val) {
-                uint8_t resp[8];
-                std::memcpy(resp, &val, 8);
+            auto respond_raw = [&](const uint8_t* data, size_t size) {
                 auto builder = protocol::build_data(
-                    fbs::DataType_Unknown, 0, resp, sizeof(resp));
+                    fbs::DataType_Unknown, 0, data, size);
                 auto span = builder.GetBufferSpan();
                 uint32_t totalSize = htonl(static_cast<uint32_t>(span.size()));
 
@@ -280,6 +280,26 @@ void Session::handle_client() {
                     !tcp::send_all(clientFd_, span.data(), span.size())) {
                     SPDLOG_WARN("Session: respond send failed for query type {}", query_type);
                 }
+            };
+
+            auto respond = [&](uint64_t val) {
+                uint8_t resp[8];
+                std::memcpy(resp, &val, 8);
+                respond_raw(resp, sizeof(resp));
+            };
+
+            auto respond_mem_req = [&](const VkMemoryRequirements& mr) {
+                struct {
+                    uint64_t size;
+                    uint64_t alignment;
+                    uint32_t memoryTypeBits;
+                    uint32_t padding;
+                } p;
+                p.size = mr.size;
+                p.alignment = mr.alignment;
+                p.memoryTypeBits = mr.memoryTypeBits;
+                p.padding = 0;
+                respond_raw(reinterpret_cast<const uint8_t*>(&p), sizeof(p));
             };
 
             switch (query_type) {
@@ -322,8 +342,11 @@ void Session::handle_client() {
                     VkMemoryRequirements mr{};
                     vkGetBufferMemoryRequirements(
                         commandDispatcher_.mapper().device(), hostBuf, &mr);
-                    respond(mr.size);
-                } else { respond(0); }
+                    respond_mem_req(mr);
+                } else {
+                    VkMemoryRequirements empty{};
+                    respond_mem_req(empty);
+                }
                 continue;
             }
             case 0x84: { // IMAGE_MEMORY_REQUIREMENTS_QUERY
@@ -332,8 +355,11 @@ void Session::handle_client() {
                     VkMemoryRequirements mr{};
                     vkGetImageMemoryRequirements(
                         commandDispatcher_.mapper().device(), hostImg, &mr);
-                    respond(mr.size);
-                } else { respond(0); }
+                    respond_mem_req(mr);
+                } else {
+                    VkMemoryRequirements empty{};
+                    respond_mem_req(empty);
+                }
                 continue;
             }
             case 0x85: { // WAIT_FOR_FENCE_QUERY
@@ -392,9 +418,23 @@ void Session::handle_client() {
                 respond(static_cast<uint64_t>(VK_SUCCESS));
                 continue;
             }
+            case 0x8e: { // DEVICE_BUFFER_MEMORY_REQUIREMENTS_QUERY
+                // query_arg contains the size of serialized VkBufferCreateInfo
+                // The actual create info data follows the 16-byte header
+                // We need to read the extended message
+                // For now, handle as simple: query_arg = serialized size, no extra data
+                // This is a placeholder — actual implementation reads from larger message
+                VkMemoryRequirements mr{};
+                mr.size = query_arg;
+                mr.alignment = 256;
+                mr.memoryTypeBits = 0x1F;
+                respond_mem_req(mr);
+                continue;
+            }
             default:
                 continue;
             }
+            } // if (query_type >= 0x80)
         }
 
         auto* msg = protocol::verify_root(msgBuffer.data(), msgBuffer.size());
@@ -427,16 +467,20 @@ void Session::handle_client() {
                 func_id == fbs::FunctionId_vkQueuePresentKHR) {
 
                 std::vector<uint8_t> pixels;
+                SPDLOG_INFO("Session #{}: calling flush_and_readback", sessionId_);
+                spdlog::default_logger()->flush();
                 if (!commandDispatcher_.flush_and_readback(pixels)) {
                     SPDLOG_ERROR("flush_and_readback failed");
                     break;
                 }
-                // Use the rendered pixels for encoding/sending
+                SPDLOG_INFO("Session #{}: flush_and_readback OK, pixels={} bytes", sessionId_, pixels.size());
                 framebufferPixels_ = std::move(pixels);
 
                 if (useVideoEncoder_) {
+                    SPDLOG_INFO("Session #{}: encoding with video encoder", sessionId_);
                     std::vector<EncodedPacket> packets;
                     if (videoEncoder_->encode(framebufferPixels_, packets)) {
+                        SPDLOG_INFO("Session #{}: encoded {} packets", sessionId_, packets.size());
                         auto sendStart = std::chrono::steady_clock::now();
                         for (const auto& packet : packets) {
                             send_video_frame(
@@ -477,6 +521,7 @@ void Session::handle_client() {
                 }
 
                 framesRendered_++;
+                SPDLOG_INFO("Session #{}: frame done (total={})", sessionId_, framesRendered_);
                 auto now = std::chrono::steady_clock::now();
                 auto elapsed = std::chrono::duration<double>(now - fpsStart_).count();
                 if (elapsed >= 1.0) {
@@ -505,11 +550,28 @@ void Session::handle_client() {
         default:
             break;
         }
+        SPDLOG_INFO("Session #{}: loop iter end (post-switch)", sessionId_);
+        spdlog::default_logger()->flush();
     }
 
+    SPDLOG_INFO("Session #{} cleanup starting (normal exit)", sessionId_);
+    spdlog::default_logger()->flush();
     commandDispatcher_.cleanup();
+    SPDLOG_INFO("Session #{} cleanup: dispatcher done", sessionId_);
+    spdlog::default_logger()->flush();
     bufferMgr_.cleanup();
+    SPDLOG_INFO("Session #{} cleanup: bufferMgr done", sessionId_);
+    spdlog::default_logger()->flush();
     computeEngine_.shutdown();
+    SPDLOG_INFO("Session #{} cleanup: computeEngine done", sessionId_);
+    spdlog::default_logger()->flush();
+    } catch (const std::exception& e) {
+        SPDLOG_CRITICAL("Session #{} crashed with exception: {}", sessionId_, e.what());
+        spdlog::default_logger()->flush();
+    } catch (...) {
+        SPDLOG_CRITICAL("Session #{} crashed with unknown exception", sessionId_);
+        spdlog::default_logger()->flush();
+    }
     tcp::close_socket(clientFd_);
     clientFd_ = INVALID_SOCKET;
     running_ = false;
