@@ -19,6 +19,12 @@
 #include <thread>
 #include <mutex>
 
+#ifdef _WIN32
+#include <windows.h>
+#include <dbghelp.h>
+#pragma comment(lib, "dbghelp.lib")
+#endif
+
 namespace omnigpu::init {
 
 namespace {
@@ -30,6 +36,112 @@ std::thread* g_recv_thread = nullptr;
 std::atomic<bool> g_running{false};
 std::once_flag g_init_flag;
 bool g_init_result = false;
+bool g_is_compute = false;
+
+static void recv_thread_main() {
+    while (g_running) {
+        uint32_t msg_size = 0;
+        if (!g_client->receive_data(reinterpret_cast<uint8_t*>(&msg_size),
+                                     sizeof(msg_size))) {
+            if (g_running) SPDLOG_ERROR("Receive thread: connection lost");
+            g_client->set_sync_response(0);
+            break;
+        }
+        msg_size = ntohl(msg_size);
+        if (msg_size > 64 * 1024 * 1024) {
+            SPDLOG_ERROR("Receive thread: message size {} exceeds 64MB limit", msg_size);
+            g_client->set_sync_response(0);
+            break;
+        }
+        std::vector<uint8_t> buf(msg_size);
+        if (!g_client->receive_data(buf.data(), msg_size)) {
+            SPDLOG_ERROR("Receive thread: failed to read message");
+            g_client->set_sync_response(0);
+            break;
+        }
+        auto* msg = protocol::verify_root(buf.data(), buf.size());
+        if (!msg) { SPDLOG_TRACE("Recv thread: verify_root failed"); continue; }
+        if (msg->payload_type() == fbs::MessagePayload_DataMessage) {
+            auto* dm = msg->payload_as_DataMessage();
+            if (!dm || !dm->payload()) { SPDLOG_TRACE("Recv thread: DataMessage null"); continue; }
+
+            if (dm->data_type() == fbs::DataType_StorageBuffer) {
+                uint64_t mem_key = dm->data_id();
+                auto* payload = dm->payload();
+                SPDLOG_TRACE("Recv thread: StorageBuffer mem={:#x} size={}", mem_key, payload ? payload->size() : 0);
+                intercept::update_shadow_buffer(
+                    mem_key,
+                    payload ? payload->data() : nullptr,
+                    payload ? payload->size() : 0,
+                    dm->offset());
+            } else if (dm->data_type() == fbs::DataType_Unknown) {
+                uint64_t key = dm->data_id();
+                auto* payload = dm->payload();
+                if (payload) {
+                    if (payload->size() == sizeof(VkSubresourceLayout)) {
+                        intercept::write_layout_result(key, payload->data(), payload->size());
+                        g_client->set_sync_response_buf(payload->data(), payload->size());
+                    } else {
+                        intercept::write_query_results(key, payload->data(), payload->size());
+                        g_client->set_sync_response_buf(payload->data(), payload->size());
+                    }
+                }
+            }
+        } else if (msg->payload_type() == fbs::MessagePayload_VideoFrame) {
+            auto* vf = msg->payload_as_VideoFrame();
+            if (vf && g_decoder) {
+                auto* payload = vf->data();
+                auto* pdata = payload ? payload->data() : nullptr;
+                size_t psz = payload ? payload->size() : 0;
+                if (pdata && psz > 0) {
+                    g_decoder->decode(
+                        static_cast<video::Codec>(vf->codec()),
+                        vf->is_keyframe(),
+                        pdata, psz,
+                        vf->frame_id(), vf->timestamp_ms(),
+                        vf->width(), vf->height());
+                } else {
+                    SPDLOG_DEBUG("Recv thread: empty VideoFrame (id={}) skipped", vf->frame_id());
+                }
+            }
+        }
+    }
+    SPDLOG_INFO("Receive thread stopped");
+}
+
+static DWORD recv_thread_wrapper() {
+    __try {
+        recv_thread_main();
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        DWORD code = GetExceptionCode();
+        SPDLOG_CRITICAL("Receive thread CRASHED: exception code={:#x}", code);
+
+        HANDLE hProcess = GetCurrentProcess();
+        SymInitialize(hProcess, NULL, TRUE);
+
+        void* stack[32];
+        USHORT frames = CaptureStackBackTrace(0, 32, stack, NULL);
+
+        SYMBOL_INFO* symbol = (SYMBOL_INFO*)calloc(sizeof(SYMBOL_INFO) + 256, 1);
+        if (symbol) {
+            symbol->MaxNameLen = 255;
+            symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+
+            for (USHORT i = 0; i < frames; i++) {
+                DWORD64 displacement = 0;
+                if (SymFromAddr(hProcess, (DWORD64)stack[i], &displacement, symbol)) {
+                    SPDLOG_CRITICAL("  [{}] {}+0x{:x}", i, symbol->Name, (unsigned)displacement);
+                } else {
+                    SPDLOG_CRITICAL("  [{}] {}", i, stack[i]);
+                }
+            }
+            free(symbol);
+        }
+        SymCleanup(hProcess);
+        g_client->set_sync_response(0);
+    }
+    return 0;
+}
 
 bool do_handshake(Client& client, const std::string& auth_token) {
     caps::GpuCapabilities cached_caps;
@@ -60,8 +172,16 @@ bool do_handshake(Client& client, const std::string& auth_token) {
     flatbuffers::Offset<flatbuffers::String> token_str;
     if (!auth_token.empty())
         token_str = builder.CreateString(auth_token);
+
+    bool is_compute = (getenv("GGML_VK_FORCE_MAX_BUFFER_SIZE") != nullptr)
+                   || (getenv("OMNIGPU_COMPUTE") != nullptr)
+                   || (getenv("GGML_CUDA_NO_PINNED") != nullptr)
+                   || (getenv("GGML_OPENCL_NO_BINARY") != nullptr)
+                   || (getenv("GGML_SYCL_NO_MULTI_BACKEND") != nullptr);
+    g_is_compute = is_compute;
+
     auto req = fbs::CreateCapabilitiesRequest(builder, 1, pref_w, pref_h,
-        auth_token.empty() ? 0 : token_str);
+        auth_token.empty() ? 0 : token_str, is_compute, is_compute);
     auto msg = fbs::CreateMessage(
         builder, fbs::MessagePayload_CapabilitiesRequest, req.Union());
     builder.Finish(msg);
@@ -293,88 +413,37 @@ bool connect_to_host() {
         return false;
     }
 
+    size_t min_cmd = g_is_compute ? 64 : cfg.min_batch_commands;
+    size_t min_bytes = g_is_compute ? 65536 : cfg.min_batch_bytes;
+    uint32_t interval = g_is_compute ? 2 : cfg.max_batch_interval_ms;
     g_batch = new batch::CommandBatch(
         g_client,
-        cfg.min_batch_commands,
-        cfg.min_batch_bytes,
+        min_cmd,
+        min_bytes,
         true,
         cfg.adaptive_batching,
-        cfg.max_batch_interval_ms);
+        interval);
 
     if (cfg.adaptive_batching) {
         SPDLOG_INFO("Adaptive batching enabled (interval={}ms, min_cmd={}, max_cmd={})",
-                     cfg.max_batch_interval_ms,
-                     cfg.min_batch_commands,
-                     cfg.max_batch_commands);
+                     interval, min_cmd, g_is_compute ? 1024 : cfg.max_batch_commands);
+    } else {
+        SPDLOG_INFO("Batching: {}ms interval, {} min commands", interval, min_cmd);
     }
 
     intercept::set_batch(g_batch);
 
+    g_client->set_rtt_callback([batch = g_batch](uint32_t rtt_ms) {
+        batch->record_latency_sample(rtt_ms);
+    });
+
     g_running = true;
     g_recv_thread = new std::thread([]() {
         SPDLOG_INFO("Receive thread started");
-        while (g_running) {
-            uint32_t msg_size = 0;
-            if (!g_client->receive_data(reinterpret_cast<uint8_t*>(&msg_size),
-                                         sizeof(msg_size))) {
-                if (g_running) SPDLOG_ERROR("Receive thread: connection lost");
-                g_client->set_sync_response(0);
-                break;
-            }
-            msg_size = ntohl(msg_size);
-            if (msg_size > 64 * 1024 * 1024) {
-                SPDLOG_ERROR("Receive thread: message size {} exceeds 64MB limit", msg_size);
-                g_client->set_sync_response(0);
-                break;
-            }
-            std::vector<uint8_t> buf(msg_size);
-            if (!g_client->receive_data(buf.data(), msg_size)) {
-                SPDLOG_ERROR("Receive thread: failed to read message");
-                g_client->set_sync_response(0);
-                break;
-            }
-            auto* msg = protocol::verify_root(buf.data(), buf.size());
-            if (!msg) continue;
-            if (msg->payload_type() == fbs::MessagePayload_DataMessage) {
-                auto* dm = msg->payload_as_DataMessage();
-                if (!dm || !dm->payload()) continue;
-
-                if (dm->data_type() == fbs::DataType_StorageBuffer) {
-                    uint64_t mem_key = dm->data_id();
-                    auto* payload = dm->payload();
-                    intercept::update_shadow_buffer(
-                        mem_key,
-                        payload ? payload->data() : nullptr,
-                        payload ? payload->size() : 0,
-                        dm->offset());
-                } else if (dm->data_type() == fbs::DataType_Unknown) {
-                    uint64_t key = dm->data_id();
-                    auto* payload = dm->payload();
-                    if (payload) {
-                        if (payload->size() == sizeof(VkSubresourceLayout)) {
-                            intercept::write_layout_result(key, payload->data(), payload->size());
-                            g_client->set_sync_response_buf(payload->data(), payload->size());
-                        } else {
-                            intercept::write_query_results(key, payload->data(), payload->size());
-                            g_client->set_sync_response_buf(payload->data(), payload->size());
-                        }
-                    }
-                }
-            } else if (msg->payload_type() == fbs::MessagePayload_VideoFrame) {
-                auto* vf = msg->payload_as_VideoFrame();
-                if (vf && g_decoder) {
-                    auto* payload = vf->data();
-                    g_decoder->decode(
-                        static_cast<video::Codec>(vf->codec()),
-                        vf->is_keyframe(),
-                        payload ? payload->data() : nullptr,
-                        payload ? payload->size() : 0,
-                        vf->frame_id(), vf->timestamp_ms(),
-                        vf->width(), vf->height());
-                }
-            }
-        }
-        SPDLOG_INFO("Receive thread stopped");
+        HRESULT coHr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+        if (FAILED(coHr)) SPDLOG_WARN("Receive thread: CoInitializeEx failed (0x{:08X})", coHr);
+        recv_thread_wrapper();
+        if (SUCCEEDED(coHr)) CoUninitialize();
     });
 
     g_decoder = video::create_decoder();

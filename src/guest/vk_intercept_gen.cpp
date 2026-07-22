@@ -59,7 +59,7 @@ uint32_t next_request_id() {
 // vkAllocateDescriptorSets
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkAllocateDescriptorSets_hook(VkDevice device, const VkDescriptorSetAllocateInfo* pAllocateInfo, VkDescriptorSet* pDescriptorSets) {
-    SPDLOG_INFO("Intercepted: {}", "vkAllocateDescriptorSets");
+    SPDLOG_TRACE("Intercepted: {}", "vkAllocateDescriptorSets");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkDescriptorSetAllocateInfo* pAllocateInfo, VkDescriptorSet* pDescriptorSets)>(get_original_fns()["vkAllocateDescriptorSets"]);
@@ -94,7 +94,7 @@ VkResult VKAPI_PTR vkAllocateDescriptorSets_hook(VkDevice device, const VkDescri
 // vkBindBufferMemory
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkBindBufferMemory_hook(VkDevice device, VkBuffer buffer, VkDeviceMemory memory, VkDeviceSize memoryOffset) {
-    SPDLOG_INFO("Intercepted: {}", "vkBindBufferMemory");
+    SPDLOG_TRACE("Intercepted: {}", "vkBindBufferMemory");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -126,7 +126,7 @@ VkResult VKAPI_PTR vkBindBufferMemory_hook(VkDevice device, VkBuffer buffer, VkD
 // vkBindBufferMemory2
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkBindBufferMemory2_hook(VkDevice device, uint32_t bindInfoCount, const VkBindBufferMemoryInfo* pBindInfos) {
-    SPDLOG_INFO("Intercepted: {}", "vkBindBufferMemory2");
+    SPDLOG_TRACE("Intercepted: {}", "vkBindBufferMemory2");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -157,7 +157,7 @@ VkResult VKAPI_PTR vkBindBufferMemory2_hook(VkDevice device, uint32_t bindInfoCo
 // vkBindImageMemory
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkBindImageMemory_hook(VkDevice device, VkImage image, VkDeviceMemory memory, VkDeviceSize memoryOffset) {
-    SPDLOG_INFO("Intercepted: {}", "vkBindImageMemory");
+    SPDLOG_TRACE("Intercepted: {}", "vkBindImageMemory");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -189,7 +189,7 @@ VkResult VKAPI_PTR vkBindImageMemory_hook(VkDevice device, VkImage image, VkDevi
 // vkBindImageMemory2
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkBindImageMemory2_hook(VkDevice device, uint32_t bindInfoCount, const VkBindImageMemoryInfo* pBindInfos) {
-    SPDLOG_INFO("Intercepted: {}", "vkBindImageMemory2");
+    SPDLOG_TRACE("Intercepted: {}", "vkBindImageMemory2");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -220,7 +220,7 @@ VkResult VKAPI_PTR vkBindImageMemory2_hook(VkDevice device, uint32_t bindInfoCou
 // vkCmdBeginQuery
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdBeginQuery_hook(VkCommandBuffer commandBuffer, VkQueryPool queryPool, uint32_t query, VkQueryControlFlags flags) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdBeginQuery");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdBeginQuery");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -252,7 +252,7 @@ void VKAPI_PTR vkCmdBeginQuery_hook(VkCommandBuffer commandBuffer, VkQueryPool q
 // vkCmdBeginRenderPass
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdBeginRenderPass_hook(VkCommandBuffer commandBuffer, const VkRenderPassBeginInfo* pRenderPassBegin, VkSubpassContents contents) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdBeginRenderPass");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdBeginRenderPass");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -283,7 +283,7 @@ void VKAPI_PTR vkCmdBeginRenderPass_hook(VkCommandBuffer commandBuffer, const Vk
 // vkCmdBeginRenderPass2
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdBeginRenderPass2_hook(VkCommandBuffer commandBuffer, const VkRenderPassBeginInfo* pRenderPassBegin, const VkSubpassBeginInfo* pSubpassBeginInfo) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdBeginRenderPass2");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdBeginRenderPass2");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -314,7 +314,7 @@ void VKAPI_PTR vkCmdBeginRenderPass2_hook(VkCommandBuffer commandBuffer, const V
 // vkCmdBeginRendering
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdBeginRendering_hook(VkCommandBuffer commandBuffer, const VkRenderingInfo* pRenderingInfo) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdBeginRendering");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdBeginRendering");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -344,7 +344,7 @@ void VKAPI_PTR vkCmdBeginRendering_hook(VkCommandBuffer commandBuffer, const VkR
 // vkCmdBindDescriptorSets
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdBindDescriptorSets_hook(VkCommandBuffer commandBuffer, VkPipelineBindPoint pipelineBindPoint, VkPipelineLayout layout, uint32_t firstSet, uint32_t descriptorSetCount, const VkDescriptorSet* pDescriptorSets, uint32_t dynamicOffsetCount, const uint32_t* pDynamicOffsets) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdBindDescriptorSets");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdBindDescriptorSets");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -380,7 +380,7 @@ void VKAPI_PTR vkCmdBindDescriptorSets_hook(VkCommandBuffer commandBuffer, VkPip
 // vkCmdBindIndexBuffer
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdBindIndexBuffer_hook(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset, VkIndexType indexType) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdBindIndexBuffer");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdBindIndexBuffer");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -412,7 +412,7 @@ void VKAPI_PTR vkCmdBindIndexBuffer_hook(VkCommandBuffer commandBuffer, VkBuffer
 // vkCmdBindPipeline
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdBindPipeline_hook(VkCommandBuffer commandBuffer, VkPipelineBindPoint pipelineBindPoint, VkPipeline pipeline) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdBindPipeline");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdBindPipeline");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -443,7 +443,7 @@ void VKAPI_PTR vkCmdBindPipeline_hook(VkCommandBuffer commandBuffer, VkPipelineB
 // vkCmdBindVertexBuffers
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdBindVertexBuffers_hook(VkCommandBuffer commandBuffer, uint32_t firstBinding, uint32_t bindingCount, const VkBuffer* pBuffers, const VkDeviceSize* pOffsets) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdBindVertexBuffers");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdBindVertexBuffers");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -476,7 +476,7 @@ void VKAPI_PTR vkCmdBindVertexBuffers_hook(VkCommandBuffer commandBuffer, uint32
 // vkCmdBindVertexBuffers2
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdBindVertexBuffers2_hook(VkCommandBuffer commandBuffer, uint32_t firstBinding, uint32_t bindingCount, const VkBuffer* pBuffers, const VkDeviceSize* pOffsets, const VkDeviceSize* pSizes, const VkDeviceSize* pStrides) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdBindVertexBuffers2");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdBindVertexBuffers2");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -511,7 +511,7 @@ void VKAPI_PTR vkCmdBindVertexBuffers2_hook(VkCommandBuffer commandBuffer, uint3
 // vkCmdBlitImage
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdBlitImage_hook(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout, VkImage dstImage, VkImageLayout dstImageLayout, uint32_t regionCount, const VkImageBlit* pRegions, VkFilter filter) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdBlitImage");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdBlitImage");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -547,7 +547,7 @@ void VKAPI_PTR vkCmdBlitImage_hook(VkCommandBuffer commandBuffer, VkImage srcIma
 // vkCmdClearAttachments
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdClearAttachments_hook(VkCommandBuffer commandBuffer, uint32_t attachmentCount, const VkClearAttachment* pAttachments, uint32_t rectCount, const VkClearRect* pRects) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdClearAttachments");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdClearAttachments");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -580,7 +580,7 @@ void VKAPI_PTR vkCmdClearAttachments_hook(VkCommandBuffer commandBuffer, uint32_
 // vkCmdClearColorImage
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdClearColorImage_hook(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout imageLayout, const VkClearColorValue* pColor, uint32_t rangeCount, const VkImageSubresourceRange* pRanges) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdClearColorImage");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdClearColorImage");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -614,7 +614,7 @@ void VKAPI_PTR vkCmdClearColorImage_hook(VkCommandBuffer commandBuffer, VkImage 
 // vkCmdClearDepthStencilImage
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdClearDepthStencilImage_hook(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout imageLayout, const VkClearDepthStencilValue* pDepthStencil, uint32_t rangeCount, const VkImageSubresourceRange* pRanges) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdClearDepthStencilImage");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdClearDepthStencilImage");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -648,7 +648,7 @@ void VKAPI_PTR vkCmdClearDepthStencilImage_hook(VkCommandBuffer commandBuffer, V
 // vkCmdCopyBuffer
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdCopyBuffer_hook(VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkBuffer dstBuffer, uint32_t regionCount, const VkBufferCopy* pRegions) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdCopyBuffer");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdCopyBuffer");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -681,7 +681,7 @@ void VKAPI_PTR vkCmdCopyBuffer_hook(VkCommandBuffer commandBuffer, VkBuffer srcB
 // vkCmdCopyBufferToImage
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdCopyBufferToImage_hook(VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkImage dstImage, VkImageLayout dstImageLayout, uint32_t regionCount, const VkBufferImageCopy* pRegions) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdCopyBufferToImage");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdCopyBufferToImage");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -715,7 +715,7 @@ void VKAPI_PTR vkCmdCopyBufferToImage_hook(VkCommandBuffer commandBuffer, VkBuff
 // vkCmdCopyImage
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdCopyImage_hook(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout, VkImage dstImage, VkImageLayout dstImageLayout, uint32_t regionCount, const VkImageCopy* pRegions) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdCopyImage");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdCopyImage");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -750,7 +750,7 @@ void VKAPI_PTR vkCmdCopyImage_hook(VkCommandBuffer commandBuffer, VkImage srcIma
 // vkCmdCopyImageToBuffer
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdCopyImageToBuffer_hook(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout, VkBuffer dstBuffer, uint32_t regionCount, const VkBufferImageCopy* pRegions) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdCopyImageToBuffer");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdCopyImageToBuffer");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -784,7 +784,7 @@ void VKAPI_PTR vkCmdCopyImageToBuffer_hook(VkCommandBuffer commandBuffer, VkImag
 // vkCmdCopyQueryPoolResults
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdCopyQueryPoolResults_hook(VkCommandBuffer commandBuffer, VkQueryPool queryPool, uint32_t firstQuery, uint32_t queryCount, VkBuffer dstBuffer, VkDeviceSize dstOffset, VkDeviceSize stride, VkQueryResultFlags flags) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdCopyQueryPoolResults");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdCopyQueryPoolResults");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -820,7 +820,7 @@ void VKAPI_PTR vkCmdCopyQueryPoolResults_hook(VkCommandBuffer commandBuffer, VkQ
 // vkCmdDispatch
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdDispatch_hook(VkCommandBuffer commandBuffer, uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdDispatch");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdDispatch");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -852,7 +852,7 @@ void VKAPI_PTR vkCmdDispatch_hook(VkCommandBuffer commandBuffer, uint32_t groupC
 // vkCmdDispatchBase
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdDispatchBase_hook(VkCommandBuffer commandBuffer, uint32_t baseGroupX, uint32_t baseGroupY, uint32_t baseGroupZ, uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdDispatchBase");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdDispatchBase");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -887,7 +887,7 @@ void VKAPI_PTR vkCmdDispatchBase_hook(VkCommandBuffer commandBuffer, uint32_t ba
 // vkCmdDispatchIndirect
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdDispatchIndirect_hook(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdDispatchIndirect");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdDispatchIndirect");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -918,7 +918,7 @@ void VKAPI_PTR vkCmdDispatchIndirect_hook(VkCommandBuffer commandBuffer, VkBuffe
 // vkCmdDraw
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdDraw_hook(VkCommandBuffer commandBuffer, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdDraw");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdDraw");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -951,7 +951,7 @@ void VKAPI_PTR vkCmdDraw_hook(VkCommandBuffer commandBuffer, uint32_t vertexCoun
 // vkCmdDrawIndexed
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdDrawIndexed_hook(VkCommandBuffer commandBuffer, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdDrawIndexed");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdDrawIndexed");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -985,7 +985,7 @@ void VKAPI_PTR vkCmdDrawIndexed_hook(VkCommandBuffer commandBuffer, uint32_t ind
 // vkCmdDrawIndexedIndirect
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdDrawIndexedIndirect_hook(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset, uint32_t drawCount, uint32_t stride) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdDrawIndexedIndirect");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdDrawIndexedIndirect");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1018,7 +1018,7 @@ void VKAPI_PTR vkCmdDrawIndexedIndirect_hook(VkCommandBuffer commandBuffer, VkBu
 // vkCmdDrawIndexedIndirectCount
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdDrawIndexedIndirectCount_hook(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset, VkBuffer countBuffer, VkDeviceSize countBufferOffset, uint32_t maxDrawCount, uint32_t stride) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdDrawIndexedIndirectCount");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdDrawIndexedIndirectCount");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1053,7 +1053,7 @@ void VKAPI_PTR vkCmdDrawIndexedIndirectCount_hook(VkCommandBuffer commandBuffer,
 // vkCmdDrawIndirect
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdDrawIndirect_hook(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset, uint32_t drawCount, uint32_t stride) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdDrawIndirect");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdDrawIndirect");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1086,7 +1086,7 @@ void VKAPI_PTR vkCmdDrawIndirect_hook(VkCommandBuffer commandBuffer, VkBuffer bu
 // vkCmdDrawIndirectCount
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdDrawIndirectCount_hook(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize offset, VkBuffer countBuffer, VkDeviceSize countBufferOffset, uint32_t maxDrawCount, uint32_t stride) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdDrawIndirectCount");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdDrawIndirectCount");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1121,7 +1121,7 @@ void VKAPI_PTR vkCmdDrawIndirectCount_hook(VkCommandBuffer commandBuffer, VkBuff
 // vkCmdEndQuery
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdEndQuery_hook(VkCommandBuffer commandBuffer, VkQueryPool queryPool, uint32_t query) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdEndQuery");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdEndQuery");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1152,7 +1152,7 @@ void VKAPI_PTR vkCmdEndQuery_hook(VkCommandBuffer commandBuffer, VkQueryPool que
 // vkCmdEndRenderPass
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdEndRenderPass_hook(VkCommandBuffer commandBuffer) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdEndRenderPass");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdEndRenderPass");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1181,7 +1181,7 @@ void VKAPI_PTR vkCmdEndRenderPass_hook(VkCommandBuffer commandBuffer) {
 // vkCmdEndRenderPass2
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdEndRenderPass2_hook(VkCommandBuffer commandBuffer, const VkSubpassEndInfo* pSubpassEndInfo) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdEndRenderPass2");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdEndRenderPass2");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1211,7 +1211,7 @@ void VKAPI_PTR vkCmdEndRenderPass2_hook(VkCommandBuffer commandBuffer, const VkS
 // vkCmdEndRendering
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdEndRendering_hook(VkCommandBuffer commandBuffer) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdEndRendering");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdEndRendering");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1240,7 +1240,7 @@ void VKAPI_PTR vkCmdEndRendering_hook(VkCommandBuffer commandBuffer) {
 // vkCmdExecuteCommands
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdExecuteCommands_hook(VkCommandBuffer commandBuffer, uint32_t commandBufferCount, const VkCommandBuffer* pCommandBuffers) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdExecuteCommands");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdExecuteCommands");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1271,7 +1271,7 @@ void VKAPI_PTR vkCmdExecuteCommands_hook(VkCommandBuffer commandBuffer, uint32_t
 // vkCmdFillBuffer
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdFillBuffer_hook(VkCommandBuffer commandBuffer, VkBuffer dstBuffer, VkDeviceSize dstOffset, VkDeviceSize size, uint32_t data) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdFillBuffer");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdFillBuffer");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1304,7 +1304,7 @@ void VKAPI_PTR vkCmdFillBuffer_hook(VkCommandBuffer commandBuffer, VkBuffer dstB
 // vkCmdNextSubpass
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdNextSubpass_hook(VkCommandBuffer commandBuffer, VkSubpassContents contents) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdNextSubpass");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdNextSubpass");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1334,7 +1334,7 @@ void VKAPI_PTR vkCmdNextSubpass_hook(VkCommandBuffer commandBuffer, VkSubpassCon
 // vkCmdNextSubpass2
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdNextSubpass2_hook(VkCommandBuffer commandBuffer, const VkSubpassBeginInfo* pSubpassBeginInfo, const VkSubpassEndInfo* pSubpassEndInfo) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdNextSubpass2");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdNextSubpass2");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1365,7 +1365,7 @@ void VKAPI_PTR vkCmdNextSubpass2_hook(VkCommandBuffer commandBuffer, const VkSub
 // vkCmdPipelineBarrier
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdPipelineBarrier_hook(VkCommandBuffer commandBuffer, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags dstStageMask, VkDependencyFlags dependencyFlags, uint32_t memoryBarrierCount, const VkMemoryBarrier* pMemoryBarriers, uint32_t bufferMemoryBarrierCount, const VkBufferMemoryBarrier* pBufferMemoryBarriers, uint32_t imageMemoryBarrierCount, const VkImageMemoryBarrier* pImageMemoryBarriers) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdPipelineBarrier");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdPipelineBarrier");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1403,7 +1403,7 @@ void VKAPI_PTR vkCmdPipelineBarrier_hook(VkCommandBuffer commandBuffer, VkPipeli
 // vkCmdPipelineBarrier2
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdPipelineBarrier2_hook(VkCommandBuffer commandBuffer, const VkDependencyInfo* pDependencyInfo) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdPipelineBarrier2");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdPipelineBarrier2");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1433,7 +1433,7 @@ void VKAPI_PTR vkCmdPipelineBarrier2_hook(VkCommandBuffer commandBuffer, const V
 // vkCmdPushConstants
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdPushConstants_hook(VkCommandBuffer commandBuffer, VkPipelineLayout layout, VkShaderStageFlags stageFlags, uint32_t offset, uint32_t size, const void* pValues) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdPushConstants");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdPushConstants");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1467,7 +1467,7 @@ void VKAPI_PTR vkCmdPushConstants_hook(VkCommandBuffer commandBuffer, VkPipeline
 // vkCmdResetEvent
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdResetEvent_hook(VkCommandBuffer commandBuffer, VkEvent event, VkPipelineStageFlags stageMask) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdResetEvent");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdResetEvent");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1498,7 +1498,7 @@ void VKAPI_PTR vkCmdResetEvent_hook(VkCommandBuffer commandBuffer, VkEvent event
 // vkCmdResetEvent2
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdResetEvent2_hook(VkCommandBuffer commandBuffer, VkEvent event, VkPipelineStageFlags2 stageMask) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdResetEvent2");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdResetEvent2");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1529,7 +1529,7 @@ void VKAPI_PTR vkCmdResetEvent2_hook(VkCommandBuffer commandBuffer, VkEvent even
 // vkCmdResetQueryPool
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdResetQueryPool_hook(VkCommandBuffer commandBuffer, VkQueryPool queryPool, uint32_t firstQuery, uint32_t queryCount) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdResetQueryPool");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdResetQueryPool");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1561,7 +1561,7 @@ void VKAPI_PTR vkCmdResetQueryPool_hook(VkCommandBuffer commandBuffer, VkQueryPo
 // vkCmdResolveImage
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdResolveImage_hook(VkCommandBuffer commandBuffer, VkImage srcImage, VkImageLayout srcImageLayout, VkImage dstImage, VkImageLayout dstImageLayout, uint32_t regionCount, const VkImageResolve* pRegions) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdResolveImage");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdResolveImage");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1596,7 +1596,7 @@ void VKAPI_PTR vkCmdResolveImage_hook(VkCommandBuffer commandBuffer, VkImage src
 // vkCmdSetBlendConstants
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetBlendConstants_hook(VkCommandBuffer commandBuffer, const float* blendConstants) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetBlendConstants");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetBlendConstants");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1626,7 +1626,7 @@ void VKAPI_PTR vkCmdSetBlendConstants_hook(VkCommandBuffer commandBuffer, const 
 // vkCmdSetCullMode
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetCullMode_hook(VkCommandBuffer commandBuffer, VkCullModeFlags cullMode) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetCullMode");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetCullMode");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1656,7 +1656,7 @@ void VKAPI_PTR vkCmdSetCullMode_hook(VkCommandBuffer commandBuffer, VkCullModeFl
 // vkCmdSetDepthBias
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetDepthBias_hook(VkCommandBuffer commandBuffer, float depthBiasConstantFactor, float depthBiasClamp, float depthBiasSlopeFactor) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetDepthBias");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetDepthBias");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1688,7 +1688,7 @@ void VKAPI_PTR vkCmdSetDepthBias_hook(VkCommandBuffer commandBuffer, float depth
 // vkCmdSetDepthBiasEnable
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetDepthBiasEnable_hook(VkCommandBuffer commandBuffer, VkBool32 depthBiasEnable) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetDepthBiasEnable");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetDepthBiasEnable");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1718,7 +1718,7 @@ void VKAPI_PTR vkCmdSetDepthBiasEnable_hook(VkCommandBuffer commandBuffer, VkBoo
 // vkCmdSetDepthBounds
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetDepthBounds_hook(VkCommandBuffer commandBuffer, float minDepthBounds, float maxDepthBounds) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetDepthBounds");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetDepthBounds");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1749,7 +1749,7 @@ void VKAPI_PTR vkCmdSetDepthBounds_hook(VkCommandBuffer commandBuffer, float min
 // vkCmdSetDepthBoundsTestEnable
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetDepthBoundsTestEnable_hook(VkCommandBuffer commandBuffer, VkBool32 depthBoundsTestEnable) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetDepthBoundsTestEnable");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetDepthBoundsTestEnable");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1779,7 +1779,7 @@ void VKAPI_PTR vkCmdSetDepthBoundsTestEnable_hook(VkCommandBuffer commandBuffer,
 // vkCmdSetDepthCompareOp
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetDepthCompareOp_hook(VkCommandBuffer commandBuffer, VkCompareOp depthCompareOp) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetDepthCompareOp");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetDepthCompareOp");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1809,7 +1809,7 @@ void VKAPI_PTR vkCmdSetDepthCompareOp_hook(VkCommandBuffer commandBuffer, VkComp
 // vkCmdSetDepthTestEnable
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetDepthTestEnable_hook(VkCommandBuffer commandBuffer, VkBool32 depthTestEnable) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetDepthTestEnable");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetDepthTestEnable");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1839,7 +1839,7 @@ void VKAPI_PTR vkCmdSetDepthTestEnable_hook(VkCommandBuffer commandBuffer, VkBoo
 // vkCmdSetDepthWriteEnable
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetDepthWriteEnable_hook(VkCommandBuffer commandBuffer, VkBool32 depthWriteEnable) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetDepthWriteEnable");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetDepthWriteEnable");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1869,7 +1869,7 @@ void VKAPI_PTR vkCmdSetDepthWriteEnable_hook(VkCommandBuffer commandBuffer, VkBo
 // vkCmdSetDeviceMask
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetDeviceMask_hook(VkCommandBuffer commandBuffer, uint32_t deviceMask) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetDeviceMask");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetDeviceMask");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1899,7 +1899,7 @@ void VKAPI_PTR vkCmdSetDeviceMask_hook(VkCommandBuffer commandBuffer, uint32_t d
 // vkCmdSetEvent
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetEvent_hook(VkCommandBuffer commandBuffer, VkEvent event, VkPipelineStageFlags stageMask) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetEvent");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetEvent");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1930,7 +1930,7 @@ void VKAPI_PTR vkCmdSetEvent_hook(VkCommandBuffer commandBuffer, VkEvent event, 
 // vkCmdSetEvent2
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetEvent2_hook(VkCommandBuffer commandBuffer, VkEvent event, const VkDependencyInfo* pDependencyInfo) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetEvent2");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetEvent2");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1961,7 +1961,7 @@ void VKAPI_PTR vkCmdSetEvent2_hook(VkCommandBuffer commandBuffer, VkEvent event,
 // vkCmdSetFrontFace
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetFrontFace_hook(VkCommandBuffer commandBuffer, VkFrontFace frontFace) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetFrontFace");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetFrontFace");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -1991,7 +1991,7 @@ void VKAPI_PTR vkCmdSetFrontFace_hook(VkCommandBuffer commandBuffer, VkFrontFace
 // vkCmdSetLineWidth
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetLineWidth_hook(VkCommandBuffer commandBuffer, float lineWidth) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetLineWidth");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetLineWidth");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2021,7 +2021,7 @@ void VKAPI_PTR vkCmdSetLineWidth_hook(VkCommandBuffer commandBuffer, float lineW
 // vkCmdSetPrimitiveRestartEnable
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetPrimitiveRestartEnable_hook(VkCommandBuffer commandBuffer, VkBool32 primitiveRestartEnable) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetPrimitiveRestartEnable");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetPrimitiveRestartEnable");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2051,7 +2051,7 @@ void VKAPI_PTR vkCmdSetPrimitiveRestartEnable_hook(VkCommandBuffer commandBuffer
 // vkCmdSetPrimitiveTopology
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetPrimitiveTopology_hook(VkCommandBuffer commandBuffer, VkPrimitiveTopology primitiveTopology) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetPrimitiveTopology");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetPrimitiveTopology");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2081,7 +2081,7 @@ void VKAPI_PTR vkCmdSetPrimitiveTopology_hook(VkCommandBuffer commandBuffer, VkP
 // vkCmdSetRasterizerDiscardEnable
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetRasterizerDiscardEnable_hook(VkCommandBuffer commandBuffer, VkBool32 rasterizerDiscardEnable) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetRasterizerDiscardEnable");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetRasterizerDiscardEnable");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2111,7 +2111,7 @@ void VKAPI_PTR vkCmdSetRasterizerDiscardEnable_hook(VkCommandBuffer commandBuffe
 // vkCmdSetScissor
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetScissor_hook(VkCommandBuffer commandBuffer, uint32_t firstScissor, uint32_t scissorCount, const VkRect2D* pScissors) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetScissor");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetScissor");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2143,7 +2143,7 @@ void VKAPI_PTR vkCmdSetScissor_hook(VkCommandBuffer commandBuffer, uint32_t firs
 // vkCmdSetScissorWithCount
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetScissorWithCount_hook(VkCommandBuffer commandBuffer, uint32_t scissorCount, const VkRect2D* pScissors) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetScissorWithCount");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetScissorWithCount");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2174,7 +2174,7 @@ void VKAPI_PTR vkCmdSetScissorWithCount_hook(VkCommandBuffer commandBuffer, uint
 // vkCmdSetStencilCompareMask
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetStencilCompareMask_hook(VkCommandBuffer commandBuffer, VkStencilFaceFlags faceMask, uint32_t compareMask) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetStencilCompareMask");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetStencilCompareMask");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2205,7 +2205,7 @@ void VKAPI_PTR vkCmdSetStencilCompareMask_hook(VkCommandBuffer commandBuffer, Vk
 // vkCmdSetStencilOp
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetStencilOp_hook(VkCommandBuffer commandBuffer, VkStencilFaceFlags faceMask, VkStencilOp failOp, VkStencilOp passOp, VkStencilOp depthFailOp, VkCompareOp compareOp) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetStencilOp");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetStencilOp");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2239,7 +2239,7 @@ void VKAPI_PTR vkCmdSetStencilOp_hook(VkCommandBuffer commandBuffer, VkStencilFa
 // vkCmdSetStencilReference
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetStencilReference_hook(VkCommandBuffer commandBuffer, VkStencilFaceFlags faceMask, uint32_t reference) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetStencilReference");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetStencilReference");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2270,7 +2270,7 @@ void VKAPI_PTR vkCmdSetStencilReference_hook(VkCommandBuffer commandBuffer, VkSt
 // vkCmdSetStencilTestEnable
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetStencilTestEnable_hook(VkCommandBuffer commandBuffer, VkBool32 stencilTestEnable) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetStencilTestEnable");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetStencilTestEnable");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2300,7 +2300,7 @@ void VKAPI_PTR vkCmdSetStencilTestEnable_hook(VkCommandBuffer commandBuffer, VkB
 // vkCmdSetStencilWriteMask
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetStencilWriteMask_hook(VkCommandBuffer commandBuffer, VkStencilFaceFlags faceMask, uint32_t writeMask) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetStencilWriteMask");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetStencilWriteMask");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2331,7 +2331,7 @@ void VKAPI_PTR vkCmdSetStencilWriteMask_hook(VkCommandBuffer commandBuffer, VkSt
 // vkCmdSetVertexInputEXT
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetVertexInputEXT_hook(VkCommandBuffer commandBuffer, uint32_t vertexBindingDescriptionCount, const VkVertexInputBindingDescription2EXT* pVertexBindingDescriptions, uint32_t vertexAttributeDescriptionCount, const VkVertexInputAttributeDescription2EXT* pVertexAttributeDescriptions) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetVertexInputEXT");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetVertexInputEXT");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2364,7 +2364,7 @@ void VKAPI_PTR vkCmdSetVertexInputEXT_hook(VkCommandBuffer commandBuffer, uint32
 // vkCmdSetViewport
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetViewport_hook(VkCommandBuffer commandBuffer, uint32_t firstViewport, uint32_t viewportCount, const VkViewport* pViewports) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetViewport");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetViewport");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2396,7 +2396,7 @@ void VKAPI_PTR vkCmdSetViewport_hook(VkCommandBuffer commandBuffer, uint32_t fir
 // vkCmdSetViewportWithCount
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdSetViewportWithCount_hook(VkCommandBuffer commandBuffer, uint32_t viewportCount, const VkViewport* pViewports) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdSetViewportWithCount");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdSetViewportWithCount");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2427,7 +2427,7 @@ void VKAPI_PTR vkCmdSetViewportWithCount_hook(VkCommandBuffer commandBuffer, uin
 // vkCmdUpdateBuffer
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdUpdateBuffer_hook(VkCommandBuffer commandBuffer, VkBuffer dstBuffer, VkDeviceSize dstOffset, VkDeviceSize dataSize, const void* pData) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdUpdateBuffer");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdUpdateBuffer");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2460,7 +2460,7 @@ void VKAPI_PTR vkCmdUpdateBuffer_hook(VkCommandBuffer commandBuffer, VkBuffer ds
 // vkCmdWaitEvents
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdWaitEvents_hook(VkCommandBuffer commandBuffer, uint32_t eventCount, const VkEvent* pEvents, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags dstStageMask, uint32_t memoryBarrierCount, const VkMemoryBarrier* pMemoryBarriers, uint32_t bufferMemoryBarrierCount, const VkBufferMemoryBarrier* pBufferMemoryBarriers, uint32_t imageMemoryBarrierCount, const VkImageMemoryBarrier* pImageMemoryBarriers) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdWaitEvents");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdWaitEvents");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2499,7 +2499,7 @@ void VKAPI_PTR vkCmdWaitEvents_hook(VkCommandBuffer commandBuffer, uint32_t even
 // vkCmdWaitEvents2
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdWaitEvents2_hook(VkCommandBuffer commandBuffer, uint32_t eventCount, const VkEvent* pEvents, const VkDependencyInfo* pDependencyInfos) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdWaitEvents2");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdWaitEvents2");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2531,7 +2531,7 @@ void VKAPI_PTR vkCmdWaitEvents2_hook(VkCommandBuffer commandBuffer, uint32_t eve
 // vkCmdWriteTimestamp
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdWriteTimestamp_hook(VkCommandBuffer commandBuffer, VkPipelineStageFlagBits pipelineStage, VkQueryPool queryPool, uint32_t query) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdWriteTimestamp");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdWriteTimestamp");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2563,7 +2563,7 @@ void VKAPI_PTR vkCmdWriteTimestamp_hook(VkCommandBuffer commandBuffer, VkPipelin
 // vkCmdWriteTimestamp2
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkCmdWriteTimestamp2_hook(VkCommandBuffer commandBuffer, VkPipelineStageFlags2 stage, VkQueryPool queryPool, uint32_t query) {
-    SPDLOG_INFO("Intercepted: {}", "vkCmdWriteTimestamp2");
+    SPDLOG_TRACE("Intercepted: {}", "vkCmdWriteTimestamp2");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2595,7 +2595,7 @@ void VKAPI_PTR vkCmdWriteTimestamp2_hook(VkCommandBuffer commandBuffer, VkPipeli
 // vkCreateBuffer
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateBuffer_hook(VkDevice device, const VkBufferCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkBuffer* pBuffer) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateBuffer");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateBuffer");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkBufferCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkBuffer* pBuffer)>(get_original_fns()["vkCreateBuffer"]);
@@ -2631,7 +2631,7 @@ VkResult VKAPI_PTR vkCreateBuffer_hook(VkDevice device, const VkBufferCreateInfo
 // vkCreateBufferView
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateBufferView_hook(VkDevice device, const VkBufferViewCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkBufferView* pView) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateBufferView");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateBufferView");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkBufferViewCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkBufferView* pView)>(get_original_fns()["vkCreateBufferView"]);
@@ -2667,7 +2667,7 @@ VkResult VKAPI_PTR vkCreateBufferView_hook(VkDevice device, const VkBufferViewCr
 // vkCreateCommandPool
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateCommandPool_hook(VkDevice device, const VkCommandPoolCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkCommandPool* pCommandPool) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateCommandPool");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateCommandPool");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkCommandPoolCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkCommandPool* pCommandPool)>(get_original_fns()["vkCreateCommandPool"]);
@@ -2703,7 +2703,7 @@ VkResult VKAPI_PTR vkCreateCommandPool_hook(VkDevice device, const VkCommandPool
 // vkCreateComputePipelines
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateComputePipelines_hook(VkDevice device, VkPipelineCache pipelineCache, uint32_t createInfoCount, const VkComputePipelineCreateInfo* pCreateInfos, const VkAllocationCallbacks* pAllocator, VkPipeline* pPipelines) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateComputePipelines");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateComputePipelines");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, VkPipelineCache pipelineCache, uint32_t createInfoCount, const VkComputePipelineCreateInfo* pCreateInfos, const VkAllocationCallbacks* pAllocator, VkPipeline* pPipelines)>(get_original_fns()["vkCreateComputePipelines"]);
@@ -2741,7 +2741,7 @@ VkResult VKAPI_PTR vkCreateComputePipelines_hook(VkDevice device, VkPipelineCach
 // vkCreateDescriptorPool
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateDescriptorPool_hook(VkDevice device, const VkDescriptorPoolCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDescriptorPool* pDescriptorPool) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateDescriptorPool");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateDescriptorPool");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkDescriptorPoolCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDescriptorPool* pDescriptorPool)>(get_original_fns()["vkCreateDescriptorPool"]);
@@ -2777,7 +2777,7 @@ VkResult VKAPI_PTR vkCreateDescriptorPool_hook(VkDevice device, const VkDescript
 // vkCreateDescriptorSetLayout
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateDescriptorSetLayout_hook(VkDevice device, const VkDescriptorSetLayoutCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDescriptorSetLayout* pSetLayout) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateDescriptorSetLayout");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateDescriptorSetLayout");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkDescriptorSetLayoutCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDescriptorSetLayout* pSetLayout)>(get_original_fns()["vkCreateDescriptorSetLayout"]);
@@ -2813,7 +2813,7 @@ VkResult VKAPI_PTR vkCreateDescriptorSetLayout_hook(VkDevice device, const VkDes
 // vkCreateDescriptorUpdateTemplate
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateDescriptorUpdateTemplate_hook(VkDevice device, const VkDescriptorUpdateTemplateCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDescriptorUpdateTemplate* pDescriptorUpdateTemplate) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateDescriptorUpdateTemplate");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateDescriptorUpdateTemplate");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkDescriptorUpdateTemplateCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDescriptorUpdateTemplate* pDescriptorUpdateTemplate)>(get_original_fns()["vkCreateDescriptorUpdateTemplate"]);
@@ -2860,7 +2860,7 @@ VkResult VKAPI_PTR vkCreateDescriptorUpdateTemplate_hook(VkDevice device, const 
 // vkCreateEvent
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateEvent_hook(VkDevice device, const VkEventCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkEvent* pEvent) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateEvent");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateEvent");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkEventCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkEvent* pEvent)>(get_original_fns()["vkCreateEvent"]);
@@ -2896,7 +2896,7 @@ VkResult VKAPI_PTR vkCreateEvent_hook(VkDevice device, const VkEventCreateInfo* 
 // vkCreateFence
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateFence_hook(VkDevice device, const VkFenceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkFence* pFence) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateFence");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateFence");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkFenceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkFence* pFence)>(get_original_fns()["vkCreateFence"]);
@@ -2932,7 +2932,7 @@ VkResult VKAPI_PTR vkCreateFence_hook(VkDevice device, const VkFenceCreateInfo* 
 // vkCreateFramebuffer
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateFramebuffer_hook(VkDevice device, const VkFramebufferCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkFramebuffer* pFramebuffer) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateFramebuffer");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateFramebuffer");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkFramebufferCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkFramebuffer* pFramebuffer)>(get_original_fns()["vkCreateFramebuffer"]);
@@ -2968,7 +2968,7 @@ VkResult VKAPI_PTR vkCreateFramebuffer_hook(VkDevice device, const VkFramebuffer
 // vkCreateGraphicsPipelines
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateGraphicsPipelines_hook(VkDevice device, VkPipelineCache pipelineCache, uint32_t createInfoCount, const VkGraphicsPipelineCreateInfo* pCreateInfos, const VkAllocationCallbacks* pAllocator, VkPipeline* pPipelines) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateGraphicsPipelines");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateGraphicsPipelines");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, VkPipelineCache pipelineCache, uint32_t createInfoCount, const VkGraphicsPipelineCreateInfo* pCreateInfos, const VkAllocationCallbacks* pAllocator, VkPipeline* pPipelines)>(get_original_fns()["vkCreateGraphicsPipelines"]);
@@ -3006,7 +3006,7 @@ VkResult VKAPI_PTR vkCreateGraphicsPipelines_hook(VkDevice device, VkPipelineCac
 // vkCreateImage
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateImage_hook(VkDevice device, const VkImageCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkImage* pImage) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateImage");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateImage");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkImageCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkImage* pImage)>(get_original_fns()["vkCreateImage"]);
@@ -3042,7 +3042,7 @@ VkResult VKAPI_PTR vkCreateImage_hook(VkDevice device, const VkImageCreateInfo* 
 // vkCreateImageView
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateImageView_hook(VkDevice device, const VkImageViewCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkImageView* pView) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateImageView");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateImageView");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkImageViewCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkImageView* pView)>(get_original_fns()["vkCreateImageView"]);
@@ -3078,7 +3078,7 @@ VkResult VKAPI_PTR vkCreateImageView_hook(VkDevice device, const VkImageViewCrea
 // vkCreatePipelineCache
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreatePipelineCache_hook(VkDevice device, const VkPipelineCacheCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkPipelineCache* pPipelineCache) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreatePipelineCache");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreatePipelineCache");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkPipelineCacheCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkPipelineCache* pPipelineCache)>(get_original_fns()["vkCreatePipelineCache"]);
@@ -3114,7 +3114,7 @@ VkResult VKAPI_PTR vkCreatePipelineCache_hook(VkDevice device, const VkPipelineC
 // vkCreatePipelineLayout
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreatePipelineLayout_hook(VkDevice device, const VkPipelineLayoutCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkPipelineLayout* pPipelineLayout) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreatePipelineLayout");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreatePipelineLayout");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkPipelineLayoutCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkPipelineLayout* pPipelineLayout)>(get_original_fns()["vkCreatePipelineLayout"]);
@@ -3150,7 +3150,7 @@ VkResult VKAPI_PTR vkCreatePipelineLayout_hook(VkDevice device, const VkPipeline
 // vkCreatePrivateDataSlot
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreatePrivateDataSlot_hook(VkDevice device, const VkPrivateDataSlotCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkPrivateDataSlot* pPrivateDataSlot) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreatePrivateDataSlot");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreatePrivateDataSlot");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkPrivateDataSlotCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkPrivateDataSlot* pPrivateDataSlot)>(get_original_fns()["vkCreatePrivateDataSlot"]);
@@ -3186,7 +3186,7 @@ VkResult VKAPI_PTR vkCreatePrivateDataSlot_hook(VkDevice device, const VkPrivate
 // vkCreateQueryPool
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateQueryPool_hook(VkDevice device, const VkQueryPoolCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkQueryPool* pQueryPool) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateQueryPool");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateQueryPool");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkQueryPoolCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkQueryPool* pQueryPool)>(get_original_fns()["vkCreateQueryPool"]);
@@ -3222,7 +3222,7 @@ VkResult VKAPI_PTR vkCreateQueryPool_hook(VkDevice device, const VkQueryPoolCrea
 // vkCreateRenderPass
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateRenderPass_hook(VkDevice device, const VkRenderPassCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkRenderPass* pRenderPass) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateRenderPass");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateRenderPass");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkRenderPassCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkRenderPass* pRenderPass)>(get_original_fns()["vkCreateRenderPass"]);
@@ -3258,7 +3258,7 @@ VkResult VKAPI_PTR vkCreateRenderPass_hook(VkDevice device, const VkRenderPassCr
 // vkCreateRenderPass2
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateRenderPass2_hook(VkDevice device, const VkRenderPassCreateInfo2* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkRenderPass* pRenderPass) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateRenderPass2");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateRenderPass2");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkRenderPassCreateInfo2* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkRenderPass* pRenderPass)>(get_original_fns()["vkCreateRenderPass2"]);
@@ -3363,7 +3363,7 @@ VkResult VKAPI_PTR vkCreateRenderPass2_hook(VkDevice device, const VkRenderPassC
 // vkCreateSampler
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateSampler_hook(VkDevice device, const VkSamplerCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSampler* pSampler) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateSampler");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateSampler");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkSamplerCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSampler* pSampler)>(get_original_fns()["vkCreateSampler"]);
@@ -3399,7 +3399,7 @@ VkResult VKAPI_PTR vkCreateSampler_hook(VkDevice device, const VkSamplerCreateIn
 // vkCreateSamplerYcbcrConversion
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateSamplerYcbcrConversion_hook(VkDevice device, const VkSamplerYcbcrConversionCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSamplerYcbcrConversion* pYcbcrConversion) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateSamplerYcbcrConversion");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateSamplerYcbcrConversion");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkSamplerYcbcrConversionCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSamplerYcbcrConversion* pYcbcrConversion)>(get_original_fns()["vkCreateSamplerYcbcrConversion"]);
@@ -3435,7 +3435,7 @@ VkResult VKAPI_PTR vkCreateSamplerYcbcrConversion_hook(VkDevice device, const Vk
 // vkCreateSemaphore
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateSemaphore_hook(VkDevice device, const VkSemaphoreCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSemaphore* pSemaphore) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateSemaphore");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateSemaphore");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkSemaphoreCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkSemaphore* pSemaphore)>(get_original_fns()["vkCreateSemaphore"]);
@@ -3471,7 +3471,7 @@ VkResult VKAPI_PTR vkCreateSemaphore_hook(VkDevice device, const VkSemaphoreCrea
 // vkCreateShaderModule
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkCreateShaderModule_hook(VkDevice device, const VkShaderModuleCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkShaderModule* pShaderModule) {
-    SPDLOG_INFO("Intercepted: {}", "vkCreateShaderModule");
+    SPDLOG_TRACE("Intercepted: {}", "vkCreateShaderModule");
 
     // Call original first (safe with null check)
     auto original = reinterpret_cast<VkResult (VKAPI_PTR*)(VkDevice device, const VkShaderModuleCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkShaderModule* pShaderModule)>(get_original_fns()["vkCreateShaderModule"]);
@@ -3507,7 +3507,7 @@ VkResult VKAPI_PTR vkCreateShaderModule_hook(VkDevice device, const VkShaderModu
 // vkDestroyBuffer
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroyBuffer_hook(VkDevice device, VkBuffer buffer, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroyBuffer");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroyBuffer");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -3538,7 +3538,7 @@ void VKAPI_PTR vkDestroyBuffer_hook(VkDevice device, VkBuffer buffer, const VkAl
 // vkDestroyBufferView
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroyBufferView_hook(VkDevice device, VkBufferView bufferView, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroyBufferView");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroyBufferView");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -3569,7 +3569,7 @@ void VKAPI_PTR vkDestroyBufferView_hook(VkDevice device, VkBufferView bufferView
 // vkDestroyCommandPool
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroyCommandPool_hook(VkDevice device, VkCommandPool commandPool, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroyCommandPool");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroyCommandPool");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -3600,7 +3600,7 @@ void VKAPI_PTR vkDestroyCommandPool_hook(VkDevice device, VkCommandPool commandP
 // vkDestroyDescriptorPool
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroyDescriptorPool_hook(VkDevice device, VkDescriptorPool descriptorPool, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroyDescriptorPool");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroyDescriptorPool");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -3631,7 +3631,7 @@ void VKAPI_PTR vkDestroyDescriptorPool_hook(VkDevice device, VkDescriptorPool de
 // vkDestroyDescriptorSetLayout
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroyDescriptorSetLayout_hook(VkDevice device, VkDescriptorSetLayout descriptorSetLayout, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroyDescriptorSetLayout");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroyDescriptorSetLayout");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -3662,7 +3662,7 @@ void VKAPI_PTR vkDestroyDescriptorSetLayout_hook(VkDevice device, VkDescriptorSe
 // vkDestroyDescriptorUpdateTemplate
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroyDescriptorUpdateTemplate_hook(VkDevice device, VkDescriptorUpdateTemplate descriptorUpdateTemplate, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroyDescriptorUpdateTemplate");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroyDescriptorUpdateTemplate");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -3693,7 +3693,7 @@ void VKAPI_PTR vkDestroyDescriptorUpdateTemplate_hook(VkDevice device, VkDescrip
 // vkDestroyEvent
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroyEvent_hook(VkDevice device, VkEvent event, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroyEvent");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroyEvent");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -3724,7 +3724,7 @@ void VKAPI_PTR vkDestroyEvent_hook(VkDevice device, VkEvent event, const VkAlloc
 // vkDestroyFence
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroyFence_hook(VkDevice device, VkFence fence, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroyFence");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroyFence");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -3755,7 +3755,7 @@ void VKAPI_PTR vkDestroyFence_hook(VkDevice device, VkFence fence, const VkAlloc
 // vkDestroyFramebuffer
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroyFramebuffer_hook(VkDevice device, VkFramebuffer framebuffer, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroyFramebuffer");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroyFramebuffer");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -3786,7 +3786,7 @@ void VKAPI_PTR vkDestroyFramebuffer_hook(VkDevice device, VkFramebuffer framebuf
 // vkDestroyImage
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroyImage_hook(VkDevice device, VkImage image, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroyImage");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroyImage");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -3817,7 +3817,7 @@ void VKAPI_PTR vkDestroyImage_hook(VkDevice device, VkImage image, const VkAlloc
 // vkDestroyImageView
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroyImageView_hook(VkDevice device, VkImageView imageView, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroyImageView");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroyImageView");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -3848,7 +3848,7 @@ void VKAPI_PTR vkDestroyImageView_hook(VkDevice device, VkImageView imageView, c
 // vkDestroyPipeline
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroyPipeline_hook(VkDevice device, VkPipeline pipeline, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroyPipeline");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroyPipeline");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -3879,7 +3879,7 @@ void VKAPI_PTR vkDestroyPipeline_hook(VkDevice device, VkPipeline pipeline, cons
 // vkDestroyPipelineCache
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroyPipelineCache_hook(VkDevice device, VkPipelineCache pipelineCache, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroyPipelineCache");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroyPipelineCache");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -3910,7 +3910,7 @@ void VKAPI_PTR vkDestroyPipelineCache_hook(VkDevice device, VkPipelineCache pipe
 // vkDestroyPipelineLayout
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroyPipelineLayout_hook(VkDevice device, VkPipelineLayout pipelineLayout, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroyPipelineLayout");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroyPipelineLayout");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -3941,7 +3941,7 @@ void VKAPI_PTR vkDestroyPipelineLayout_hook(VkDevice device, VkPipelineLayout pi
 // vkDestroyPrivateDataSlot
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroyPrivateDataSlot_hook(VkDevice device, VkPrivateDataSlot privateDataSlot, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroyPrivateDataSlot");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroyPrivateDataSlot");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -3972,7 +3972,7 @@ void VKAPI_PTR vkDestroyPrivateDataSlot_hook(VkDevice device, VkPrivateDataSlot 
 // vkDestroyQueryPool
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroyQueryPool_hook(VkDevice device, VkQueryPool queryPool, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroyQueryPool");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroyQueryPool");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4003,7 +4003,7 @@ void VKAPI_PTR vkDestroyQueryPool_hook(VkDevice device, VkQueryPool queryPool, c
 // vkDestroyRenderPass
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroyRenderPass_hook(VkDevice device, VkRenderPass renderPass, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroyRenderPass");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroyRenderPass");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4034,7 +4034,7 @@ void VKAPI_PTR vkDestroyRenderPass_hook(VkDevice device, VkRenderPass renderPass
 // vkDestroySampler
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroySampler_hook(VkDevice device, VkSampler sampler, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroySampler");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroySampler");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4065,7 +4065,7 @@ void VKAPI_PTR vkDestroySampler_hook(VkDevice device, VkSampler sampler, const V
 // vkDestroySamplerYcbcrConversion
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroySamplerYcbcrConversion_hook(VkDevice device, VkSamplerYcbcrConversion ycbcrConversion, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroySamplerYcbcrConversion");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroySamplerYcbcrConversion");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4096,7 +4096,7 @@ void VKAPI_PTR vkDestroySamplerYcbcrConversion_hook(VkDevice device, VkSamplerYc
 // vkDestroySemaphore
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroySemaphore_hook(VkDevice device, VkSemaphore semaphore, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroySemaphore");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroySemaphore");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4127,7 +4127,7 @@ void VKAPI_PTR vkDestroySemaphore_hook(VkDevice device, VkSemaphore semaphore, c
 // vkDestroyShaderModule
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkDestroyShaderModule_hook(VkDevice device, VkShaderModule shaderModule, const VkAllocationCallbacks* pAllocator) {
-    SPDLOG_INFO("Intercepted: {}", "vkDestroyShaderModule");
+    SPDLOG_TRACE("Intercepted: {}", "vkDestroyShaderModule");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4158,7 +4158,7 @@ void VKAPI_PTR vkDestroyShaderModule_hook(VkDevice device, VkShaderModule shader
 // vkFreeDescriptorSets
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkFreeDescriptorSets_hook(VkDevice device, VkDescriptorPool descriptorPool, uint32_t descriptorSetCount, const VkDescriptorSet* pDescriptorSets) {
-    SPDLOG_INFO("Intercepted: {}", "vkFreeDescriptorSets");
+    SPDLOG_TRACE("Intercepted: {}", "vkFreeDescriptorSets");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4190,7 +4190,7 @@ VkResult VKAPI_PTR vkFreeDescriptorSets_hook(VkDevice device, VkDescriptorPool d
 // vkGetDeviceGroupPeerMemoryFeatures
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkGetDeviceGroupPeerMemoryFeatures_hook(VkDevice device, uint32_t heapIndex, uint32_t localDeviceIndex, uint32_t remoteDeviceIndex, VkPeerMemoryFeatureFlags* pPeerMemoryFeatures) {
-    SPDLOG_INFO("Intercepted: {}", "vkGetDeviceGroupPeerMemoryFeatures");
+    SPDLOG_TRACE("Intercepted: {}", "vkGetDeviceGroupPeerMemoryFeatures");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4223,7 +4223,7 @@ void VKAPI_PTR vkGetDeviceGroupPeerMemoryFeatures_hook(VkDevice device, uint32_t
 // vkGetDeviceGroupSurfacePresentModesKHR
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkGetDeviceGroupSurfacePresentModesKHR_hook(VkDevice device, VkSurfaceKHR surface, VkDeviceGroupPresentModeFlagsKHR* pModes) {
-    SPDLOG_INFO("Intercepted: {}", "vkGetDeviceGroupSurfacePresentModesKHR");
+    SPDLOG_TRACE("Intercepted: {}", "vkGetDeviceGroupSurfacePresentModesKHR");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4254,7 +4254,7 @@ VkResult VKAPI_PTR vkGetDeviceGroupSurfacePresentModesKHR_hook(VkDevice device, 
 // vkMergePipelineCaches
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkMergePipelineCaches_hook(VkDevice device, VkPipelineCache dstCache, uint32_t srcCacheCount, const VkPipelineCache* pSrcCaches) {
-    SPDLOG_INFO("Intercepted: {}", "vkMergePipelineCaches");
+    SPDLOG_TRACE("Intercepted: {}", "vkMergePipelineCaches");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4286,7 +4286,7 @@ VkResult VKAPI_PTR vkMergePipelineCaches_hook(VkDevice device, VkPipelineCache d
 // vkQueueBindSparse
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkQueueBindSparse_hook(VkQueue queue, uint32_t bindInfoCount, const VkBindSparseInfo* pBindInfo, VkFence fence) {
-    SPDLOG_INFO("Intercepted: {}", "vkQueueBindSparse");
+    SPDLOG_TRACE("Intercepted: {}", "vkQueueBindSparse");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4318,7 +4318,7 @@ VkResult VKAPI_PTR vkQueueBindSparse_hook(VkQueue queue, uint32_t bindInfoCount,
 // vkResetCommandPool
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkResetCommandPool_hook(VkDevice device, VkCommandPool commandPool, VkCommandPoolResetFlags flags) {
-    SPDLOG_INFO("Intercepted: {}", "vkResetCommandPool");
+    SPDLOG_TRACE("Intercepted: {}", "vkResetCommandPool");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4349,7 +4349,7 @@ VkResult VKAPI_PTR vkResetCommandPool_hook(VkDevice device, VkCommandPool comman
 // vkResetDescriptorPool
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkResetDescriptorPool_hook(VkDevice device, VkDescriptorPool descriptorPool, VkDescriptorPoolResetFlags flags) {
-    SPDLOG_INFO("Intercepted: {}", "vkResetDescriptorPool");
+    SPDLOG_TRACE("Intercepted: {}", "vkResetDescriptorPool");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4380,7 +4380,7 @@ VkResult VKAPI_PTR vkResetDescriptorPool_hook(VkDevice device, VkDescriptorPool 
 // vkResetEvent
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkResetEvent_hook(VkDevice device, VkEvent event) {
-    SPDLOG_INFO("Intercepted: {}", "vkResetEvent");
+    SPDLOG_TRACE("Intercepted: {}", "vkResetEvent");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4410,7 +4410,7 @@ VkResult VKAPI_PTR vkResetEvent_hook(VkDevice device, VkEvent event) {
 // vkResetFences
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkResetFences_hook(VkDevice device, uint32_t fenceCount, const VkFence* pFences) {
-    SPDLOG_INFO("Intercepted: {}", "vkResetFences");
+    SPDLOG_TRACE("Intercepted: {}", "vkResetFences");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4441,7 +4441,7 @@ VkResult VKAPI_PTR vkResetFences_hook(VkDevice device, uint32_t fenceCount, cons
 // vkResetQueryPool
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkResetQueryPool_hook(VkDevice device, VkQueryPool queryPool, uint32_t firstQuery, uint32_t queryCount) {
-    SPDLOG_INFO("Intercepted: {}", "vkResetQueryPool");
+    SPDLOG_TRACE("Intercepted: {}", "vkResetQueryPool");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4473,7 +4473,7 @@ void VKAPI_PTR vkResetQueryPool_hook(VkDevice device, VkQueryPool queryPool, uin
 // vkSetEvent
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkSetEvent_hook(VkDevice device, VkEvent event) {
-    SPDLOG_INFO("Intercepted: {}", "vkSetEvent");
+    SPDLOG_TRACE("Intercepted: {}", "vkSetEvent");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4503,7 +4503,7 @@ VkResult VKAPI_PTR vkSetEvent_hook(VkDevice device, VkEvent event) {
 // vkSetPrivateData
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkSetPrivateData_hook(VkDevice device, VkObjectType objectType, uint64_t objectHandle, VkPrivateDataSlot privateDataSlot, uint64_t data) {
-    SPDLOG_INFO("Intercepted: {}", "vkSetPrivateData");
+    SPDLOG_TRACE("Intercepted: {}", "vkSetPrivateData");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4536,7 +4536,7 @@ VkResult VKAPI_PTR vkSetPrivateData_hook(VkDevice device, VkObjectType objectTyp
 // vkSignalSemaphore
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkSignalSemaphore_hook(VkDevice device, const VkSemaphoreSignalInfo* pSignalInfo) {
-    SPDLOG_INFO("Intercepted: {}", "vkSignalSemaphore");
+    SPDLOG_TRACE("Intercepted: {}", "vkSignalSemaphore");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4566,7 +4566,7 @@ VkResult VKAPI_PTR vkSignalSemaphore_hook(VkDevice device, const VkSemaphoreSign
 // vkTrimCommandPool
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkTrimCommandPool_hook(VkDevice device, VkCommandPool commandPool, VkCommandPoolTrimFlags flags) {
-    SPDLOG_INFO("Intercepted: {}", "vkTrimCommandPool");
+    SPDLOG_TRACE("Intercepted: {}", "vkTrimCommandPool");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4597,7 +4597,7 @@ void VKAPI_PTR vkTrimCommandPool_hook(VkDevice device, VkCommandPool commandPool
 // vkUpdateDescriptorSetWithTemplate
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkUpdateDescriptorSetWithTemplate_hook(VkDevice device, VkDescriptorSet descriptorSet, VkDescriptorUpdateTemplate descriptorUpdateTemplate, const void* pData) {
-    SPDLOG_INFO("Intercepted: {}", "vkUpdateDescriptorSetWithTemplate");
+    SPDLOG_TRACE("Intercepted: {}", "vkUpdateDescriptorSetWithTemplate");
 
     // Serialize arguments — use actual template data size instead of hardcoded 4096
     serializer::VulkanSerializer ser;
@@ -4635,7 +4635,7 @@ void VKAPI_PTR vkUpdateDescriptorSetWithTemplate_hook(VkDevice device, VkDescrip
 // vkUpdateDescriptorSets
 // ---------------------------------------------------------------------------
 void VKAPI_PTR vkUpdateDescriptorSets_hook(VkDevice device, uint32_t descriptorWriteCount, const VkWriteDescriptorSet* pDescriptorWrites, uint32_t descriptorCopyCount, const VkCopyDescriptorSet* pDescriptorCopies) {
-    SPDLOG_INFO("Intercepted: {}", "vkUpdateDescriptorSets");
+    SPDLOG_TRACE("Intercepted: {}", "vkUpdateDescriptorSets");
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -4668,7 +4668,7 @@ void VKAPI_PTR vkUpdateDescriptorSets_hook(VkDevice device, uint32_t descriptorW
 // vkWaitSemaphores
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkWaitSemaphores_hook(VkDevice device, const VkSemaphoreWaitInfo* pWaitInfo, uint64_t timeout) {
-    SPDLOG_INFO("Intercepted: {}", "vkWaitSemaphores");
+    SPDLOG_TRACE("Intercepted: {}", "vkWaitSemaphores");
 
     // Flush pending commands first
     auto* batch = get_batch();

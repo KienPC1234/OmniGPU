@@ -23,10 +23,10 @@ inline constexpr bool kDefaultFlushOnPresent = true;
 // Adaptive batching defaults
 inline constexpr bool kDefaultAdaptiveEnabled = true;
 inline constexpr uint32_t kDefaultMaxFlushIntervalMs = 16;  // ~60 FPS
-inline constexpr size_t kMinCommandThreshold = 4;
-inline constexpr size_t kMaxCommandThreshold = 256;
-inline constexpr size_t kMinByteThreshold = 1024;
-inline constexpr size_t kMaxByteThreshold = 512 * 1024;
+inline constexpr size_t kMinCommandThreshold = 8;
+inline constexpr size_t kMaxCommandThreshold = 2048;
+inline constexpr size_t kMinByteThreshold = 4096;
+inline constexpr size_t kMaxByteThreshold = 4 * 1024 * 1024;  // 4 MB
 
 class CommandBatch {
 public:

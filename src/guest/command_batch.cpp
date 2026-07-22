@@ -65,7 +65,7 @@ void CommandBatch::flush() {
         std::lock_guard<std::mutex> lock(client_->send_mutex());
         for (const auto& cmd : batch) {
             uint32_t net_size = htonl(static_cast<uint32_t>(cmd.size()));
-            SPDLOG_INFO("Batch flush: sending cmd size={}", cmd.size());
+            SPDLOG_TRACE("Batch flush: sending cmd size={}", cmd.size());
             if (!client_->send_data(
                     reinterpret_cast<const uint8_t*>(&net_size),
                     sizeof(net_size))) {
@@ -164,17 +164,33 @@ void CommandBatch::adapt_thresholds() {
     std::lock_guard<std::mutex> lock(mutex_);
     uint32_t rtt = smoothed_rtt_ms_.load();
 
-    if (rtt < 5) {
-        size_t new_cmd = std::max(kMinCommandThreshold, cmd_threshold_ / 2);
-        size_t new_byte = std::max(kMinByteThreshold, byte_threshold_ / 2);
-        cmd_threshold_ = std::clamp(new_cmd, kMinCommandThreshold, kMaxCommandThreshold);
-        byte_threshold_ = std::clamp(new_byte, kMinByteThreshold, kMaxByteThreshold);
-    } else if (rtt > 30) {
-        size_t new_cmd = std::min(kMaxCommandThreshold, cmd_threshold_ * 2);
-        size_t new_byte = std::min(kMaxByteThreshold, byte_threshold_ * 2);
-        cmd_threshold_ = std::clamp(new_cmd, kMinCommandThreshold, kMaxCommandThreshold);
-        byte_threshold_ = std::clamp(new_byte, kMinByteThreshold, kMaxByteThreshold);
+    // Auto-tune based on RTT with smooth adaptation factor
+    // Target: keep batch interval ~2x RTT for good throughput
+    // RTT < 1ms  (local):   aggressive batching — big batches
+    // RTT 1-5ms (LAN):      moderate
+    // RTT > 5ms (WAN):      very aggressive — huge batches, longer interval
+    float factor;
+    if (rtt <= 1) {
+        factor = 1.2f;   // grow slightly (RTT is good, so more cmds per batch = better throughput)
+    } else if (rtt <= 5) {
+        factor = 1.5f;   // moderate growth
+    } else if (rtt <= 20) {
+        factor = 2.0f;   // compensate for latency
+    } else {
+        factor = 3.0f;   // high latency — batch aggressively
     }
+
+    size_t new_cmd = static_cast<size_t>(cmd_threshold_ * factor);
+    size_t new_byte = static_cast<size_t>(byte_threshold_ * factor);
+    cmd_threshold_ = std::clamp(new_cmd, kMinCommandThreshold, kMaxCommandThreshold);
+    byte_threshold_ = std::clamp(new_byte, kMinByteThreshold, kMaxByteThreshold);
+
+    // Also adjust flush interval: target ~3x RTT
+    uint32_t new_interval = std::max(1u, rtt * 3);
+    max_interval_ms_ = std::clamp(new_interval, 1u, 32u);
+
+    SPDLOG_TRACE("Adapt: rtt={}ms → cmd={} byte={}kb interval={}ms",
+                 rtt, cmd_threshold_, byte_threshold_ / 1024, max_interval_ms_.load());
 }
 
 } // namespace omnigpu::batch

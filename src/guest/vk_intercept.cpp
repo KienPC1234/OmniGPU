@@ -44,6 +44,7 @@ namespace omnigpu::intercept {
 // Global state for memory mapping / flush tracking
 static std::mutex s_map_mutex;
 static std::unordered_map<uint64_t, void*> s_mapped_ptrs;
+static std::unordered_map<uint64_t, void*> s_unmapped_ptrs;  // retained shadows across unmap
 static std::unordered_map<uint64_t, VkDeviceSize> s_memory_sizes;
 static std::unordered_map<uint64_t, VkDevice> s_memory_devices;
 static std::unordered_map<uint64_t, VkDeviceSize> s_memory_map_offsets;
@@ -701,7 +702,7 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties2_hook(
     VkPhysicalDevice physicalDevice,
     VkPhysicalDeviceProperties2* pProperties)
 {
-    SPDLOG_INFO("Intercepted: vkGetPhysicalDeviceProperties2");
+    SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceProperties2");
     if (!pProperties) return;
 
     vkGetPhysicalDeviceProperties_hook(physicalDevice, &pProperties->properties);
@@ -1175,11 +1176,11 @@ void VKAPI_PTR vkGetPhysicalDeviceMemoryProperties_hook(
     pMemoryProperties->memoryHeaps[1].size = heap1size;
     pMemoryProperties->memoryHeaps[1].flags = static_cast<VkMemoryHeapFlags>(heap1flags);
 
-    // 5 memory types, optimized for compute workloads:
-    // Type 0: DEVICE_LOCAL only — fastest GPU access, for storage buffers/images
-    // Type 1: DEVICE_LOCAL | HOST_VISIBLE | HOST_COHERENT — unified memory (if available)
-    // Type 2: HOST_VISIBLE | HOST_COHERENT — staging/readback from system RAM
-    // Type 3: HOST_VISIBLE | HOST_CACHED — cached staging (for read-after-write patterns)
+    // 5 memory types:
+    // Type 0: DEVICE_LOCAL only
+    // Type 1: DEVICE_LOCAL | HOST_VISIBLE | HOST_COHERENT — BAR/rebar
+    // Type 2: HOST_VISIBLE | HOST_COHERENT — staging from system RAM
+    // Type 3: HOST_VISIBLE | HOST_CACHED — cached staging
     // Type 4: DEVICE_LOCAL | HOST_VISIBLE | HOST_CACHED — cached unified
     pMemoryProperties->memoryTypeCount = 5;
     pMemoryProperties->memoryTypes[0].heapIndex = 0;
@@ -2255,6 +2256,18 @@ static void untrack_memory_allocation(VkDeviceMemory memory) {
     s_memory_dirty.erase(mem_key);
     s_pending_flushes.erase(mem_key);
     s_memory_coherent.erase(mem_key);
+    // Free retained shadow if any
+    auto mapped_it = s_mapped_ptrs.find(mem_key);
+    if (mapped_it != s_mapped_ptrs.end()) {
+        omni_aligned_free(mapped_it->second);
+        s_mapped_ptrs.erase(mapped_it);
+        s_memory_map_offsets.erase(mem_key);
+    }
+    auto unmapped_it = s_unmapped_ptrs.find(mem_key);
+    if (unmapped_it != s_unmapped_ptrs.end()) {
+        omni_aligned_free(unmapped_it->second);
+        s_unmapped_ptrs.erase(unmapped_it);
+    }
 }
 static VkDeviceSize get_memory_size(VkDeviceMemory memory) {
     uint64_t mem_key = handle_to_u64(memory);
@@ -2362,54 +2375,96 @@ VkResult VKAPI_PTR vkMapMemory_hook(
     VkMemoryMapFlags flags, void** ppData)
 {
     VkDeviceSize total_size = get_memory_size(memory);
-    SPDLOG_INFO("vkMapMemory_hook entry: device={} memory={} size={} total_size={}",
+    SPDLOG_TRACE("vkMapMemory_hook entry: device={} memory={} size={} total_size={}",
                 (void*)device, (void*)memory, size, total_size);
-    FILE* diag = fopen("C:\\Users\\test\\AppData\\Local\\Temp\\omnigpu_diag.txt", "a");
-    if (diag) { fprintf(diag, "Map: mem=%p size=%llu total=%llu\n",
-        (void*)memory, (unsigned long long)size, (unsigned long long)total_size); fclose(diag); }
     if (total_size == 0) {
         SPDLOG_ERROR("vkMapMemory: total_size is 0 (untracked memory allocation)");
         return VK_ERROR_MEMORY_MAP_FAILED;
     }
     if (!ppData) return VK_ERROR_INITIALIZATION_FAILED;
 
-    // Allocate host shadow buffer of the entire allocation size to prevent out of bounds
-    size_t aligned_size = (static_cast<size_t>(total_size) + 255) & ~255;
-    void* ptr = omni_aligned_alloc(256, aligned_size);
-    if (!ptr) {
-        SPDLOG_ERROR("vkMapMemory: failed to allocate {} bytes", aligned_size);
-        if (diag) { fprintf(diag, "Map FAILED: out of memory for %zu bytes\n", aligned_size); fclose(diag); }
-        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    uint64_t mem_key = handle_to_u64(memory);
+    void* ptr = nullptr;
+    bool is_remap = false;
+    bool need_invalidate = false;
+    {
+        std::lock_guard<std::mutex> lock(s_map_mutex);
+        auto reuse_it = s_unmapped_ptrs.find(mem_key);
+        if (reuse_it != s_unmapped_ptrs.end()) {
+            ptr = reuse_it->second;
+            s_unmapped_ptrs.erase(reuse_it);
+            is_remap = true;
+            need_invalidate = true;  // was unmapped → need to fetch from host
+            SPDLOG_INFO("vkMapMemory: REUSE unmapped shadow for mem={:#x}", mem_key);
+        } else {
+            auto already_it = s_mapped_ptrs.find(mem_key);
+            if (already_it != s_mapped_ptrs.end()) {
+                ptr = already_it->second;
+                is_remap = true;  // already mapped, just update offset
+                SPDLOG_TRACE("vkMapMemory: already mapped, reuse ptr for mem={:#x}", mem_key);
+            }
+        }
     }
-    std::memset(ptr, 0, aligned_size);
 
-    // Return pointer shifted by the offset
+    if (!ptr) {
+        size_t aligned_size = (static_cast<size_t>(total_size) + 255) & ~255;
+        ptr = omni_aligned_alloc(256, aligned_size);
+        if (!ptr) {
+            SPDLOG_ERROR("vkMapMemory: failed to allocate {} bytes", aligned_size);
+            return VK_ERROR_OUT_OF_HOST_MEMORY;
+        }
+        std::memset(ptr, 0, aligned_size);
+    }
+
+    // If re-mapping after unmap, fetch latest data from host
+    if (need_invalidate) {
+        auto* batch = get_batch();
+        auto* client = init::get_client();
+        if (batch && client) {
+            serializer::VulkanSerializer ser;
+            ser.write_handle((uint64_t)(device));
+            ser.write_u32(1);
+            ser.write_handle(mem_key);
+            ser.write_u64(offset);
+            ser.write_u64(total_size);
+            static std::atomic<uint32_t> inv_req{0x96000000};
+            auto builder = protocol::build_command(
+                fbs::FunctionId_vkInvalidateMappedMemoryRanges,
+                inv_req.fetch_add(1), ser.data(), ser.size());
+            batch->append(builder);
+            batch->force_flush();
+            client->sync_query(0x8d, mem_key);
+        }
+    }
+
     *ppData = static_cast<uint8_t*>(ptr) + offset;
 
-    uint64_t mem_key = handle_to_u64(memory);
     {
         std::lock_guard<std::mutex> lock(s_map_mutex);
         s_mapped_ptrs[mem_key] = ptr;
         s_memory_map_offsets[mem_key] = offset;
+        // Always mark dirty on map — app will write data after mapping
+        s_memory_dirty[mem_key] = true;
     }
-    SPDLOG_INFO("vkMapMemory_hook exit: ptr={} mem={:#x} (map_offset={})", *ppData, mem_key, offset);
+    SPDLOG_TRACE("vkMapMemory_hook exit: ptr={} mem={:#x} (map_offset={}, remap={})", *ppData, mem_key, offset, is_remap);
     return VK_SUCCESS;
 }
 
 void VKAPI_PTR vkUnmapMemory_hook(VkDevice device, VkDeviceMemory memory)
 {
-    SPDLOG_INFO("vkUnmapMemory_hook entry: device={} memory={}", (void*)device, (void*)memory);
+    SPDLOG_INFO("vkUnmapMemory_hook: mem={:#x} uploading to host...", handle_to_u64(memory));
     uint64_t mem_key = handle_to_u64(memory);
+
+    sync_all_mapped_memory_to_host();
+
     std::lock_guard<std::mutex> lock(s_map_mutex);
     auto it = s_mapped_ptrs.find(mem_key);
     if (it != s_mapped_ptrs.end()) {
-        omni_aligned_free(it->second);
+        s_unmapped_ptrs[mem_key] = it->second;
         s_mapped_ptrs.erase(it);
         s_memory_map_offsets.erase(mem_key);
-        SPDLOG_INFO("vkUnmapMemory_hook exit: freed mapped memory for mem={:#x}", mem_key);
-    } else {
-        SPDLOG_INFO("vkUnmapMemory_hook exit: memory not mapped");
     }
+    SPDLOG_INFO("vkUnmapMemory_hook: mem={:#x} shadow retained", mem_key);
 }
 
 // ---------------------------------------------------------------------------
@@ -2423,29 +2478,76 @@ VkResult VKAPI_PTR vkMapMemory2_hook(
 {
     if (!pMemoryMapInfo || !ppData) return VK_ERROR_INITIALIZATION_FAILED;
     VkDeviceSize total_size = get_memory_size(pMemoryMapInfo->memory);
-    SPDLOG_INFO("vkMapMemory2_hook entry: device={} memory={} size={} total_size={}",
+    SPDLOG_TRACE("vkMapMemory2_hook entry: device={} memory={} size={} total_size={}",
                 (void*)device, (void*)pMemoryMapInfo->memory,
                 pMemoryMapInfo->size, total_size);
     if (total_size == 0) {
         SPDLOG_ERROR("vkMapMemory2: total_size is 0 (untracked memory allocation)");
         return VK_ERROR_MEMORY_MAP_FAILED;
     }
-    size_t aligned_size = (static_cast<size_t>(total_size) + 255) & ~255;
-    void* ptr = omni_aligned_alloc(256, aligned_size);
-    if (ptr) {
-        std::memset(ptr, 0, aligned_size);
-        *ppData = static_cast<uint8_t*>(ptr) + pMemoryMapInfo->offset;
-        uint64_t mem_key = handle_to_u64(pMemoryMapInfo->memory);
-        {
-            std::lock_guard<std::mutex> lock(s_map_mutex);
-            s_mapped_ptrs[mem_key] = ptr;
-            s_memory_map_offsets[mem_key] = pMemoryMapInfo->offset;
+
+    uint64_t mem_key = handle_to_u64(pMemoryMapInfo->memory);
+    void* ptr = nullptr;
+    bool is_remap = false;
+    bool need_invalidate = false;
+    {
+        std::lock_guard<std::mutex> lock(s_map_mutex);
+        auto reuse_it = s_unmapped_ptrs.find(mem_key);
+        if (reuse_it != s_unmapped_ptrs.end()) {
+            ptr = reuse_it->second;
+            s_unmapped_ptrs.erase(reuse_it);
+            is_remap = true;
+            need_invalidate = true;
+            SPDLOG_INFO("vkMapMemory2: REUSE unmapped shadow for mem={:#x}", mem_key);
+        } else {
+            auto already_it = s_mapped_ptrs.find(mem_key);
+            if (already_it != s_mapped_ptrs.end()) {
+                ptr = already_it->second;
+                is_remap = true;
+                SPDLOG_TRACE("vkMapMemory2: already mapped, reuse ptr for mem={:#x}", mem_key);
+            }
         }
-        SPDLOG_INFO("vkMapMemory2_hook exit: ptr={} mem={:#x} (map_offset={})", *ppData, mem_key, pMemoryMapInfo->offset);
-    } else {
-        SPDLOG_ERROR("vkMapMemory2: failed to allocate {} bytes", aligned_size);
-        return VK_ERROR_OUT_OF_HOST_MEMORY;
     }
+
+    if (!ptr) {
+        size_t aligned_size = (static_cast<size_t>(total_size) + 255) & ~255;
+        ptr = omni_aligned_alloc(256, aligned_size);
+        if (!ptr) {
+            SPDLOG_ERROR("vkMapMemory2: failed to allocate {} bytes", aligned_size);
+            return VK_ERROR_OUT_OF_HOST_MEMORY;
+        }
+        std::memset(ptr, 0, aligned_size);
+    }
+
+    if (need_invalidate) {
+        auto* batch = get_batch();
+        auto* client = init::get_client();
+        if (batch && client) {
+            serializer::VulkanSerializer ser;
+            ser.write_handle((uint64_t)(device));
+            ser.write_u32(1);
+            ser.write_handle(mem_key);
+            ser.write_u64(pMemoryMapInfo->offset);
+            ser.write_u64(total_size);
+            static std::atomic<uint32_t> inv_req{0x96000000};
+            auto builder = protocol::build_command(
+                fbs::FunctionId_vkInvalidateMappedMemoryRanges,
+                inv_req.fetch_add(1), ser.data(), ser.size());
+            batch->append(builder);
+            batch->force_flush();
+            client->sync_query(0x8d, mem_key);
+        }
+    }
+
+    *ppData = static_cast<uint8_t*>(ptr) + pMemoryMapInfo->offset;
+
+    {
+        std::lock_guard<std::mutex> lock(s_map_mutex);
+        s_mapped_ptrs[mem_key] = ptr;
+        s_memory_map_offsets[mem_key] = pMemoryMapInfo->offset;
+        s_memory_dirty[mem_key] = true;
+    }
+    SPDLOG_TRACE("vkMapMemory2_hook exit: ptr={} mem={:#x} (map_offset={})", *ppData, mem_key, pMemoryMapInfo->offset);
     return VK_SUCCESS;
 }
 
@@ -2454,28 +2556,35 @@ void VKAPI_PTR vkUnmapMemory2_hook(
     const VkMemoryUnmapInfo* pMemoryUnmapInfo)
 {
     if (!pMemoryUnmapInfo) return;
-    SPDLOG_INFO("vkUnmapMemory2_hook entry: device={} memory={}", (void*)device, (void*)pMemoryUnmapInfo->memory);
+    SPDLOG_INFO("vkUnmapMemory2_hook: mem={:#x} uploading to host...", handle_to_u64(pMemoryUnmapInfo->memory));
     uint64_t mem_key = handle_to_u64(pMemoryUnmapInfo->memory);
+
+    sync_all_mapped_memory_to_host();
+
     std::lock_guard<std::mutex> lock(s_map_mutex);
     auto it = s_mapped_ptrs.find(mem_key);
     if (it != s_mapped_ptrs.end()) {
-        omni_aligned_free(it->second);
+        s_unmapped_ptrs[mem_key] = it->second;
         s_mapped_ptrs.erase(it);
         s_memory_map_offsets.erase(mem_key);
-        SPDLOG_INFO("vkUnmapMemory2_hook exit: freed mapped memory for mem={:#x}", mem_key);
-    } else {
-        SPDLOG_INFO("vkUnmapMemory2_hook exit: memory not mapped");
     }
+    SPDLOG_INFO("vkUnmapMemory2_hook: mem={:#x} shadow retained", mem_key);
 }
 
 void sync_all_mapped_memory_to_host() {
     std::lock_guard<std::mutex> lock(s_map_mutex);
-    if (s_mapped_ptrs.empty()) return;
+
+    // Collect both mapped and retained-unmapped entries
+    struct SyncEntry { uint64_t key; void* ptr; bool is_mapped; };
+    std::vector<SyncEntry> entries;
+    for (const auto& [key, ptr] : s_mapped_ptrs) entries.push_back({key, ptr, true});
+    for (const auto& [key, ptr] : s_unmapped_ptrs) entries.push_back({key, ptr, false});
+    if (entries.empty()) return;
 
     auto* batch = get_batch();
     if (!batch) return;
 
-    for (const auto& [mem_key, guest_ptr] : s_mapped_ptrs) {
+    for (const auto& [mem_key, guest_ptr, is_mapped] : entries) {
         bool is_coherent = false;
         {
             auto coh_it = s_memory_coherent.find(mem_key);
@@ -2491,10 +2600,11 @@ void sync_all_mapped_memory_to_host() {
         }
 
         if (!is_coherent && !is_dirty) continue;
-
-        // Coherent memory (HOST_COHERENT) is automatically synced by GPU.
-        // Only sync if there are explicit flush ranges (non-coherent or dirty).
         if (is_coherent && !is_dirty) continue;
+        SPDLOG_INFO("sync_all: syncing mem={:#x} mapped={} coherent={} dirty={}", mem_key, is_mapped, is_coherent, is_dirty);
+
+        // Coherent memory: mark as dirty on first map (app will write after mapping)
+        // Only sync if dirty or has explicit flush ranges
 
         VkDevice device = VK_NULL_HANDLE;
         {
@@ -2512,7 +2622,7 @@ void sync_all_mapped_memory_to_host() {
             continue;
         }
         VkDeviceSize total_size = size_it->second;
-        if (total_size == 0 || total_size > 256ULL * 1024 * 1024 || !guest_ptr) {
+        if (total_size == 0 || !guest_ptr) {
             SPDLOG_WARN("sync_all: skipping mem={:#x} — invalid total_size={} guest_ptr={}",
                         mem_key, total_size, fmt::ptr(guest_ptr));
             continue;
@@ -2541,27 +2651,37 @@ void sync_all_mapped_memory_to_host() {
                 batch->append(builder);
             }
             flush_it->second.clear();
-        } else {
-            // Fallback: send entire range
-            SPDLOG_INFO("sync_all: flush fallback mem={:#x} total_size={} guest_ptr={}",
-                        mem_key, total_size, fmt::ptr(guest_ptr));
-            serializer::VulkanSerializer ser;
-            ser.write_handle((uint64_t)(device));
-            ser.write_u32(1);
-            ser.write_handle(mem_key);
-            ser.write_u64(0);
-            ser.write_u64(total_size);
-            ser.write_raw(reinterpret_cast<const uint8_t*>(guest_ptr),
-                          static_cast<size_t>(total_size));
+            } else {
+            // Chunk large uploads into 1 MB pieces
+            static constexpr VkDeviceSize kChunkSize = 1024 * 1024;
+            VkDeviceSize remaining = total_size;
+            VkDeviceSize off = 0;
+            uint32_t chunk_count = 0;
+            while (remaining > 0) {
+                VkDeviceSize chunk = std::min(remaining, kChunkSize);
+                serializer::VulkanSerializer ser;
+                ser.write_handle((uint64_t)(device));
+                ser.write_u32(1);
+                ser.write_handle(mem_key);
+                ser.write_u64(off);
+                ser.write_u64(chunk);
+                ser.write_raw(reinterpret_cast<const uint8_t*>(guest_ptr) + off,
+                              static_cast<size_t>(chunk));
 
-            static std::atomic<uint32_t> req_id{0x90000000};
-            auto builder = protocol::build_command(
-                fbs::FunctionId_vkFlushMappedMemoryRanges,
-                req_id.fetch_add(1, std::memory_order_relaxed),
-                ser.data(), ser.size()
-            );
-            batch->append(builder);
-        }
+                static std::atomic<uint32_t> req_id{0x90000000};
+                auto builder = protocol::build_command(
+                    fbs::FunctionId_vkFlushMappedMemoryRanges,
+                    req_id.fetch_add(1, std::memory_order_relaxed),
+                    ser.data(), ser.size()
+                );
+                batch->append(builder);
+                off += chunk;
+                remaining -= chunk;
+                chunk_count++;
+            }
+            SPDLOG_INFO("sync_all: mem={:#x} uploaded {} chunks ({}KB total)",
+                        mem_key, chunk_count, total_size / 1024);
+            }
 
         if (dirty_it != s_memory_dirty.end()) {
             dirty_it->second = false;
@@ -2709,20 +2829,28 @@ VkResult VKAPI_PTR vkQueueSubmit2_hook(
 // Copies the received data into the guest's shadow buffer for the given memory handle.
 void update_shadow_buffer(uint64_t mem_key, const uint8_t* data, size_t size, VkDeviceSize offset) {
     std::lock_guard<std::mutex> lock(s_map_mutex);
+    void* dest = nullptr;
     auto it = s_mapped_ptrs.find(mem_key);
-    if (it != s_mapped_ptrs.end() && it->second && data && size > 0) {
-        VkDeviceSize total_size = s_memory_sizes[mem_key];
-        if (offset + size <= total_size) {
-            std::memcpy(static_cast<uint8_t*>(it->second) + offset, data, size);
-            SPDLOG_DEBUG("update_shadow_buffer: mem={:#x} offset={} size={}", mem_key, offset, size);
-        } else {
-            SPDLOG_ERROR("update_shadow_buffer: write out of bounds! mem={:#x} offset={} size={} total_size={}",
-                         mem_key, offset, size, total_size);
-            if (offset < total_size) {
-                size_t safe_size = static_cast<size_t>(total_size - offset);
-                std::memcpy(static_cast<uint8_t*>(it->second) + offset, data, safe_size);
-            }
+    if (it != s_mapped_ptrs.end()) {
+        dest = it->second;
+    } else {
+        auto uit = s_unmapped_ptrs.find(mem_key);
+        if (uit != s_unmapped_ptrs.end()) {
+            dest = uit->second;
         }
+    }
+    if (!dest || !data || size == 0) {
+        SPDLOG_TRACE("update_shadow_buffer: skip mem={:#x}", mem_key);
+        return;
+    }
+    auto size_it = s_memory_sizes.find(mem_key);
+    VkDeviceSize total_size = (size_it != s_memory_sizes.end()) ? size_it->second : 0;
+    if (offset + size <= total_size) {
+        std::memcpy(static_cast<uint8_t*>(dest) + offset, data, size);
+        SPDLOG_TRACE("update_shadow_buffer: mem={:#x} offset={} size={}", mem_key, offset, size);
+    } else {
+        SPDLOG_ERROR("update_shadow_buffer: write out of bounds! mem={:#x} offset={} size={} total_size={}",
+                     mem_key, offset, size, total_size);
     }
 }
 

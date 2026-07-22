@@ -67,12 +67,12 @@ bool Client::receive_data(uint8_t* buffer, size_t size) {
 }
 
 uint64_t Client::sync_query(uint64_t func_id, uint64_t arg) {
-    // Prevent concurrent sync queries (single in-flight at a time)
     if (sync_in_flight_.exchange(true)) {
         SPDLOG_WARN("sync_query: concurrent sync query detected, returning 0");
         return 0;
     }
 
+    auto send_time = std::chrono::steady_clock::now();
     {
         std::lock_guard<std::mutex> send_lock(send_mutex_);
 
@@ -96,15 +96,23 @@ uint64_t Client::sync_query(uint64_t func_id, uint64_t arg) {
     }
 
     std::unique_lock<std::mutex> slock(sync_mutex_);
-    bool success = sync_cv_.wait_for(slock, std::chrono::seconds(5), [this]() {
+    bool success = sync_cv_.wait_for(slock, std::chrono::seconds(60), [this]() {
         return has_sync_response_;
     });
+
+    auto rtt = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - send_time).count();
 
     sync_in_flight_ = false;
 
     if (!success) {
         SPDLOG_ERROR("sync_query: timed out waiting for response");
         return 0;
+    }
+
+    // Record RTT for adaptive batching (in ms)
+    if (rtt_callback_) {
+        rtt_callback_(static_cast<uint32_t>(rtt / 1000));
     }
 
     return sync_response_val_;
@@ -142,7 +150,7 @@ uint64_t Client::sync_query_ext(uint64_t func_id, const uint8_t* extra, size_t e
     }
 
     std::unique_lock<std::mutex> slock(sync_mutex_);
-    bool success = sync_cv_.wait_for(slock, std::chrono::seconds(5), [this]() {
+    bool success = sync_cv_.wait_for(slock, std::chrono::seconds(60), [this]() {
         return has_sync_response_;
     });
 
@@ -203,7 +211,7 @@ bool Client::sync_query_buf(uint64_t func_id, uint64_t arg, uint8_t* out_buf, si
     }
 
     std::unique_lock<std::mutex> slock(sync_mutex_);
-    bool success = sync_cv_.wait_for(slock, std::chrono::seconds(5), [this]() {
+    bool success = sync_cv_.wait_for(slock, std::chrono::seconds(60), [this]() {
         return has_sync_response_;
     });
 

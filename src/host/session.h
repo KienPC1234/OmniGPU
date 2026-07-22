@@ -45,6 +45,7 @@ private:
     SOCKET clientFd_;
     std::thread thread_;
     std::atomic<bool> running_{false};
+    bool isComputeMode_ = false;
     GpuManager& gpuMgr_;
     std::vector<int> gpuIndices_;
     int sessionId_ = 0;
@@ -70,6 +71,7 @@ private:
                           const uint8_t* data, size_t data_size,
                           uint32_t width, uint32_t height,
                           uint64_t timestamp_ms, bool keyframe);
+    void readback_all_buffers() { commandDispatcher_.readback_all_buffers(); }
 };
 
 } // namespace omnigpu

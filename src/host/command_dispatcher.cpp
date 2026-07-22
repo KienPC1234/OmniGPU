@@ -40,24 +40,33 @@ CommandDispatcher::CommandDispatcher() {
 
         uint64_t guestFence = r.read_handle();
         VkFence fence = d.mapper_.get_fence(guestFence);
-        VkFenceCreateInfo fci{};
-        fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        bool ownFence = false;
-        if (fence == VK_NULL_HANDLE) {
-            if (vkCreateFence(dev, &fci, nullptr, &fence) == VK_SUCCESS)
-                ownFence = true;
+
+        if (d.isComputeMode_) {
+            // Compute mode: guest manages fences via sync queries — skip host fence
+            if (fence == VK_NULL_HANDLE)
+                fence = VK_NULL_HANDLE;  // no host fence needed
+            d.hasPendingSubmit_ = false;
+        } else {
+            if (fence == VK_NULL_HANDLE) {
+                VkFenceCreateInfo fci{};
+                fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+                vkCreateFence(dev, &fci, nullptr, &fence);
+            }
         }
 
         VkResult res = vkQueueSubmit(q, count, submits.data(), fence);
         if (res == VK_SUCCESS) {
-            d.pendingSubmitFence_ = fence;
-            d.pendingSubmitFenceGuestHandle_ = guestFence;
-            d.hasPendingSubmit_ = true;
+            if (!d.isComputeMode_) {
+                d.pendingSubmitFence_ = fence;
+                d.pendingSubmitFenceGuestHandle_ = guestFence;
+                d.hasPendingSubmit_ = true;
+            }
             SPDLOG_DEBUG("  vkQueueSubmit ({} submits) -> submitted, fence={}",
                          count, (void*)fence);
         } else {
             SPDLOG_ERROR("  vkQueueSubmit failed: {}", static_cast<int>(res));
-            if (ownFence) vkDestroyFence(dev, fence, nullptr);
+            if (!d.isComputeMode_ && fence != VK_NULL_HANDLE)
+                vkDestroyFence(dev, fence, nullptr);
         }
 
         for (uint32_t i = 0; i < count; i++)
@@ -181,17 +190,50 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); // device
         VkMemoryAllocateInfo ai{};
         read_VkMemoryAllocateInfo(r, &ai);
-        // Read pAllocator: bool + optional struct bytes
-        if (r.read_bool()) {
-            r.skip(sizeof(VkAllocationCallbacks));
-        }
+        if (r.read_bool()) { r.skip(sizeof(VkAllocationCallbacks)); }
         uint64_t pMem = r.read_handle();
+        uint32_t guestType = ai.memoryTypeIndex;
 
-        // VRAM budget enforcement
+        // Dump all real GPU memory types on first allocation
+        static bool s_dumped_mem_types = false;
+        VkPhysicalDeviceMemoryProperties memProps{};
+        vkGetPhysicalDeviceMemoryProperties(d.phys_device(), &memProps);
+        if (!s_dumped_mem_types) {
+            s_dumped_mem_types = true;
+            SPDLOG_INFO("=== Host GPU memory types ({}) ===", memProps.memoryTypeCount);
+            for (uint32_t j = 0; j < memProps.memoryTypeCount; j++) {
+                auto f = memProps.memoryTypes[j].propertyFlags;
+                SPDLOG_INFO("  type[{}]: heap={} flags=0x{:x} {} {} {} {} {}",
+                    j, memProps.memoryTypes[j].heapIndex, f,
+                    (f & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) ? "DEVICE_LOCAL" : "",
+                    (f & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) ? "HOST_VISIBLE" : "",
+                    (f & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) ? "HOST_COHERENT" : "",
+                    (f & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) ? "HOST_CACHED" : "",
+                    (f & VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT) ? "LAZY" : "");
+            }
+            for (uint32_t j = 0; j < memProps.memoryHeapCount; j++) {
+                SPDLOG_INFO("  heap[{}]: size={}MB flags=0x{:x} {}",
+                    j, memProps.memoryHeaps[j].size / (1024*1024),
+                    memProps.memoryHeaps[j].flags,
+                    (memProps.memoryHeaps[j].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) ? "DEVICE_LOCAL" : "");
+            }
+        }
+
+        // Remap memory type: guest uses virtual types, real GPU types differ
+        // Guest: 0=DEVICE_LOCAL  1=DEVICE_LOCAL|HOST_VISIBLE|COHERENT  2=HOST_VISIBLE|COHERENT
+        // Real RTX4070: [1]=DEVICE_LOCAL  [2]=HOST_VISIBLE|COHERENT(16GB) [4]=BAR(214MB)
+        // Strategy: host-visible types → real type[2] (sys RAM, always mappable)
+        //            device-local only → real type[1] (VRAM, fast GPU access)
+        if (guestType == 0) {
+            ai.memoryTypeIndex = 1;  // DEVICE_LOCAL VRAM
+        } else {
+            ai.memoryTypeIndex = 2;  // HOST_VISIBLE | HOST_COHERENT from sys RAM
+            SPDLOG_INFO("Alloc: size={}KB guestType={} -> hostType=2",
+                ai.allocationSize/1024, guestType);
+        }
+
         if (d.vramBudget_ > 0 && d.vramUsed_ + ai.allocationSize > d.vramBudget_) {
-            SPDLOG_ERROR("vkAllocateMemory: VRAM budget exceeded (used={}MB, request={}MB, budget={}MB)",
-                         d.vramUsed_ / (1024*1024), ai.allocationSize / (1024*1024),
-                         d.vramBudget_ / (1024*1024));
+            SPDLOG_ERROR("vkAllocateMemory: VRAM budget exceeded");
             return;
         }
 
@@ -202,8 +244,8 @@ CommandDispatcher::CommandDispatcher() {
             d.vramUsed_ += ai.allocationSize;
             d.memorySizes_[pMem] = ai.allocationSize;
         } else {
-            SPDLOG_ERROR("vkAllocateMemory host failed: size={} type={} res={}",
-                         ai.allocationSize, ai.memoryTypeIndex, static_cast<int>(res));
+            SPDLOG_ERROR("vkAllocateMemory host failed: size={}MB type={} (guest={}) res={}",
+                         ai.allocationSize / (1024*1024), ai.memoryTypeIndex, guestType, static_cast<int>(res));
         }
     });
     REGISTER(fbs::FunctionId_vkFreeMemory, [](auto& d, auto& r) {
@@ -251,23 +293,18 @@ CommandDispatcher::CommandDispatcher() {
 
             VkDeviceMemory hostMem = d.mapper_.get_device_memory(gMem);
             if (hostMem != VK_NULL_HANDLE && size > 0) {
-                VkPhysicalDeviceProperties props;
-                vkGetPhysicalDeviceProperties(d.physDev_, &props);
-                uint64_t alignment = props.limits.minMemoryMapAlignment;
-                if (alignment == 0) alignment = 64;
-
-                uint64_t aligned_offset = (offset / alignment) * alignment;
-                uint64_t alignment_diff = offset - aligned_offset;
-                uint64_t aligned_size = size + alignment_diff;
-
                 void* mapped = nullptr;
-                VkResult res = vkMapMemory(dev, hostMem, aligned_offset, aligned_size, 0, &mapped);
+                VkResult res = vkMapMemory(dev, hostMem, offset, size, 0, &mapped);
                 if (res == VK_SUCCESS && mapped) {
-                    uint8_t* target = static_cast<uint8_t*>(mapped) + alignment_diff;
-                    std::memcpy(target, data.data(), static_cast<size_t>(size));
+                    std::memcpy(mapped, data.data(), static_cast<size_t>(size));
                     vkUnmapMemory(dev, hostMem);
                 } else {
-                    SPDLOG_ERROR("vkFlushMappedMemoryRanges: map failed (res={})", static_cast<int>(res));
+                    static int fail_count = 0;
+                    if (fail_count < 5) {
+                        SPDLOG_ERROR("vkFlushMappedMemoryRanges: map failed mem={:#x} offset={} size={}MB res={}",
+                                     gMem, offset, size / (1024*1024), static_cast<int>(res));
+                        fail_count++;
+                    }
                 }
             }
         }
@@ -753,19 +790,19 @@ CommandDispatcher::CommandDispatcher() {
     REGISTER(fbs::FunctionId_vkUpdateDescriptorSets, [](auto& d, auto& r) {
         r.read_handle(); // device
         uint32_t wc = r.read_u32();
-        SPDLOG_INFO("vkUpdateDescriptorSets: wc={}", wc);
+        SPDLOG_TRACE("vkUpdateDescriptorSets: wc={}", wc);
         std::vector<VkWriteDescriptorSet> writes(wc);
         std::vector<VkDescriptorImageInfo*> imgPtrs(wc, nullptr);
         std::vector<VkDescriptorBufferInfo*> bufPtrs(wc, nullptr);
         std::vector<VkBufferView*> viewPtrs(wc, nullptr);
         for (uint32_t i = 0; i < wc; i++) {
-            SPDLOG_INFO("  reading write {}", i);
+            SPDLOG_TRACE("  reading write {}", i);
             read_VkWriteDescriptorSet(r, &writes[i], &imgPtrs[i], &bufPtrs[i], &viewPtrs[i]);
-            SPDLOG_INFO("  write {} ok, dstSet={}, type={}, count={}", i,
+            SPDLOG_TRACE("  write {} ok, dstSet={}, type={}, count={}", i,
                 (uint64_t)writes[i].dstSet, (int)writes[i].descriptorType, writes[i].descriptorCount);
         }
         uint32_t cc = r.read_u32();
-        SPDLOG_INFO("vkUpdateDescriptorSets: cc={}", cc);
+        SPDLOG_TRACE("vkUpdateDescriptorSets: cc={}", cc);
         std::vector<VkCopyDescriptorSet> copies(cc);
         for (uint32_t i = 0; i < cc; i++) {
             r.read_raw(&copies[i], sizeof(VkCopyDescriptorSet));
@@ -775,7 +812,7 @@ CommandDispatcher::CommandDispatcher() {
         }
 
         // Remap handles
-        SPDLOG_INFO("vkUpdateDescriptorSets: remapping handles");
+        SPDLOG_TRACE("vkUpdateDescriptorSets: remapping handles");
         for (auto& w : writes) {
             w.dstSet = d.mapper_.get_ds(handle_to_u64(w.dstSet));
             if (w.pImageInfo) {
@@ -792,9 +829,9 @@ CommandDispatcher::CommandDispatcher() {
                 }
             }
         }
-        SPDLOG_INFO("vkUpdateDescriptorSets: calling driver");
+        SPDLOG_TRACE("vkUpdateDescriptorSets: calling driver");
         vkUpdateDescriptorSets(d.mapper_.device(), wc, writes.data(), cc, copies.data());
-        SPDLOG_INFO("vkUpdateDescriptorSets: done ({} writes, {} copies)", wc, cc);
+        SPDLOG_TRACE("vkUpdateDescriptorSets: done ({} writes, {} copies)", wc, cc);
         for (uint32_t i = 0; i < wc; i++) {
             delete[] imgPtrs[i]; delete[] bufPtrs[i]; delete[] viewPtrs[i];
         }
@@ -2224,8 +2261,39 @@ CommandDispatcher::~CommandDispatcher() {
 void CommandDispatcher::cleanup() {
     mapper_.cleanup();
     teardown_framebuffer();
-    // Reset device so destructor won't re-destroy with stale handle
     mapper_.set_device(VK_NULL_HANDLE, VK_NULL_HANDLE, 0, VK_NULL_HANDLE);
+}
+
+void CommandDispatcher::readback_all_buffers() {
+    auto dev = mapper_.device();
+    if (!dev || !sendDataFn_) return;
+
+    static constexpr size_t kMaxChunk = 1024 * 1024; // 1 MB chunks
+    for (const auto& [guestHandle, allocSize] : memorySizes_) {
+        VkDeviceMemory hostMem = mapper_.get_device_memory(guestHandle);
+        if (hostMem == VK_NULL_HANDLE || allocSize == 0) continue;
+
+        // Skip very large buffers (model weights) — they don't change
+        if (allocSize > 128 * 1024 * 1024) continue;
+
+        void* mapped = nullptr;
+        VkResult res = vkMapMemory(dev, hostMem, 0, allocSize, 0, &mapped);
+        if (res != VK_SUCCESS || !mapped) continue;
+
+        // Chunk and send
+        const uint8_t* src = static_cast<const uint8_t*>(mapped);
+        size_t remaining = static_cast<size_t>(allocSize);
+        VkDeviceSize offset = 0;
+        while (remaining > 0) {
+            size_t chunk = std::min(remaining, kMaxChunk);
+            sendDataFn_(guestHandle, src + offset, chunk, offset);
+            offset += chunk;
+            remaining -= chunk;
+        }
+        vkUnmapMemory(dev, hostMem);
+
+        SPDLOG_INFO("readback: mem={:#x} size={}KB sent to guest", guestHandle, allocSize / 1024);
+    }
 }
 
 void CommandDispatcher::set_device(VkPhysicalDevice physDev, VkDevice device,
@@ -2606,15 +2674,21 @@ bool CommandDispatcher::flush_and_readback(std::vector<uint8_t>& out_pixels) {
 
     // Wait for pending submit from vkQueueSubmit/vkQueueSubmit2
     if (hasPendingSubmit_ && pendingSubmitFence_ != VK_NULL_HANDLE) {
-        vkWaitForFences(dev, 1, &pendingSubmitFence_, VK_TRUE, UINT64_MAX);
-        vkDestroyFence(dev, pendingSubmitFence_, nullptr);
-        // Remove from mapper so sync queries don't use dangling pointer
-        if (pendingSubmitFenceGuestHandle_ != 0) {
-            mapper_.remove_fence(pendingSubmitFenceGuestHandle_);
-            pendingSubmitFenceGuestHandle_ = 0;
+        // For compute-only (no readback), let the guest's vkWaitForFences sync query handle waiting
+        // This prevents blocking the host command processing loop on GPU work
+        if (readbackMemory_ == VK_NULL_HANDLE) {
+            // Compute mode: don't wait, don't destroy — fence is managed by guest
+            hasPendingSubmit_ = false;
+        } else {
+            vkWaitForFences(dev, 1, &pendingSubmitFence_, VK_TRUE, UINT64_MAX);
+            vkDestroyFence(dev, pendingSubmitFence_, nullptr);
+            if (pendingSubmitFenceGuestHandle_ != 0) {
+                mapper_.remove_fence(pendingSubmitFenceGuestHandle_);
+                pendingSubmitFenceGuestHandle_ = 0;
+            }
+            pendingSubmitFence_ = VK_NULL_HANDLE;
+            hasPendingSubmit_ = false;
         }
-        pendingSubmitFence_ = VK_NULL_HANDLE;
-        hasPendingSubmit_ = false;
     }
 
     // For compute-only workloads (no framebuffer), skip readback

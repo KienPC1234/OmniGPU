@@ -31,7 +31,7 @@ public:
     template<typename Map, typename Key, typename Value>
     void store_impl(Map& map, Key key, Value value, const char* name) {
         auto it = map.find(key);
-        if (it != map.end() && it->second != value) {
+        if (it != map.end() && it->second != value && it->second != 0) {
             SPDLOG_WARN("ResourceMapper: {} overwriting existing handle {:#x}", name, static_cast<uint64_t>(key));
         }
         map[key] = value;
@@ -168,6 +168,7 @@ public:
 
     void set_device(VkPhysicalDevice physDev, VkDevice device, VkQueue queue,
                     uint32_t queueFamily, VkCommandPool cmdPool);
+    VkPhysicalDevice phys_device() const { return physDev_; }
     void set_framebuffer_size(uint32_t w, uint32_t h);
 
     void dispatch(fbs::FunctionId func_id, const uint8_t* args, size_t args_size);
@@ -185,6 +186,8 @@ public:
 
     // VRAM budget (0 = unlimited)
     void set_vram_budget(uint64_t budget) { vramBudget_ = budget; }
+    void set_compute_mode(bool cm) { isComputeMode_ = cm; }
+    void readback_all_buffers();
     uint64_t vram_used() const { return vramUsed_; }
 
     // Callback for sending data back to guest (needed for readback)
@@ -219,6 +222,7 @@ private:
     uint64_t vramBudget_ = 0;
     uint64_t vramUsed_ = 0;
     std::unordered_map<uint64_t, uint64_t> memorySizes_;
+    bool isComputeMode_ = false;
 
     // Per-framebuffer render target image (maps guest framebuffer handle → image)
     std::unordered_map<uint64_t, VkImage> framebufferRenderTarget_;

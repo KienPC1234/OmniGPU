@@ -3,6 +3,7 @@
 #include "common/network_utils.h"
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -31,6 +32,7 @@ public:
     uint16_t port() const { return port_; }
 
     std::mutex& send_mutex() { return send_mutex_; }
+    void set_rtt_callback(std::function<void(uint32_t)> cb) { rtt_callback_ = std::move(cb); }
 
 private:
     std::string host_;
@@ -45,6 +47,7 @@ private:
     uint64_t sync_response_val_ = 0;
     std::vector<uint8_t> sync_response_data_;
     std::atomic<bool> sync_in_flight_{false};
+    std::function<void(uint32_t)> rtt_callback_;
 };
 
 } // namespace omnigpu

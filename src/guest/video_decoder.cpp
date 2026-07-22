@@ -252,6 +252,10 @@ bool MfH264Decoder::decode(Codec codec, bool is_keyframe,
                             uint64_t frame_id, uint64_t timestamp_ms,
                             uint32_t width, uint32_t height) {
     if (!callback_) return false;
+    if (!data || size == 0) {
+        SPDLOG_WARN("MfH264Decoder: empty frame data, skipping");
+        return false;
+    }
 
     // Codec::Unknown → LZ4 data, pass through to software path
     if (codec == Codec::Unknown) {
@@ -280,7 +284,11 @@ bool MfH264Decoder::decode(Codec codec, bool is_keyframe,
 
     // Re-init if codec changed
     if (codec != active_codec_) {
-        init_mft(codec, width, height);
+        if (!init_mft(codec, width, height)) {
+            SPDLOG_ERROR("MfH264Decoder: init_mft failed for codec={} {}x{}",
+                          static_cast<int>(codec), width, height);
+            return false;
+        }
     }
 
     // Submit compressed sample
@@ -347,6 +355,10 @@ bool MfH264Decoder::process_output() {
         // Get NV12 data from output sample
         IMFMediaBuffer* out_buf2 = nullptr;
         out_sample->GetBufferByIndex(0, &out_buf2);
+        if (!out_buf2) {
+            out_sample->Release();
+            continue;
+        }
 
         BYTE* out_data = nullptr;
         DWORD out_len = 0;
