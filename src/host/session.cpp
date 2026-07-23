@@ -429,7 +429,8 @@ void Session::handle_client() {
                 respond(static_cast<uint64_t>(VK_SUCCESS));
                 continue;
             }
-            case 0x8d: { // INVALIDATE_MEMORY_RANGES_QUERY
+            case 0x8d: { // INVALIDATE_MEMORY_RANGES_QUERY — sync GPU→CPU for mem
+                commandDispatcher_.invalidate_and_send_memory(query_arg, 0, VK_WHOLE_SIZE);
                 respond(static_cast<uint64_t>(VK_SUCCESS));
                 continue;
             }

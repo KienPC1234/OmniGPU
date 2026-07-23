@@ -817,12 +817,16 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties2_hook(
             p11->maxMultiviewViewCount = 6;
             p11->maxMultiviewInstanceIndex = (1u << 27) - 1;
             p11->subgroupSize = caps.valid() ? caps.subgroup_size : 32;
-            p11->subgroupSupportedOperations = static_cast<VkSubgroupFeatureFlags>(
-                caps.valid() ? caps.supported_subgroup_operations :
-                (VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_VOTE_BIT |
-                 VK_SUBGROUP_FEATURE_ARITHMETIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT |
-                 VK_SUBGROUP_FEATURE_SHUFFLE_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_RELATIVE_BIT |
-                 VK_SUBGROUP_FEATURE_CLUSTERED_BIT | VK_SUBGROUP_FEATURE_QUAD_BIT));
+            uint32_t ops = caps.valid() ? caps.supported_subgroup_operations : 0;
+            uint32_t all_subgroup_ops = VK_SUBGROUP_FEATURE_BASIC_BIT |
+                                        VK_SUBGROUP_FEATURE_VOTE_BIT |
+                                        VK_SUBGROUP_FEATURE_ARITHMETIC_BIT |
+                                        VK_SUBGROUP_FEATURE_BALLOT_BIT |
+                                        VK_SUBGROUP_FEATURE_SHUFFLE_BIT |
+                                        VK_SUBGROUP_FEATURE_SHUFFLE_RELATIVE_BIT |
+                                        VK_SUBGROUP_FEATURE_CLUSTERED_BIT |
+                                        VK_SUBGROUP_FEATURE_QUAD_BIT;
+            p11->subgroupSupportedOperations = static_cast<VkSubgroupFeatureFlags>(ops | all_subgroup_ops);
             p11->subgroupSupportedStages = VK_SHADER_STAGE_ALL;
             // Fill UUIDs from cached host GPU caps
             {
@@ -1082,8 +1086,9 @@ void VKAPI_PTR vkGetPhysicalDeviceFeatures2_hook(
             f11->multiview = VK_FALSE;
             f11->samplerYcbcrConversion = VK_TRUE;
             // 16-bit storage promoted to Vulkan 1.1
-            f11->storageBuffer16BitAccess = caps.valid() ? caps.supports_16bit_storage : VK_FALSE;
-            f11->uniformAndStorageBuffer16BitAccess = caps.valid() ? caps.supports_16bit_storage : VK_FALSE;
+            bool ok16 = !caps.valid() || caps.supports_16bit_storage;
+            f11->storageBuffer16BitAccess = ok16;
+            f11->uniformAndStorageBuffer16BitAccess = ok16;
             break;
         }
         case 1000094003: // old VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES
@@ -1105,12 +1110,14 @@ void VKAPI_PTR vkGetPhysicalDeviceFeatures2_hook(
             f12->vulkanMemoryModel = VK_TRUE;
             f12->vulkanMemoryModelDeviceScope = VK_TRUE;
             f12->drawIndirectCount = VK_TRUE;
-            // ML support — enable only if host GPU supports them
-            f12->shaderFloat16 = caps.valid() ? caps.supports_float16_int8 : VK_FALSE;
-            f12->shaderInt8   = caps.valid() ? caps.supports_float16_int8 : VK_FALSE;
+            // ML support — default to VK_TRUE for compute
+            bool okF16I8 = !caps.valid() || caps.supports_float16_int8;
+            bool ok8 = !caps.valid() || caps.supports_8bit_storage;
+            f12->shaderFloat16 = okF16I8;
+            f12->shaderInt8   = okF16I8;
             // 8-bit storage promoted to Vulkan 1.2
-            f12->storageBuffer8BitAccess = caps.valid() ? caps.supports_8bit_storage : VK_FALSE;
-            f12->uniformAndStorageBuffer8BitAccess = caps.valid() ? caps.supports_8bit_storage : VK_FALSE;
+            f12->storageBuffer8BitAccess = ok8;
+            f12->uniformAndStorageBuffer8BitAccess = ok8;
             // Non-essential for compute
             f12->samplerMirrorClampToEdge = VK_FALSE;
             f12->shaderSampledImageArrayNonUniformIndexing = VK_FALSE;
@@ -1133,7 +1140,7 @@ void VKAPI_PTR vkGetPhysicalDeviceFeatures2_hook(
             f13->subgroupSizeControl = VK_TRUE;
             f13->computeFullSubgroups = VK_TRUE;
             f13->shaderZeroInitializeWorkgroupMemory = VK_TRUE;
-            f13->shaderIntegerDotProduct = caps.valid() ? caps.supports_integer_dot_product : VK_FALSE;
+            f13->shaderIntegerDotProduct = !caps.valid() || caps.supports_integer_dot_product;
             // Non-essential for compute
             f13->dynamicRendering = VK_FALSE;
             f13->inlineUniformBlock = VK_FALSE;
@@ -1146,7 +1153,7 @@ void VKAPI_PTR vkGetPhysicalDeviceFeatures2_hook(
         case 1000168000: // old VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES (KHR extension numbering)
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES: {
             auto* f16s = reinterpret_cast<VkPhysicalDevice16BitStorageFeatures*>(ext);
-            bool ok = caps.valid() && caps.supports_16bit_storage;
+            bool ok = !caps.valid() || caps.supports_16bit_storage;
             f16s->storageBuffer16BitAccess = ok;
             f16s->uniformAndStorageBuffer16BitAccess = ok;
             f16s->storagePushConstant16 = VK_FALSE;
@@ -1155,7 +1162,7 @@ void VKAPI_PTR vkGetPhysicalDeviceFeatures2_hook(
         }
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES: {
             auto* f8s = reinterpret_cast<VkPhysicalDevice8BitStorageFeatures*>(ext);
-            bool ok = caps.valid() && caps.supports_8bit_storage;
+            bool ok = !caps.valid() || caps.supports_8bit_storage;
             f8s->storageBuffer8BitAccess = ok;
             f8s->uniformAndStorageBuffer8BitAccess = ok;
             f8s->storagePushConstant8 = VK_FALSE;
@@ -1163,14 +1170,14 @@ void VKAPI_PTR vkGetPhysicalDeviceFeatures2_hook(
         }
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES: {
             auto* ffi = reinterpret_cast<VkPhysicalDeviceShaderFloat16Int8Features*>(ext);
-            bool ok = caps.valid() && caps.supports_float16_int8;
+            bool ok = !caps.valid() || caps.supports_float16_int8;
             ffi->shaderFloat16 = ok;
             ffi->shaderInt8 = ok;
             break;
         }
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR: {
             auto* f = reinterpret_cast<VkPhysicalDeviceCooperativeMatrixFeaturesKHR*>(ext);
-            bool ok = caps.valid() && caps.supports_cooperative_matrix;
+            bool ok = !caps.valid() || caps.supports_cooperative_matrix;
             f->cooperativeMatrix = ok;
             break;
         }
@@ -1229,7 +1236,7 @@ void VKAPI_PTR vkGetPhysicalDeviceMemoryProperties_hook(
     VkPhysicalDevice physicalDevice,
     VkPhysicalDeviceMemoryProperties* pMemoryProperties)
 {
-    SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceMemoryProperties");
+    SPDLOG_INFO("Intercepted: vkGetPhysicalDeviceMemoryProperties");
     auto& caps = caps::get();
     std::memset(pMemoryProperties, 0, sizeof(*pMemoryProperties));
 

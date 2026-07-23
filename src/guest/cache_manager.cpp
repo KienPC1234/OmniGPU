@@ -1,5 +1,6 @@
 #include "cache_manager.h"
 #include <spdlog/spdlog.h>
+#include <vulkan/vulkan.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -70,7 +71,7 @@ bool CacheManager::load(caps::GpuCapabilities& caps) const {
     caps.gpu_name = data.value("gpu_name", "");
     caps.driver_version = data.value("driver_version", 0U);
     caps.api_version = data.value("api_version", 0U);
-    caps.max_memory_allocation = data.value("max_memory_allocation", 0ULL);
+    caps.max_memory_allocation = data.value("max_memory_allocation", 4096ULL);
     caps.max_memory_allocation_size = data.value("max_memory_allocation_size", UINT64_MAX);
     caps.max_push_constants_size = data.value("max_push_constants_size", 128U);
     caps.max_bound_descriptor_sets = data.value("max_bound_descriptor_sets", 4U);
@@ -107,15 +108,20 @@ bool CacheManager::load(caps::GpuCapabilities& caps) const {
     caps.max_tessellation_factor = data.value("max_tessellation_factor", 64U);
     caps.max_fragment_output_attachments = data.value("max_fragment_output_attachments", 8U);
 
-    // ML support fields (Phase 1 + 2)
-    caps.supports_16bit_storage = data.value("supports_16bit_storage", false);
-    caps.supports_8bit_storage  = data.value("supports_8bit_storage", false);
-    caps.supports_float16_int8  = data.value("supports_float16_int8", false);
-    caps.supports_cooperative_matrix = data.value("supports_cooperative_matrix", false);
+    // ML & Subgroup support fields (Phase 1 + 2)
+    uint32_t all_ops = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_VOTE_BIT |
+                       VK_SUBGROUP_FEATURE_ARITHMETIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT |
+                       VK_SUBGROUP_FEATURE_SHUFFLE_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_RELATIVE_BIT |
+                       VK_SUBGROUP_FEATURE_CLUSTERED_BIT | VK_SUBGROUP_FEATURE_QUAD_BIT;
+    caps.supported_subgroup_operations = data.value("supported_subgroup_ops", all_ops);
+    caps.supports_16bit_storage = data.value("supports_16bit_storage", true);
+    caps.supports_8bit_storage  = data.value("supports_8bit_storage", true);
+    caps.supports_float16_int8  = data.value("supports_float16_int8", true);
+    caps.supports_cooperative_matrix = data.value("supports_cooperative_matrix", true);
     caps.coopmat_m = data.value("coopmat_m", 16U);
     caps.coopmat_n = data.value("coopmat_n", 16U);
     caps.coopmat_k = data.value("coopmat_k", 16U);
-    caps.supports_integer_dot_product = data.value("supports_integer_dot_product", false);
+    caps.supports_integer_dot_product = data.value("supports_integer_dot_product", true);
 
     SPDLOG_INFO("Loaded cached GPU caps for {}: {}", cache_key_,
                 caps.gpu_name);

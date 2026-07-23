@@ -233,54 +233,45 @@ CommandDispatcher::CommandDispatcher() {
             desiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
         }
 
-        int bestType = -1;
+        std::vector<uint32_t> candidateTypes;
         for (uint32_t t = 0; t < memProps.memoryTypeCount; t++) {
             if ((memProps.memoryTypes[t].propertyFlags & desiredFlags) == desiredFlags) {
-                bestType = static_cast<int>(t);
+                candidateTypes.push_back(t);
+            }
+        }
+        if (desiredFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
+            for (uint32_t t = 0; t < memProps.memoryTypeCount; t++) {
+                if (!(memProps.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) continue;
+                if (std::find(candidateTypes.begin(), candidateTypes.end(), t) == candidateTypes.end())
+                    candidateTypes.push_back(t);
+            }
+        }
+        for (uint32_t t = 0; t < memProps.memoryTypeCount; t++) {
+            if (!(memProps.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) continue;
+            if (std::find(candidateTypes.begin(), candidateTypes.end(), t) == candidateTypes.end())
+                candidateTypes.push_back(t);
+        }
+
+        VkDeviceMemory mem = VK_NULL_HANDLE;
+        VkResult res = VK_ERROR_OUT_OF_DEVICE_MEMORY;
+        for (auto& mt : candidateTypes) {
+            ai.memoryTypeIndex = mt;
+            VkDeviceMemory trialMem = VK_NULL_HANDLE;
+            res = vkAllocateMemory(d.mapper_.device(), &ai, nullptr, &trialMem);
+            if (res == VK_SUCCESS) {
+                mem = trialMem;
                 break;
             }
+            SPDLOG_WARN("vkAllocateMemory: type={} failed (size={}MB, res={})",
+                        mt, ai.allocationSize / (1024*1024), static_cast<int>(res));
         }
-        if (bestType < 0 && (desiredFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
-            for (uint32_t t = 0; t < memProps.memoryTypeCount; t++) {
-                if (memProps.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
-                    bestType = static_cast<int>(t);
-                    break;
-                }
-            }
-        }
-        if (bestType < 0) {
-            for (uint32_t t = 0; t < memProps.memoryTypeCount; t++) {
-                if (memProps.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
-                    bestType = static_cast<int>(t);
-                    break;
-                }
-            }
-        }
-        if (bestType >= 0) {
-            ai.memoryTypeIndex = static_cast<uint32_t>(bestType);
-        }
-
-        if (d.vramBudget_ > 0 && d.vramUsed_ + ai.allocationSize > d.vramBudget_) {
-            SPDLOG_WARN("vkAllocateMemory: VRAM budget exceeded (used={}MB + new={}MB > budget={}MB), falling back to system RAM",
-                d.vramUsed_/(1024*1024), ai.allocationSize/(1024*1024), d.vramBudget_/(1024*1024));
-            for (uint32_t t = 0; t < memProps.memoryTypeCount; t++) {
-                if ((memProps.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) &&
-                    !(memProps.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
-                    ai.memoryTypeIndex = t;
-                    break;
-                }
-            }
-        }
-
-        VkDeviceMemory mem;
-        VkResult res = vkAllocateMemory(d.mapper_.device(), &ai, nullptr, &mem);
         if (res == VK_SUCCESS) {
             d.mapper_.store_device_memory(pMem, mem);
             d.vramUsed_ += ai.allocationSize;
             d.memorySizes_[pMem] = ai.allocationSize;
         } else {
-            SPDLOG_ERROR("vkAllocateMemory host failed: size={}MB type={} (guest={}) res={}",
-                         ai.allocationSize / (1024*1024), ai.memoryTypeIndex, guestType, static_cast<int>(res));
+            SPDLOG_ERROR("vkAllocateMemory host failed: size={}MB guestType={} res={}",
+                         ai.allocationSize / (1024*1024), guestType, static_cast<int>(res));
         }
     });
     REGISTER(fbs::FunctionId_vkFreeMemory, [](auto& d, auto& r) {
@@ -362,38 +353,7 @@ CommandDispatcher::CommandDispatcher() {
             uint64_t gMem = r.read_handle();
             uint64_t offset = r.read_u64();
             uint64_t size = r.read_u64();
-
-            VkDeviceMemory hostMem = d.mapper_.get_device_memory(gMem);
-            if (hostMem != VK_NULL_HANDLE && size > 0) {
-                VkPhysicalDeviceProperties props;
-                vkGetPhysicalDeviceProperties(d.physDev_, &props);
-                uint64_t alignment = props.limits.minMemoryMapAlignment;
-                if (alignment == 0) alignment = 64;
-
-                uint64_t aligned_offset = (offset / alignment) * alignment;
-                uint64_t alignment_diff = offset - aligned_offset;
-                uint64_t aligned_size = size + alignment_diff;
-
-                void* mapped = nullptr;
-                VkResult res = vkMapMemory(dev, hostMem, aligned_offset, aligned_size, 0, &mapped);
-                if (res == VK_SUCCESS && mapped) {
-                    const uint8_t* source = static_cast<const uint8_t*>(mapped) + alignment_diff;
-                    if (d.sendDataFn_) {
-                        d.sendDataFn_(gMem, source, static_cast<size_t>(size), offset);
-                    }
-                    vkUnmapMemory(dev, hostMem);
-                } else {
-                    // Non-host-visible memory (pure VRAM) — readback directly from hostMem at offset
-                    std::vector<uint8_t> readback_buf(static_cast<size_t>(size));
-                    if (d.download_from_device_memory(hostMem, offset, readback_buf.data(), static_cast<size_t>(size))) {
-                        if (d.sendDataFn_) {
-                            d.sendDataFn_(gMem, readback_buf.data(), static_cast<size_t>(size), offset);
-                        }
-                    } else {
-                        SPDLOG_WARN("InvalidateMappedMemory: download_from_device_memory failed for mem={:#x} off={}", gMem, offset);
-                    }
-                }
-            }
+            d.invalidate_and_send_memory(gMem, offset, size);
         }
     });
     REGISTER(fbs::FunctionId_vkBindBufferMemory, [](auto& d, auto& r) {
@@ -835,6 +795,9 @@ CommandDispatcher::CommandDispatcher() {
 
         std::vector<VkDescriptorSet> ds(ai.descriptorSetCount);
         VkResult res = vkAllocateDescriptorSets(d.mapper_.device(), &ai, ds.data());
+        if (res != VK_SUCCESS) {
+            SPDLOG_ERROR("vkAllocateDescriptorSets host failed: count={} res={}", ai.descriptorSetCount, static_cast<int>(res));
+        }
 
         uint32_t guestCount = r.read_u32();
         for (uint32_t i = 0; i < guestCount; i++) {
@@ -1089,7 +1052,14 @@ CommandDispatcher::CommandDispatcher() {
             VkPipelineLayout pl = d.mapper_.get_pipeline_layout(layout);
             if (!pl) { SPDLOG_WARN("vkCmdBindDescriptorSets: null pipeline layout"); return; }
             std::vector<VkDescriptorSet> dss;
-            for (auto& g : desc_handles) dss.push_back(d.mapper_.get_ds(g));
+            dss.reserve(desc_handles.size());
+            for (auto& g : desc_handles) {
+                auto ds = d.mapper_.get_ds(g);
+                if (ds == VK_NULL_HANDLE && g != 0) {
+                    SPDLOG_WARN("vkCmdBindDescriptorSets: guest handle {:#x} not mapped", g);
+                }
+                dss.push_back(ds);
+            }
             vkCmdBindDescriptorSets(cb, bp, pl, firstSet,
                                     static_cast<uint32_t>(dss.size()),
                                     dss.data(), dynCount, dynOffsets.data());
@@ -2393,16 +2363,65 @@ void CommandDispatcher::cleanup() {
     mapper_.set_device(VK_NULL_HANDLE, VK_NULL_HANDLE, 0, VK_NULL_HANDLE);
 }
 
+void CommandDispatcher::invalidate_and_send_memory(uint64_t guestMem, uint64_t offset, uint64_t size) {
+    auto dev = mapper_.device();
+    if (!dev || !sendDataFn_ || size == 0) return;
+
+    VkDeviceMemory hostMem = mapper_.get_device_memory(guestMem);
+    if (hostMem == VK_NULL_HANDLE) {
+        SPDLOG_WARN("invalidate_and_send_memory: guest mem {:#x} not found", guestMem);
+        return;
+    }
+
+    if (size == VK_WHOLE_SIZE) {
+        auto it = memorySizes_.find(guestMem);
+        size = (it != memorySizes_.end()) ? it->second : 0;
+        if (size == 0) return;
+    }
+
+    VkPhysicalDeviceProperties props;
+    vkGetPhysicalDeviceProperties(physDev_, &props);
+    uint64_t alignment = props.limits.minMemoryMapAlignment;
+    if (alignment == 0) alignment = 64;
+
+    uint64_t aligned_offset = (offset / alignment) * alignment;
+    uint64_t alignment_diff = offset - aligned_offset;
+    uint64_t aligned_size = size + alignment_diff;
+
+    void* mapped = nullptr;
+    VkResult res = vkMapMemory(dev, hostMem, aligned_offset, aligned_size, 0, &mapped);
+    if (res == VK_SUCCESS && mapped) {
+        const uint8_t* source = static_cast<const uint8_t*>(mapped) + alignment_diff;
+        sendDataFn_(guestMem, source, static_cast<size_t>(size), offset);
+        vkUnmapMemory(dev, hostMem);
+        SPDLOG_INFO("invalidate: sent mem={:#x} offset={} size={}KB via vkMapMemory", guestMem, offset, size/1024);
+    } else {
+        std::vector<uint8_t> readback_buf(static_cast<size_t>(size));
+        if (download_from_device_memory(hostMem, offset, readback_buf.data(), static_cast<size_t>(size))) {
+            sendDataFn_(guestMem, readback_buf.data(), static_cast<size_t>(size), offset);
+            SPDLOG_INFO("invalidate: sent mem={:#x} offset={} size={}KB via staging", guestMem, offset, size/1024);
+        } else {
+            SPDLOG_WARN("invalidate: download failed for mem={:#x}", guestMem);
+        }
+    }
+}
+
 void CommandDispatcher::readback_all_buffers() {
     auto dev = mapper_.device();
     if (!dev || !sendDataFn_) return;
 
     static constexpr size_t kMaxChunk = 1024 * 1024; // 1 MB chunks
+
+    // In compute mode, only readback small buffers (<1MB) — typically output/state,
+    // not large model weights which don't change between dispatches.
+    static constexpr size_t kComputeMaxReadback = 1024 * 1024;
+
     for (const auto& [guestHandle, allocSize] : memorySizes_) {
         VkDeviceMemory hostMem = mapper_.get_device_memory(guestHandle);
         if (hostMem == VK_NULL_HANDLE || allocSize == 0) continue;
 
-        // Skip very large buffers (model weights) — they don't change
+        // Skip large buffers (model weights) — they don't change
+        if (isComputeMode_ && allocSize > kComputeMaxReadback) continue;
         if (allocSize > 128 * 1024 * 1024) continue;
 
         void* mapped = nullptr;
@@ -3041,6 +3060,14 @@ bool CommandDispatcher::upload_to_device_memory(VkDeviceMemory dstMem, VkDeviceS
     }
     std::memcpy(sm, data, size);
     vkUnmapMemory(dev, stagingMem);
+
+    // Data integrity: log first chunk for large uploads
+    if (dstOffset == 0 && size >= 16) {
+        SPDLOG_INFO("UPLOAD_VRAM chunk: offset={} size={}KB first16={:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
+            dstOffset, size/1024,
+            data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
+            data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15]);
+    }
 
     // 2. Create Temporary Target Buffer bound to aligned dstMem offset
     VkBuffer targetBuf = VK_NULL_HANDLE;

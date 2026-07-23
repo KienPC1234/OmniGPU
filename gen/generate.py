@@ -111,7 +111,15 @@ uint32_t next_request_id() {
     if (!original) {
         {% for param in func.params %}
         {% if param.kind == "output_handle_ptr" %}
-        if ({{ param.name }}) *{{ param.name }} = handle_from_u64<{{ param.type[:-1] }}>(next_fake_handle());
+        if ({{ param.name }}) {
+            {% if param._count_expr %}
+            uint32_t _cnt = static_cast<uint32_t>({{ param._count_expr }});
+            for (uint32_t _i = 0; _i < _cnt; _i++)
+                {{ param.name }}[_i] = handle_from_u64<{{ param.type[:-1] }}>(next_fake_handle());
+            {% else %}
+            *{{ param.name }} = handle_from_u64<{{ param.type[:-1] }}>(next_fake_handle());
+            {% endif %}
+        }
         {% elif param.kind == "value_ptr" %}
         if ({{ param.name }}) *{{ param.name }} = {};
         {% endif %}
@@ -124,6 +132,9 @@ uint32_t next_request_id() {
         {% endif %}
     }
 
+    {% if func.return_type != "void" %}
+    if (res == VK_SUCCESS) {
+    {% endif %}
     // Serialize arguments (after original is called, so output handles are valid!)
     serializer::VulkanSerializer ser;
     {% for param in func.params %}
@@ -140,6 +151,9 @@ uint32_t next_request_id() {
         );
         g_batch->append(builder);
     }
+    {% if func.return_type != "void" %}
+    }
+    {% endif %}
 
     {% if func.return_type != "void" %}
     return res;
@@ -549,6 +563,24 @@ def generate(
     auto_functions = [f for f in functions if f["name"] not in manual_functions]
     for f in auto_functions:
         f["has_output_handle_ptr"] = any(p.get("kind") == "output_handle_ptr" for p in f.get("params", []))
+        # Precompute count expressions for output_handle_ptr params
+        for p in f.get("params", []):
+            if p.get("kind") == "output_handle_ptr":
+                count_expr = None
+                for ap in f["params"]:
+                    if ap["name"] == "createInfoCount":
+                        count_expr = "createInfoCount"
+                    elif ap["name"] == "pAllocateInfo":
+                        field = None
+                        if p["name"].find("DescriptorSet") >= 0:
+                            field = "descriptorSetCount"
+                        elif p["name"].find("CommandBuffer") >= 0:
+                            field = "commandBufferCount"
+                        elif p["name"].find("Pipeline") >= 0:
+                            field = "pipelineCount"
+                        if field:
+                            count_expr = f"pAllocateInfo ? pAllocateInfo->{field} : 1"
+                p["_count_expr"] = count_expr
 
     def serialize_param(param, loop):
         return get_serialize_code(param, loop)

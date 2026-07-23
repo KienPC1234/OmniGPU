@@ -9,7 +9,7 @@ struct GpuCapabilities {
     std::string gpu_name;
     uint32_t driver_version = 0;
     uint32_t api_version = 0;
-    uint64_t max_memory_allocation = 0;         // maxMemoryAllocationCount
+    uint64_t max_memory_allocation = 4096;      // maxMemoryAllocationCount
     uint64_t max_memory_allocation_size = UINT64_MAX; // maxMemoryAllocationSize (Maintenance3)
     uint32_t max_push_constants_size = 128;
     uint32_t max_bound_descriptor_sets = 4;

@@ -51,13 +51,31 @@ static SubgroupInfo query_subgroup_info(VkPhysicalDevice physDev) {
     SubgroupInfo info;
     VkPhysicalDeviceSubgroupProperties subProps{};
     subProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
+    VkPhysicalDeviceVulkan11Properties p11{};
+    p11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES;
+    p11.pNext = &subProps;
+
     VkPhysicalDeviceProperties2 props2{};
     props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-    props2.pNext = &subProps;
+    props2.pNext = &p11;
     vkGetPhysicalDeviceProperties2(physDev, &props2);
-    info.subgroupSize = subProps.subgroupSize;
-    info.supportedOperations = static_cast<uint32_t>(subProps.supportedOperations);
-    info.supportedStages = static_cast<uint32_t>(subProps.supportedStages);
+
+    info.subgroupSize = p11.subgroupSize ? p11.subgroupSize : (subProps.subgroupSize ? subProps.subgroupSize : 32);
+    info.supportedOperations = p11.subgroupSupportedOperations ? static_cast<uint32_t>(p11.subgroupSupportedOperations) : static_cast<uint32_t>(subProps.supportedOperations);
+    info.supportedStages = static_cast<uint32_t>(p11.subgroupSupportedStages ? p11.subgroupSupportedStages : subProps.supportedStages);
+
+    uint32_t all_subgroup_ops = VK_SUBGROUP_FEATURE_BASIC_BIT |
+                                VK_SUBGROUP_FEATURE_VOTE_BIT |
+                                VK_SUBGROUP_FEATURE_ARITHMETIC_BIT |
+                                VK_SUBGROUP_FEATURE_BALLOT_BIT |
+                                VK_SUBGROUP_FEATURE_SHUFFLE_BIT |
+                                VK_SUBGROUP_FEATURE_SHUFFLE_RELATIVE_BIT |
+                                VK_SUBGROUP_FEATURE_CLUSTERED_BIT |
+                                VK_SUBGROUP_FEATURE_QUAD_BIT;
+
+    if ((info.supportedOperations & all_subgroup_ops) == 0) {
+        info.supportedOperations = all_subgroup_ops;
+    }
     return info;
 }
 

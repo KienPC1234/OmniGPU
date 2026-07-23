@@ -30,6 +30,7 @@ public:
 
     template<typename Map, typename Key, typename Value>
     void store_impl(Map& map, Key key, Value value, const char* name) {
+        if (key == 0) return;
         auto it = map.find(key);
         if (it != map.end() && it->second != value && it->second != 0) {
             SPDLOG_WARN("ResourceMapper: {} overwriting existing handle {:#x}", name, static_cast<uint64_t>(key));
@@ -188,6 +189,7 @@ public:
     void set_vram_budget(uint64_t budget) { vramBudget_ = budget; }
     void set_compute_mode(bool cm) { isComputeMode_ = cm; }
     void readback_all_buffers();
+    void invalidate_and_send_memory(uint64_t guestMem, uint64_t offset, uint64_t size);
     bool upload_to_device_buffer(VkBuffer dst, VkDeviceSize dstOffset, const uint8_t* data, size_t size);
     bool upload_to_device_memory(VkDeviceMemory dstMem, VkDeviceSize dstOffset, const uint8_t* data, size_t size);
     bool download_from_device_memory(VkDeviceMemory srcMem, VkDeviceSize srcOffset, uint8_t* outData, size_t size);

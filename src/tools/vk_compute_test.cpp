@@ -52,7 +52,7 @@ static int find_compute_qf(VkPhysicalDevice pd) {
 // -----------------------------------------------------------------------
 // Create a buffer with given size and usage
 // -----------------------------------------------------------------------
-static VkBuffer make_buffer(VkDevice dev, VkDeviceSize size, VkBufferUsageFlags usage,
+static VkBuffer make_buffer(VkPhysicalDevice physDev, VkDevice dev, VkDeviceSize size, VkBufferUsageFlags usage,
                             VkMemoryPropertyFlags memProps,
                             VkDeviceMemory* pMemory, uint32_t memTypeIndex) {
     VkBufferCreateInfo bci{};
@@ -72,8 +72,7 @@ static VkBuffer make_buffer(VkDevice dev, VkDeviceSize size, VkBufferUsageFlags 
     mai.allocationSize = mr.size;
     if (memTypeIndex == UINT32_MAX) {
         VkPhysicalDeviceMemoryProperties pmp;
-        vkGetPhysicalDeviceMemoryProperties(
-            reinterpret_cast<VkPhysicalDevice>(dev), &pmp); // not ideal but works with fake
+        vkGetPhysicalDeviceMemoryProperties(physDev, &pmp);
         for (uint32_t i = 0; i < pmp.memoryTypeCount; i++) {
             if ((mr.memoryTypeBits & (1 << i)) &&
                 (pmp.memoryTypes[i].propertyFlags & memProps) == memProps) {
@@ -112,7 +111,7 @@ static void download(VkDevice dev, VkDeviceMemory mem, void* data, VkDeviceSize 
 // -----------------------------------------------------------------------
 // Test 1: Vector Addition
 // -----------------------------------------------------------------------
-static void test_vector_add(VkDevice device, VkQueue queue, uint32_t qf) {
+static void test_vector_add(VkPhysicalDevice physDev, VkDevice device, VkQueue queue, uint32_t qf) {
     printf("\n--- [Test 1] Vector Addition ---\n");
     const uint32_t N = 1024; // elements, must be multiple of workgroup size (256)
     const VkDeviceSize bufSize = N * sizeof(float);
@@ -163,15 +162,15 @@ static void test_vector_add(VkDevice device, VkQueue queue, uint32_t qf) {
 
     // Create buffers
     VkDeviceMemory memA, memB, memOut;
-    VkBuffer bufA = make_buffer(device, bufSize,
+    VkBuffer bufA = make_buffer(physDev, device, bufSize,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
         &memA, UINT32_MAX);
-    VkBuffer bufB = make_buffer(device, bufSize,
+    VkBuffer bufB = make_buffer(physDev, device, bufSize,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
         &memB, UINT32_MAX);
-    VkBuffer bufOut = make_buffer(device, bufSize,
+    VkBuffer bufOut = make_buffer(physDev, device, bufSize,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
         &memOut, UINT32_MAX);
@@ -372,7 +371,7 @@ static void test_vector_add(VkDevice device, VkQueue queue, uint32_t qf) {
 // -----------------------------------------------------------------------
 // Test 2: Matrix Multiplication (16x16)
 // -----------------------------------------------------------------------
-static void test_mat_mul(VkDevice device, VkQueue queue, uint32_t qf) {
+static void test_mat_mul(VkPhysicalDevice physDev, VkDevice device, VkQueue queue, uint32_t qf) {
     printf("\n--- [Test 2] Matrix Multiplication (16x16) ---\n");
     const uint32_t N = 16;
     const VkDeviceSize bufSize = N * N * sizeof(float);
@@ -444,11 +443,11 @@ static void test_mat_mul(VkDevice device, VkQueue queue, uint32_t qf) {
 
     // Buffers
     VkDeviceMemory memA, memB, memC;
-    VkBuffer bufA = make_buffer(device, bufSize,
+    VkBuffer bufA = make_buffer(physDev, device, bufSize,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &memA, UINT32_MAX);
-    VkBuffer bufB = make_buffer(device, bufSize,
+    VkBuffer bufB = make_buffer(physDev, device, bufSize,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &memB, UINT32_MAX);
-    VkBuffer bufC = make_buffer(device, bufSize,
+    VkBuffer bufC = make_buffer(physDev, device, bufSize,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &memC, UINT32_MAX);
 
     upload(device, memA, matA.data(), bufSize);
@@ -719,8 +718,8 @@ int main() {
     printf("[OK] Got compute queue\n");
 
     // 5. Run tests
-    test_vector_add(device, queue, static_cast<uint32_t>(qf));
-    test_mat_mul(device, queue, static_cast<uint32_t>(qf));
+    test_vector_add(physDev, device, queue, static_cast<uint32_t>(qf));
+    test_mat_mul(physDev, device, queue, static_cast<uint32_t>(qf));
     test_buffer_address(device);
 
     // 6. Cleanup
