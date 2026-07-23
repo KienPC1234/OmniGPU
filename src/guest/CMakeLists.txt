@@ -85,11 +85,8 @@ if(OMNIGPU_GUEST_USE_FFMPEG AND FFMPEG_FOUND)
 endif()
 
 
-# Enable C++ exceptions for cache_manager.cpp (uses nlohmann-json try/catch)
-if(MSVC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  target_compile_options(omnigpu_guest PRIVATE /EHsc)
-  target_compile_options(omnigpu_guest_test PRIVATE /EHsc)
-endif()
+# cache_manager.cpp and guest_config.cpp use nlohmann-json in nothrow mode
+# (json::parse with allow_exceptions=false), so no /EHsc / -fexceptions needed.
 
 # ---------------------------------------------------------------------------
 # Deploy Vulkan ICD manifest alongside the guest DLL

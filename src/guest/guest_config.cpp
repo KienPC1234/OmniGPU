@@ -51,10 +51,8 @@ GuestConfig load(const std::string& path) {
 
     std::ifstream file(cfg_path);
     if (file.is_open()) {
-        try {
-            json j;
-            file >> j;
-
+        json j = json::parse(file, nullptr, false);
+        if (!j.is_discarded()) {
             if (j.contains("host")) cfg.host = j["host"].get<std::string>();
             if (j.contains("port")) cfg.port = j["port"].get<uint16_t>();
             if (j.contains("cache_ttl_seconds")) cfg.cache_ttl_seconds = j["cache_ttl_seconds"].get<uint64_t>();
@@ -67,8 +65,8 @@ GuestConfig load(const std::string& path) {
                         cfg_path, cfg.host, cfg.port,
                         cfg.adaptive_batching, cfg.max_batch_interval_ms,
                         cfg.min_batch_commands, cfg.min_batch_bytes);
-        } catch (const std::exception& e) {
-            SPDLOG_WARN("Failed to parse config {}: {}", cfg_path, e.what());
+        } else {
+            SPDLOG_WARN("Failed to parse config {}: invalid JSON", cfg_path);
         }
     } else {
         SPDLOG_DEBUG("Config file not found: {} (using defaults)", cfg_path);
@@ -107,25 +105,25 @@ GuestConfig from_json_string(const std::string& json_str) {
     GuestConfig cfg;
     if (json_str.empty()) return cfg;
 
-    try {
-        json j = json::parse(json_str);
-
-        if (j.contains("host")) cfg.host = j["host"].get<std::string>();
-        if (j.contains("port")) cfg.port = j["port"].get<uint16_t>();
-        if (j.contains("cache_ttl_seconds")) cfg.cache_ttl_seconds = j["cache_ttl_seconds"].get<uint64_t>();
-        if (j.contains("adaptive_batching")) cfg.adaptive_batching = j["adaptive_batching"].get<bool>();
-        if (j.contains("max_batch_interval_ms")) cfg.max_batch_interval_ms = j["max_batch_interval_ms"].get<uint32_t>();
-        if (j.contains("min_batch_commands")) cfg.min_batch_commands = j["min_batch_commands"].get<uint32_t>();
-        if (j.contains("max_batch_commands")) cfg.max_batch_commands = j["max_batch_commands"].get<uint32_t>();
-        if (j.contains("min_batch_bytes")) cfg.min_batch_bytes = j["min_batch_bytes"].get<uint32_t>();
-        if (j.contains("max_batch_bytes")) cfg.max_batch_bytes = j["max_batch_bytes"].get<uint32_t>();
-        if (j.contains("auth_token")) cfg.auth_token = j["auth_token"].get<std::string>();
-
-        SPDLOG_INFO("Parsed config JSON: host={}:{}, adaptive={}",
-                    cfg.host, cfg.port, cfg.adaptive_batching);
-    } catch (const std::exception& e) {
-        SPDLOG_WARN("Failed to parse config JSON: {}", e.what());
+    json j = json::parse(json_str, nullptr, false);
+    if (j.is_discarded()) {
+        SPDLOG_WARN("Failed to parse config JSON: invalid JSON");
+        return cfg;
     }
+
+    if (j.contains("host")) cfg.host = j["host"].get<std::string>();
+    if (j.contains("port")) cfg.port = j["port"].get<uint16_t>();
+    if (j.contains("cache_ttl_seconds")) cfg.cache_ttl_seconds = j["cache_ttl_seconds"].get<uint64_t>();
+    if (j.contains("adaptive_batching")) cfg.adaptive_batching = j["adaptive_batching"].get<bool>();
+    if (j.contains("max_batch_interval_ms")) cfg.max_batch_interval_ms = j["max_batch_interval_ms"].get<uint32_t>();
+    if (j.contains("min_batch_commands")) cfg.min_batch_commands = j["min_batch_commands"].get<uint32_t>();
+    if (j.contains("max_batch_commands")) cfg.max_batch_commands = j["max_batch_commands"].get<uint32_t>();
+    if (j.contains("min_batch_bytes")) cfg.min_batch_bytes = j["min_batch_bytes"].get<uint32_t>();
+    if (j.contains("max_batch_bytes")) cfg.max_batch_bytes = j["max_batch_bytes"].get<uint32_t>();
+    if (j.contains("auth_token")) cfg.auth_token = j["auth_token"].get<std::string>();
+
+    SPDLOG_INFO("Parsed config JSON: host={}:{}, adaptive={}",
+                cfg.host, cfg.port, cfg.adaptive_batching);
 
     return cfg;
 }
