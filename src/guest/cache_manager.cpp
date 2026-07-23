@@ -69,6 +69,7 @@ bool CacheManager::load(caps::GpuCapabilities& caps) const {
         caps.driver_version = data.value("driver_version", 0U);
         caps.api_version = data.value("api_version", 0U);
         caps.max_memory_allocation = data.value("max_memory_allocation", 0ULL);
+        caps.max_memory_allocation_size = data.value("max_memory_allocation_size", UINT64_MAX);
         caps.max_push_constants_size = data.value("max_push_constants_size", 128U);
         caps.max_bound_descriptor_sets = data.value("max_bound_descriptor_sets", 4U);
         caps.max_per_stage_resources = data.value("max_per_stage_resources", 32U);
@@ -146,6 +147,7 @@ bool CacheManager::save(const caps::GpuCapabilities& caps) {
         entry["driver_version"] = caps.driver_version;
         entry["api_version"] = caps.api_version;
         entry["max_memory_allocation"] = caps.max_memory_allocation;
+        entry["max_memory_allocation_size"] = caps.max_memory_allocation_size;
         entry["max_push_constants_size"] = caps.max_push_constants_size;
         entry["max_bound_descriptor_sets"] = caps.max_bound_descriptor_sets;
         entry["max_per_stage_resources"] = caps.max_per_stage_resources;

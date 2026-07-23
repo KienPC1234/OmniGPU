@@ -26,5 +26,5 @@
     "max_sessions": 16,
     "max_msg_size_mb": 16,
     "session_timeout_s": 300,
-    "per_session_memory_budget": 4294967296
+    "per_session_memory_budget": 12884901888
 }

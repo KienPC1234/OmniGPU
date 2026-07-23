@@ -219,22 +219,44 @@ CommandDispatcher::CommandDispatcher() {
             }
         }
 
-        // Remap memory type: guest uses virtual types, real GPU types differ
-        // Guest: 0=DEVICE_LOCAL  1=DEVICE_LOCAL|HOST_VISIBLE|COHERENT  2=HOST_VISIBLE|COHERENT
-        // Real RTX4070: [1]=DEVICE_LOCAL  [2]=HOST_VISIBLE|COHERENT(16GB) [4]=BAR(214MB)
-        // Strategy: host-visible types → real type[2] (sys RAM, always mappable)
-        //            device-local only → real type[1] (VRAM, fast GPU access)
+        // Remap memory type: guest uses hardcoded types, real GPU types differ
+        // Guest: 0=DEVICE_LOCAL 1=DEVICE_LOCAL|HOST_VISIBLE|COHERENT 2=HOST_VISIBLE|COHERENT
+        //       3=HOST_VISIBLE|HOST_CACHED 4=DEVICE_LOCAL|HOST_VISIBLE|HOST_CACHED
+        // Real RTX4070: 0=NONE 1=DEVICE_LOCAL(12GB) 2=HOST_VISIBLE|COHERENT(16GB)
+        //               3=HOST_VISIBLE|COHERENT|CACHED 4=DEVICE_LOCAL|HOST_VISIBLE|COHERENT(214MB BAR)
+        // Strategy: prefer DEVICE_LOCAL types for GPU compute, fall back to system RAM
+        uint32_t origType = ai.memoryTypeIndex;
         if (guestType == 0) {
-            ai.memoryTypeIndex = 1;  // DEVICE_LOCAL VRAM
-        } else {
-            ai.memoryTypeIndex = 2;  // HOST_VISIBLE | HOST_COHERENT from sys RAM
-            SPDLOG_INFO("Alloc: size={}KB guestType={} -> hostType=2",
-                ai.allocationSize/1024, guestType);
+            // Guest 0 = DEVICE_LOCAL only → Host 1 (VRAM)
+            ai.memoryTypeIndex = 1;
+        } else if (guestType == 1) {
+            ai.memoryTypeIndex = 4;  // BAR: DEVICE_LOCAL|HOST_VISIBLE|COHERENT (214MB, fast GPU)
+            if (ai.allocationSize > 180ULL * 1024 * 1024) {
+                ai.memoryTypeIndex = 3;  // HOST_CACHED sys RAM for large (NVIDIA works better with cached)
+                SPDLOG_INFO("Alloc: size={}KB guestType={} -> hostType=3 (HOST_CACHED, >180MB)",
+                    ai.allocationSize/1024, guestType);
+            } else {
+                SPDLOG_INFO("Alloc: size={}KB guestType={} -> hostType=4 (BAR)",
+                    ai.allocationSize/1024, guestType);
+            }
+        } else if (guestType == 2 || guestType == 3) {
+            ai.memoryTypeIndex = 2;  // Fallback to system RAM
         }
 
         if (d.vramBudget_ > 0 && d.vramUsed_ + ai.allocationSize > d.vramBudget_) {
-            SPDLOG_ERROR("vkAllocateMemory: VRAM budget exceeded");
-            return;
+            // VRAM budget exceeded — try system RAM as fallback instead of rejecting
+            SPDLOG_WARN("vkAllocateMemory: VRAM budget exceeded (used={}MB + new={}MB > budget={}MB), falling back to system RAM",
+                d.vramUsed_/(1024*1024), ai.allocationSize/(1024*1024), d.vramBudget_/(1024*1024));
+            // Find HOST_VISIBLE memory type
+            VkPhysicalDeviceMemoryProperties mp{};
+            vkGetPhysicalDeviceMemoryProperties(d.phys_device(), &mp);
+            for (uint32_t t = 0; t < mp.memoryTypeCount; t++) {
+                if ((mp.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) &&
+                    !(mp.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
+                    ai.memoryTypeIndex = t;
+                    break;
+                }
+            }
         }
 
         VkDeviceMemory mem;
@@ -297,13 +319,29 @@ CommandDispatcher::CommandDispatcher() {
                 VkResult res = vkMapMemory(dev, hostMem, offset, size, 0, &mapped);
                 if (res == VK_SUCCESS && mapped) {
                     std::memcpy(mapped, data.data(), static_cast<size_t>(size));
+                    // Data integrity: log first 16B of first chunk for model weights
+                    if (offset == 0 && size >= 16 && size > 512*1024) {
+                        auto szIt = d.memorySizes_.find(gMem);
+                        uint64_t total = szIt != d.memorySizes_.end() ? szIt->second : 0;
+                        if (total > 100ULL * 1024 * 1024) {
+                            SPDLOG_INFO("MODEL_UPLOAD chunk0: mem={:#x} total={}MB first16={:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
+                                gMem, total/(1024*1024),
+                                data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
+                                data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15]);
+                        }
+                    }
                     vkUnmapMemory(dev, hostMem);
                 } else {
-                    static int fail_count = 0;
-                    if (fail_count < 5) {
-                        SPDLOG_ERROR("vkFlushMappedMemoryRanges: map failed mem={:#x} offset={} size={}MB res={}",
-                                     gMem, offset, size / (1024*1024), static_cast<int>(res));
-                        fail_count++;
+                    // Non-host-visible memory (VRAM) — use staging buffer copy
+                    auto bufIt = d.memoryToBuffer_.find(gMem);
+                    if (bufIt != d.memoryToBuffer_.end()) {
+                        auto dstBuf = d.mapper_.get_buffer(bufIt->second);
+                        if (dstBuf) {
+                            d.upload_to_device_buffer(dstBuf, offset, data.data(), size);
+                        }
+                    } else {
+                        static int sfail = 0;
+                        if (sfail++ < 3) SPDLOG_WARN("FlushMappedMemory: no buffer bound to mem={:#x}", gMem);
                     }
                 }
             }
@@ -346,7 +384,21 @@ CommandDispatcher::CommandDispatcher() {
         auto buf = r.read_handle(); auto mem = r.read_handle(); auto off = r.read_u64();
         auto b = d.mapper_.get_buffer(buf);
         auto m = d.mapper_.get_device_memory(mem);
-        if (b && m) vkBindBufferMemory(d.mapper_.device(), b, m, off);
+        if (b && m) {
+            vkBindBufferMemory(d.mapper_.device(), b, m, off);
+            // Track first buffer bound to this memory (for VRAM staging uploads)
+            if (d.memoryToBuffer_.find(mem) == d.memoryToBuffer_.end()) {
+                d.memoryToBuffer_[mem] = buf;
+            }
+            // Cache the real GPU address after binding
+            VkBufferDeviceAddressInfo bdai{};
+            bdai.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+            bdai.buffer = b;
+            uint64_t addr = vkGetBufferDeviceAddress(d.mapper_.device(), &bdai);
+            d.bufferAddresses_[buf] = addr;
+            SPDLOG_DEBUG("vkBindBufferMemory: cached BDA guest={:#x} hostBuf={} addr={:#x}",
+                buf, (void*)b, addr);
+        }
     });
     REGISTER(fbs::FunctionId_vkBindImageMemory, [](auto& d, auto& r) {
         r.read_handle();
@@ -374,6 +426,7 @@ CommandDispatcher::CommandDispatcher() {
         auto b = d.mapper_.get_buffer(buf);
         if (b) vkDestroyBuffer(d.mapper_.device(), b, nullptr);
         d.mapper_.remove_buffer(buf);
+        d.bufferAddresses_.erase(buf);
     });
     REGISTER(fbs::FunctionId_vkCreateBufferView, [](auto& d, auto& r) {
         r.read_handle(); // device
@@ -1993,10 +2046,12 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); // device
         uint32_t count = r.read_u32();
         std::vector<VkBindBufferMemoryInfo> infos(count);
+        std::vector<uint64_t> guestBufs(count);
         for (uint32_t i = 0; i < count; i++) {
             r.read_raw(&infos[i], sizeof(VkBindBufferMemoryInfo));
             infos[i].pNext = nullptr;
-            infos[i].buffer = d.mapper_.get_buffer(handle_to_u64(infos[i].buffer));
+            guestBufs[i] = handle_to_u64(infos[i].buffer);
+            infos[i].buffer = d.mapper_.get_buffer(guestBufs[i]);
             infos[i].memory = d.mapper_.get_device_memory(handle_to_u64(infos[i].memory));
         }
         if (dev && count > 0) {
@@ -2004,6 +2059,18 @@ CommandDispatcher::CommandDispatcher() {
                 vkGetDeviceProcAddr(dev, "vkBindBufferMemory2"));
             if (pfnBindBufferMemory2) {
                 pfnBindBufferMemory2(dev, count, infos.data());
+                // Track buffer bindings + cache the real GPU addresses
+                for (uint32_t i = 0; i < count; i++) {
+                    uint64_t guestMem = handle_to_u64(infos[i].memory);
+                    if (d.memoryToBuffer_.find(guestMem) == d.memoryToBuffer_.end()) {
+                        d.memoryToBuffer_[guestMem] = guestBufs[i];
+                    }
+                    VkBufferDeviceAddressInfo bdai{};
+                    bdai.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+                    bdai.buffer = infos[i].buffer;
+                    uint64_t addr = vkGetBufferDeviceAddress(dev, &bdai);
+                    d.bufferAddresses_[guestBufs[i]] = addr;
+                }
             }
         }
     });
@@ -2782,6 +2849,94 @@ void ResourceMapper::cleanup() {
 
     // 18. Device memory (must be freed LAST, after all resources using it)
     for (auto& [_, v] : memories_) if (v) vkFreeMemory(dev, v, nullptr);
+}
+
+bool CommandDispatcher::upload_to_device_buffer(VkBuffer dst, VkDeviceSize dstOffset, const uint8_t* data, size_t size) {
+    auto dev = mapper_.device();
+    auto q = mapper_.queue();
+    if (!dev || !q || !data || size == 0) return false;
+
+    VkBuffer stagingBuf = VK_NULL_HANDLE;
+    VkDeviceMemory stagingMem = VK_NULL_HANDLE;
+
+    VkBufferCreateInfo bci{};
+    bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bci.size = size;
+    bci.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    if (vkCreateBuffer(dev, &bci, nullptr, &stagingBuf) != VK_SUCCESS) return false;
+
+    VkMemoryRequirements mr{};
+    vkGetBufferMemoryRequirements(dev, stagingBuf, &mr);
+    VkMemoryAllocateInfo mai{};
+    mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    mai.allocationSize = mr.size;
+
+    VkPhysicalDeviceMemoryProperties mp{};
+    vkGetPhysicalDeviceMemoryProperties(physDev_, &mp);
+    bool found = false;
+    for (uint32_t t = 0; t < mp.memoryTypeCount; t++) {
+        if ((mr.memoryTypeBits & (1u << t)) &&
+            (mp.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
+            mai.memoryTypeIndex = t; found = true; break;
+        }
+    }
+    if (!found || vkAllocateMemory(dev, &mai, nullptr, &stagingMem) != VK_SUCCESS ||
+        vkBindBufferMemory(dev, stagingBuf, stagingMem, 0) != VK_SUCCESS) {
+        vkDestroyBuffer(dev, stagingBuf, nullptr);
+        return false;
+    }
+
+    void* sm = nullptr;
+    if (vkMapMemory(dev, stagingMem, 0, size, 0, &sm) != VK_SUCCESS || !sm) {
+        vkDestroyBuffer(dev, stagingBuf, nullptr);
+        vkFreeMemory(dev, stagingMem, nullptr);
+        return false;
+    }
+    std::memcpy(sm, data, size);
+    vkUnmapMemory(dev, stagingMem);
+
+    // Submit one-shot copy
+    VkCommandBufferAllocateInfo cbai{};
+    cbai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cbai.commandPool = mapper_.command_pool();
+    cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cbai.commandBufferCount = 1;
+    VkCommandBuffer cb = VK_NULL_HANDLE;
+    if (vkAllocateCommandBuffers(dev, &cbai, &cb) != VK_SUCCESS) {
+        vkDestroyBuffer(dev, stagingBuf, nullptr);
+        vkFreeMemory(dev, stagingMem, nullptr);
+        return false;
+    }
+
+    VkCommandBufferBeginInfo bi{};
+    bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cb, &bi);
+
+    VkBufferCopy region{};
+    region.srcOffset = 0;
+    region.dstOffset = dstOffset;
+    region.size = size;
+    vkCmdCopyBuffer(cb, stagingBuf, dst, 1, &region);
+
+    vkEndCommandBuffer(cb);
+
+    VkSubmitInfo si{};
+    si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    si.commandBufferCount = 1;
+    si.pCommandBuffers = &cb;
+    VkFence fence = VK_NULL_HANDLE;
+    VkFenceCreateInfo fci{};
+    fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    vkCreateFence(dev, &fci, nullptr, &fence);
+    vkQueueSubmit(q, 1, &si, fence);
+    vkWaitForFences(dev, 1, &fence, VK_TRUE, UINT64_MAX);
+    vkDestroyFence(dev, fence, nullptr);
+    vkFreeCommandBuffers(dev, mapper_.command_pool(), 1, &cb);
+
+    vkDestroyBuffer(dev, stagingBuf, nullptr);
+    vkFreeMemory(dev, stagingMem, nullptr);
+    return true;
 }
 
 } // namespace omnigpu::host

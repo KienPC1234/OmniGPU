@@ -289,4 +289,7 @@ void write_layout_result(uint64_t image_key, const uint8_t* data, size_t size);
 // Register a manual hook (implemented in generated vk_intercept_gen.cpp)
 void register_manual_hook(const char* name, void* func);
 
+// Track buffer bindings and invalidate BDA cache (called from auto-gen hooks)
+void track_buffer_binding(uint64_t buffer_handle, uint64_t memory_handle, VkDeviceSize offset);
+
 } // namespace omnigpu::intercept

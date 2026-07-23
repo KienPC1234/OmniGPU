@@ -146,6 +146,16 @@ caps::GpuCapabilities query_host_gpu_caps() {
             caps.max_samples = static_cast<uint32_t>(VK_SAMPLE_COUNT_1_BIT);
             caps.framebuffer_color_sample_counts = static_cast<uint32_t>(props.limits.framebufferColorSampleCounts);
 
+            // Maintenance3: maxMemoryAllocationSize (separate from maxMemoryAllocationCount)
+            VkPhysicalDeviceMaintenance3Properties maint3{};
+            maint3.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES;
+            VkPhysicalDeviceProperties2 props2{};
+            props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+            props2.pNext = &maint3;
+            vkGetPhysicalDeviceProperties2(physDevice, &props2);
+            caps.max_memory_allocation_size = maint3.maxMemoryAllocationSize;
+            caps.max_storage_buffer_range = props.limits.maxStorageBufferRange;
+
             auto subInfo = query_subgroup_info(physDevice);
             caps.compute_queue_count = query_compute_queue_count(physDevice);
             caps.supported_subgroup_operations = subInfo.supportedOperations;

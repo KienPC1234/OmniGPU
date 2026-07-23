@@ -301,14 +301,30 @@ void Session::handle_client() {
 
             switch (query_type) {
             case 0x80: { // DEVICE_ADDRESS_QUERY
+                // Check cached address first (set after vkBindBufferMemory)
+                {
+                    auto& cache = commandDispatcher_.bufferAddresses();
+                    auto it = cache.find(query_arg);
+                    if (it != cache.end()) {
+                        SPDLOG_INFO("BDA query: guest={:#x} cached={:#x}", query_arg, it->second);
+                        respond(it->second);
+                        continue;
+                    }
+                }
                 VkBuffer hostBuf = commandDispatcher_.mapper().get_buffer(query_arg);
                 if (hostBuf) {
                     VkBufferDeviceAddressInfo bdai{};
                     bdai.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
                     bdai.buffer = hostBuf;
-                    respond(vkGetBufferDeviceAddress(
-                        commandDispatcher_.mapper().device(), &bdai));
-                } else { respond(0); }
+                    uint64_t addr = vkGetBufferDeviceAddress(
+                        commandDispatcher_.mapper().device(), &bdai);
+                    SPDLOG_INFO("BDA query: guest={:#x} hostBuf={} addr={:#x} (no cache)",
+                        query_arg, (void*)hostBuf, addr);
+                    respond(addr);
+                } else {
+                    SPDLOG_WARN("BDA query: guest={:#x} NOT FOUND in mapper", query_arg);
+                    respond(0);
+                }
                 continue;
             }
             case 0x81: { // BUFFER_OPAQUE_CAPTURE_ADDRESS_QUERY
@@ -364,7 +380,7 @@ void Session::handle_client() {
                 if (fence) {
                     VkResult res = vkWaitForFences(
                         commandDispatcher_.mapper().device(), 1, &fence, VK_TRUE, 5000000000ULL);
-                    if (res == VK_SUCCESS && isComputeMode_) {
+                    if (res == VK_SUCCESS) {
                         readback_all_buffers();
                     }
                     respond(static_cast<uint64_t>(res));

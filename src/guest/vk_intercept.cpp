@@ -58,8 +58,21 @@ struct LayoutResultDest { VkSubresourceLayout* ptr; };
 static std::unordered_map<uint64_t, LayoutResultDest> s_pending_layouts;
 static std::atomic<uint32_t> g_next_fake_id{0x10000};
 
+// Buffer binding tracking: buffer_handle -> {memory_handle, offset}
+static std::unordered_map<uint64_t, std::pair<uint64_t, VkDeviceSize>> s_buffer_bindings;
+// BDA cache: buffer_handle -> device_address (invalidated on bind)
+static std::unordered_map<uint64_t, uint64_t> s_buffer_addresses;
+
 uint64_t next_fake_handle() {
     return g_next_fake_id.fetch_add(1, std::memory_order_relaxed);
+}
+
+void track_buffer_binding(uint64_t buffer_handle, uint64_t memory_handle, VkDeviceSize offset) {
+    std::lock_guard<std::mutex> lock(s_map_mutex);
+    s_buffer_bindings[buffer_handle] = {memory_handle, offset};
+    // Invalidate BDA cache — next vkGetBufferDeviceAddress will re-query with bind processed
+    s_buffer_addresses.erase(buffer_handle);
+    SPDLOG_INFO("track_buffer_binding: buf={:#x} mem={:#x} off={}", buffer_handle, memory_handle, offset);
 }
 
 // ---------------------------------------------------------------------------
@@ -558,7 +571,7 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties_hook(
     pProperties->limits.maxImageArrayLayers = 256;
     pProperties->limits.maxTexelBufferElements = 0x10000000;
     pProperties->limits.maxUniformBufferRange = static_cast<uint32_t>(caps.max_uniform_buffer_range);
-    pProperties->limits.maxStorageBufferRange = static_cast<uint32_t>(caps.max_storage_buffer_range);
+    pProperties->limits.maxStorageBufferRange = 0xFFFFFFFF;  // Allow large buffer ranges (NVIDIA supports this)
     pProperties->limits.maxPushConstantsSize = caps.max_push_constants_size;
     pProperties->limits.maxMemoryAllocationCount = static_cast<uint32_t>(caps.max_memory_allocation);
     pProperties->limits.maxSamplerAllocationCount = 4096;
@@ -827,7 +840,7 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties2_hook(
         }
         case 1000168000: { // VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES
             auto* m3 = reinterpret_cast<VkPhysicalDeviceMaintenance3Properties*>(ext);
-            m3->maxMemoryAllocationSize = caps.valid() ? caps.max_memory_allocation : (8ULL * 1024 * 1024 * 1024);
+            m3->maxMemoryAllocationSize = caps.valid() ? caps.max_memory_allocation_size : (8ULL * 1024 * 1024 * 1024);
             m3->maxPerSetDescriptors = 1024;
             break;
         }
@@ -1354,7 +1367,25 @@ uint64_t VKAPI_PTR vkGetBufferDeviceAddress_hook(
     const VkBufferDeviceAddressInfo* pInfo)
 {
     if (!pInfo) return 0;
-    SPDLOG_INFO("vkGetBufferDeviceAddress_hook entry: buffer={:#x}", handle_to_u64(pInfo->buffer));
+    uint64_t buffer_handle = handle_to_u64(pInfo->buffer);
+    SPDLOG_INFO("vkGetBufferDeviceAddress_hook entry: buffer={:#x}", buffer_handle);
+
+    // Check cache first (only if buffer is bound — avoids stale tentative addresses)
+    {
+        std::lock_guard<std::mutex> lock(s_map_mutex);
+        auto cache_it = s_buffer_addresses.find(buffer_handle);
+        if (cache_it != s_buffer_addresses.end()) {
+            SPDLOG_INFO("vkGetBufferDeviceAddress_hook exit (cached): address={:#x}", cache_it->second);
+            return cache_it->second;
+        }
+        // Check if buffer has a pending binding — if so, flush batch to ensure
+        // host processes vkBindBufferMemory before we query BDA
+        auto bind_it = s_buffer_bindings.find(buffer_handle);
+        if (bind_it != s_buffer_bindings.end()) {
+            SPDLOG_INFO("vkGetBufferDeviceAddress_hook: buffer has pending bind, flushing batch");
+        }
+    }
+
     auto* batch = get_batch();
     if (batch) {
         batch->flush();
@@ -1362,15 +1393,21 @@ uint64_t VKAPI_PTR vkGetBufferDeviceAddress_hook(
     auto* cl = init::get_client();
     uint64_t addr = 0;
     if (cl && cl->socket() != INVALID_SOCKET) {
-        uint64_t buffer_handle = handle_to_u64(pInfo->buffer);
         addr = cl->sync_query(0x80, buffer_handle);
     } else {
-        addr = handle_to_u64(pInfo->buffer);
+        addr = buffer_handle;
     }
     SPDLOG_INFO("vkGetBufferDeviceAddress_hook exit: address={:#x}", addr);
-    // Diagnostics: write to file to verify we survive past this point
-    FILE* diag = fopen("C:\\Users\\test\\AppData\\Local\\Temp\\omnigpu_diag.txt", "a");
-    if (diag) { fprintf(diag, "OK: BDA done\n"); fclose(diag); }
+
+    // Cache the address only if the buffer is bound (avoids caching stale tentative addrs)
+    {
+        std::lock_guard<std::mutex> lock(s_map_mutex);
+        auto bind_it = s_buffer_bindings.find(buffer_handle);
+        if (bind_it != s_buffer_bindings.end()) {
+            s_buffer_addresses[buffer_handle] = addr;
+        }
+    }
+
     return addr;
 }
 
@@ -2659,6 +2696,14 @@ void sync_all_mapped_memory_to_host() {
             uint32_t chunk_count = 0;
             while (remaining > 0) {
                 VkDeviceSize chunk = std::min(remaining, kChunkSize);
+                // Data integrity: log first 16B of model data before upload
+                if (off == 0 && chunk >= 16 && total_size > 100ULL * 1024 * 1024) {
+                    const uint8_t* p = reinterpret_cast<const uint8_t*>(guest_ptr);
+                    SPDLOG_INFO("MODEL_UPLOAD_GUEST: mem={:#x} total={}MB first16={:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
+                        mem_key, total_size/(1024*1024),
+                        p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7],
+                        p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]);
+                }
                 serializer::VulkanSerializer ser;
                 ser.write_handle((uint64_t)(device));
                 ser.write_u32(1);

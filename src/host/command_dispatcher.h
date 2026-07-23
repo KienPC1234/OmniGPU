@@ -188,7 +188,10 @@ public:
     void set_vram_budget(uint64_t budget) { vramBudget_ = budget; }
     void set_compute_mode(bool cm) { isComputeMode_ = cm; }
     void readback_all_buffers();
+    bool upload_to_device_buffer(VkBuffer dst, VkDeviceSize dstOffset, const uint8_t* data, size_t size);
     uint64_t vram_used() const { return vramUsed_; }
+    auto& bufferAddresses() { return bufferAddresses_; }
+    const auto& bufferAddresses() const { return bufferAddresses_; }
 
     // Callback for sending data back to guest (needed for readback)
     using SendDataFn = std::function<bool(uint64_t buffer_id, const uint8_t* data, size_t size, VkDeviceSize offset)>;
@@ -222,6 +225,8 @@ private:
     uint64_t vramBudget_ = 0;
     uint64_t vramUsed_ = 0;
     std::unordered_map<uint64_t, uint64_t> memorySizes_;
+    std::unordered_map<uint64_t, uint64_t> bufferAddresses_;
+    std::unordered_map<uint64_t, uint64_t> memoryToBuffer_;  // guest_mem → guest_buffer (first bound)
     bool isComputeMode_ = false;
 
     // Per-framebuffer render target image (maps guest framebuffer handle → image)

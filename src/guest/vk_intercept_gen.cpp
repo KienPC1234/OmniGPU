@@ -66,7 +66,11 @@ VkResult VKAPI_PTR vkAllocateDescriptorSets_hook(VkDevice device, const VkDescri
 
     VkResult res{};
     if (!original) {
-        if (pDescriptorSets) *pDescriptorSets = handle_from_u64<VkDescriptorSet>(next_fake_handle());
+        if (pDescriptorSets && pAllocateInfo) {
+            for (uint32_t i = 0; i < pAllocateInfo->descriptorSetCount; i++) {
+                pDescriptorSets[i] = handle_from_u64<VkDescriptorSet>(next_fake_handle());
+            }
+        }
     } else {
         res = original(device, pAllocateInfo, pDescriptorSets);
     }
@@ -95,6 +99,9 @@ VkResult VKAPI_PTR vkAllocateDescriptorSets_hook(VkDevice device, const VkDescri
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkBindBufferMemory_hook(VkDevice device, VkBuffer buffer, VkDeviceMemory memory, VkDeviceSize memoryOffset) {
     SPDLOG_TRACE("Intercepted: {}", "vkBindBufferMemory");
+
+    // Track binding for correct BDA computation
+    track_buffer_binding(handle_to_u64(buffer), handle_to_u64(memory), memoryOffset);
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -127,6 +134,13 @@ VkResult VKAPI_PTR vkBindBufferMemory_hook(VkDevice device, VkBuffer buffer, VkD
 // ---------------------------------------------------------------------------
 VkResult VKAPI_PTR vkBindBufferMemory2_hook(VkDevice device, uint32_t bindInfoCount, const VkBindBufferMemoryInfo* pBindInfos) {
     SPDLOG_TRACE("Intercepted: {}", "vkBindBufferMemory2");
+
+    // Track bindings for correct BDA computation
+    for (uint32_t i = 0; i < bindInfoCount; i++) {
+        track_buffer_binding(handle_to_u64(pBindInfos[i].buffer),
+                             handle_to_u64(pBindInfos[i].memory),
+                             pBindInfos[i].memoryOffset);
+    }
 
     // Serialize arguments
     serializer::VulkanSerializer ser;
@@ -2710,7 +2724,11 @@ VkResult VKAPI_PTR vkCreateComputePipelines_hook(VkDevice device, VkPipelineCach
 
     VkResult res{};
     if (!original) {
-        if (pPipelines) *pPipelines = handle_from_u64<VkPipeline>(next_fake_handle());
+        if (pPipelines) {
+            for (uint32_t i = 0; i < createInfoCount; i++) {
+                pPipelines[i] = handle_from_u64<VkPipeline>(next_fake_handle());
+            }
+        }
     } else {
         res = original(device, pipelineCache, createInfoCount, pCreateInfos, pAllocator, pPipelines);
     }
@@ -2975,7 +2993,11 @@ VkResult VKAPI_PTR vkCreateGraphicsPipelines_hook(VkDevice device, VkPipelineCac
 
     VkResult res{};
     if (!original) {
-        if (pPipelines) *pPipelines = handle_from_u64<VkPipeline>(next_fake_handle());
+        if (pPipelines) {
+            for (uint32_t i = 0; i < createInfoCount; i++) {
+                pPipelines[i] = handle_from_u64<VkPipeline>(next_fake_handle());
+            }
+        }
     } else {
         res = original(device, pipelineCache, createInfoCount, pCreateInfos, pAllocator, pPipelines);
     }
