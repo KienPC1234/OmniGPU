@@ -316,7 +316,7 @@ def get_serialize_code(param: dict, all_params: list[dict]) -> str:
                 size_param = p["name"]
                 break
         if size_param:
-            return f'ser.write_raw(reinterpret_cast<const void*>({name}), {size_param});'
+            return f'ser.write_raw(reinterpret_cast<const void*>({name}), static_cast<size_t>({size_param}));'
         # Fallback: look for a count param for arrays-of-structs
         return f'ser.write_raw(reinterpret_cast<const void*>({name}), 0);  // raw pointer (unknown size)'
 
@@ -486,6 +486,7 @@ def generate(
         "vkGetBufferOpaqueCaptureAddress",
         "vkGetDeviceMemoryOpaqueCaptureAddress",
         # KHR surface
+        "vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR",
         "vkGetPhysicalDeviceSurfaceSupportKHR",
         "vkGetPhysicalDeviceSurfaceCapabilitiesKHR",
         "vkGetPhysicalDeviceSurfaceFormatsKHR",
@@ -513,7 +514,9 @@ def generate(
         "vkBeginCommandBuffer", "vkEndCommandBuffer", "vkResetCommandBuffer",
         # Memory mapping (void** output param needs host allocation)
         "vkAllocateMemory", "vkFreeMemory",
+        "vkAllocateMemory2", "vkAllocateMemory2KHR",
         "vkMapMemory", "vkUnmapMemory",
+        "vkMapMemory2", "vkUnmapMemory2",
         "vkMapMemory2KHR", "vkUnmapMemory2KHR",
         # Surface queries (need GPU caps data)
         "vkGetPhysicalDeviceSurfaceCapabilitiesKHR", "vkGetPhysicalDeviceSurfaceCapabilities2KHR",

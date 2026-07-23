@@ -249,7 +249,6 @@ void Session::handle_client() {
 
     SPDLOG_INFO("Session #{} entering main loop", sessionId_);
     bool firstMsg = true;
-    try {
     while (running_) {
         std::vector<uint8_t> msgBuffer;
         SPDLOG_TRACE("Session #{}: calling recv_message (loop iter, running={})", sessionId_, running_.load());
@@ -598,13 +597,6 @@ void Session::handle_client() {
     computeEngine_.shutdown();
     SPDLOG_INFO("Session #{} cleanup: computeEngine done", sessionId_);
     spdlog::default_logger()->flush();
-    } catch (const std::exception& e) {
-        SPDLOG_CRITICAL("Session #{} crashed with exception: {}", sessionId_, e.what());
-        spdlog::default_logger()->flush();
-    } catch (...) {
-        SPDLOG_CRITICAL("Session #{} crashed with unknown exception", sessionId_);
-        spdlog::default_logger()->flush();
-    }
     tcp::close_socket(clientFd_);
     clientFd_ = INVALID_SOCKET;
     running_ = false;

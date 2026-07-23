@@ -86,12 +86,6 @@ if [[ "$UNINSTALL" == true ]]; then
         echo "[OK] Removed: ${LIB_DIR}"
     fi
 
-    # Remove guest daemon
-    if [[ -f "${PREFIX}/bin/omnigpu_guestd" ]]; then
-        rm -f "${PREFIX}/bin/omnigpu_guestd"
-        echo "[OK] Removed: ${PREFIX}/bin/omnigpu_guestd"
-    fi
-
     # Remove ldconfig config
     if [[ -f /etc/ld.so.conf.d/omnigpu.conf ]]; then
         rm -f /etc/ld.so.conf.d/omnigpu.conf
@@ -122,17 +116,10 @@ cp "${BIN_DIR}/omnigpu_guest.so" "${LIB_DIR}/"
 chmod 755 "${LIB_DIR}/omnigpu_guest.so"
 echo "[OK] Copied: omnigpu_guest.so -> ${LIB_DIR}/"
 
-# Copy guest daemon
-if [[ -f "${BIN_DIR}/omnigpu_guestd" ]]; then
-    cp "${BIN_DIR}/omnigpu_guestd" "${PREFIX}/bin/"
-    chmod 755 "${PREFIX}/bin/omnigpu_guestd"
-    echo "[OK] Copied: omnigpu_guestd -> ${PREFIX}/bin/"
-fi
-
 # Copy vk_icd.json
 if [[ -f "${ICD_JSON_SRC}" ]]; then
     # Update library_path in ICD manifest to absolute path
-    sed "s|\"omnigpu_guest.dll\"|\"${LIB_DIR}/omnigpu_guest.so\"|g" \
+    sed -E "s|\"[^\"]*omnigpu_guest\\.dll\"|\"${LIB_DIR}/omnigpu_guest.so\"|g" \
         "${ICD_JSON_SRC}" > "${ICD_JSON_DST}"
     chmod 644 "${ICD_JSON_DST}"
     echo "[OK] Registered ICD: ${ICD_JSON_DST}"

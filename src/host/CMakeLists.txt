@@ -11,7 +11,6 @@ set(HOST_SOURCES
   handshake.cpp
   multi_gpu_compute.cpp
   server.cpp
-  service_manager.cpp
   video_encoder.cpp
   renderer.cpp
   compressor.cpp

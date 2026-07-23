@@ -100,10 +100,12 @@ extern "C" VKAPI_ATTR void VKAPI_CALL vkDestroyInstance(
     if (func) {
         func(instance, pAllocator);
     } else {
-        SPDLOG_ERROR("vkDestroyInstance: hook not found, using direct loader call");
+        SPDLOG_ERROR("vkDestroyInstance: hook not found");
+#ifdef _WIN32
         auto loader_destroy = reinterpret_cast<void (VKAPI_PTR*)(VkInstance, const VkAllocationCallbacks*)>(
             GetProcAddress(GetModuleHandleA("vulkan-1.dll"), "vkDestroyInstance"));
         if (loader_destroy) loader_destroy(instance, pAllocator);
+#endif
     }
 }
 

@@ -1,7 +1,6 @@
 #include "cli.h"
 #include "config.h"
 #include "server.h"
-#include "service_manager.h"
 #include "video_encoder.h"
 #include "common/logger.h"
 #include <cstdlib>
@@ -18,9 +17,6 @@ static void print_usage(const char* prog) {
               << "  " << prog << "                         Run in CLI mode\n"
               << "  " << prog << " <config.json>          Run with config file\n"
               << "  " << prog << " --debug                 Run with verbose console logging\n"
-              << "  " << prog << " --install               Install Windows service\n"
-              << "  " << prog << " --uninstall             Uninstall Windows service\n"
-              << "  " << prog << " --service               Run as Windows service\n"
               << "  " << prog << " --help                  Show this help\n";
 }
 
@@ -108,15 +104,6 @@ int main(int argc, char* argv[]) {
         if (std::strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             return 0;
-        }
-        if (std::strcmp(argv[i], "--install") == 0) {
-            return omnigpu::install_service() ? 0 : 1;
-        }
-        if (std::strcmp(argv[i], "--uninstall") == 0) {
-            return omnigpu::uninstall_service() ? 0 : 1;
-        }
-        if (std::strcmp(argv[i], "--service") == 0) {
-            if (omnigpu::run_as_service()) return 0;
         }
         if (std::strcmp(argv[i], "--debug") == 0) {
             debug = true;

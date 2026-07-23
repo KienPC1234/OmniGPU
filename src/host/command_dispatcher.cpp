@@ -219,40 +219,53 @@ CommandDispatcher::CommandDispatcher() {
             }
         }
 
-        // Remap memory type: guest uses hardcoded types, real GPU types differ
-        // Guest: 0=DEVICE_LOCAL 1=DEVICE_LOCAL|HOST_VISIBLE|COHERENT 2=HOST_VISIBLE|COHERENT
-        //       3=HOST_VISIBLE|HOST_CACHED 4=DEVICE_LOCAL|HOST_VISIBLE|HOST_CACHED
-        // Real RTX4070: 0=NONE 1=DEVICE_LOCAL(12GB) 2=HOST_VISIBLE|COHERENT(16GB)
-        //               3=HOST_VISIBLE|COHERENT|CACHED 4=DEVICE_LOCAL|HOST_VISIBLE|COHERENT(214MB BAR)
-        // Strategy: prefer DEVICE_LOCAL types for GPU compute, fall back to system RAM
-        uint32_t origType = ai.memoryTypeIndex;
+        // Dynamic memory type remapping based on property flags
+        VkMemoryPropertyFlags desiredFlags = 0;
         if (guestType == 0) {
-            // Guest 0 = DEVICE_LOCAL only → Host 1 (VRAM)
-            ai.memoryTypeIndex = 1;
+            desiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
         } else if (guestType == 1) {
-            ai.memoryTypeIndex = 4;  // BAR: DEVICE_LOCAL|HOST_VISIBLE|COHERENT (214MB, fast GPU)
-            if (ai.allocationSize > 180ULL * 1024 * 1024) {
-                ai.memoryTypeIndex = 3;  // HOST_CACHED sys RAM for large (NVIDIA works better with cached)
-                SPDLOG_INFO("Alloc: size={}KB guestType={} -> hostType=3 (HOST_CACHED, >180MB)",
-                    ai.allocationSize/1024, guestType);
-            } else {
-                SPDLOG_INFO("Alloc: size={}KB guestType={} -> hostType=4 (BAR)",
-                    ai.allocationSize/1024, guestType);
+            desiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        } else if (guestType == 2) {
+            desiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        } else if (guestType == 3) {
+            desiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+        } else if (guestType == 4) {
+            desiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+        }
+
+        int bestType = -1;
+        for (uint32_t t = 0; t < memProps.memoryTypeCount; t++) {
+            if ((memProps.memoryTypes[t].propertyFlags & desiredFlags) == desiredFlags) {
+                bestType = static_cast<int>(t);
+                break;
             }
-        } else if (guestType == 2 || guestType == 3) {
-            ai.memoryTypeIndex = 2;  // Fallback to system RAM
+        }
+        if (bestType < 0 && (desiredFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
+            for (uint32_t t = 0; t < memProps.memoryTypeCount; t++) {
+                if (memProps.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
+                    bestType = static_cast<int>(t);
+                    break;
+                }
+            }
+        }
+        if (bestType < 0) {
+            for (uint32_t t = 0; t < memProps.memoryTypeCount; t++) {
+                if (memProps.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
+                    bestType = static_cast<int>(t);
+                    break;
+                }
+            }
+        }
+        if (bestType >= 0) {
+            ai.memoryTypeIndex = static_cast<uint32_t>(bestType);
         }
 
         if (d.vramBudget_ > 0 && d.vramUsed_ + ai.allocationSize > d.vramBudget_) {
-            // VRAM budget exceeded — try system RAM as fallback instead of rejecting
             SPDLOG_WARN("vkAllocateMemory: VRAM budget exceeded (used={}MB + new={}MB > budget={}MB), falling back to system RAM",
                 d.vramUsed_/(1024*1024), ai.allocationSize/(1024*1024), d.vramBudget_/(1024*1024));
-            // Find HOST_VISIBLE memory type
-            VkPhysicalDeviceMemoryProperties mp{};
-            vkGetPhysicalDeviceMemoryProperties(d.phys_device(), &mp);
-            for (uint32_t t = 0; t < mp.memoryTypeCount; t++) {
-                if ((mp.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) &&
-                    !(mp.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
+            for (uint32_t t = 0; t < memProps.memoryTypeCount; t++) {
+                if ((memProps.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) &&
+                    !(memProps.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
                     ai.memoryTypeIndex = t;
                     break;
                 }
@@ -307,10 +320,11 @@ CommandDispatcher::CommandDispatcher() {
             uint64_t gMem = r.read_handle();
             uint64_t offset = r.read_u64();
             uint64_t size = r.read_u64();
+            size_t sz = static_cast<size_t>(size);
 
-            std::vector<uint8_t> data(size);
-            if (size > 0) {
-                r.read_raw(data.data(), size);
+            std::vector<uint8_t> data(sz);
+            if (sz > 0) {
+                r.read_raw(data.data(), sz);
             }
 
             VkDeviceMemory hostMem = d.mapper_.get_device_memory(gMem);
@@ -318,7 +332,7 @@ CommandDispatcher::CommandDispatcher() {
                 void* mapped = nullptr;
                 VkResult res = vkMapMemory(dev, hostMem, offset, size, 0, &mapped);
                 if (res == VK_SUCCESS && mapped) {
-                    std::memcpy(mapped, data.data(), static_cast<size_t>(size));
+                    std::memcpy(mapped, data.data(), sz);
                     // Data integrity: log first 16B of first chunk for model weights
                     if (offset == 0 && size >= 16 && size > 512*1024) {
                         auto szIt = d.memorySizes_.find(gMem);
@@ -332,16 +346,9 @@ CommandDispatcher::CommandDispatcher() {
                     }
                     vkUnmapMemory(dev, hostMem);
                 } else {
-                    // Non-host-visible memory (VRAM) — use staging buffer copy
-                    auto bufIt = d.memoryToBuffer_.find(gMem);
-                    if (bufIt != d.memoryToBuffer_.end()) {
-                        auto dstBuf = d.mapper_.get_buffer(bufIt->second);
-                        if (dstBuf) {
-                            d.upload_to_device_buffer(dstBuf, offset, data.data(), size);
-                        }
-                    } else {
-                        static int sfail = 0;
-                        if (sfail++ < 3) SPDLOG_WARN("FlushMappedMemory: no buffer bound to mem={:#x}", gMem);
+                    // Non-host-visible memory (pure VRAM) — upload directly into hostMem at offset
+                    if (!d.upload_to_device_memory(hostMem, offset, data.data(), sz)) {
+                        SPDLOG_WARN("FlushMappedMemory: upload_to_device_memory failed for mem={:#x} off={}", gMem, offset);
                     }
                 }
             }
@@ -375,6 +382,16 @@ CommandDispatcher::CommandDispatcher() {
                         d.sendDataFn_(gMem, source, static_cast<size_t>(size), offset);
                     }
                     vkUnmapMemory(dev, hostMem);
+                } else {
+                    // Non-host-visible memory (pure VRAM) — readback directly from hostMem at offset
+                    std::vector<uint8_t> readback_buf(static_cast<size_t>(size));
+                    if (d.download_from_device_memory(hostMem, offset, readback_buf.data(), static_cast<size_t>(size))) {
+                        if (d.sendDataFn_) {
+                            d.sendDataFn_(gMem, readback_buf.data(), static_cast<size_t>(size), offset);
+                        }
+                    } else {
+                        SPDLOG_WARN("InvalidateMappedMemory: download_from_device_memory failed for mem={:#x} off={}", gMem, offset);
+                    }
                 }
             }
         }
@@ -879,6 +896,12 @@ CommandDispatcher::CommandDispatcher() {
                 for (uint32_t j = 0; j < w.descriptorCount; j++) {
                     auto* buf = const_cast<VkDescriptorBufferInfo*>(&w.pBufferInfo[j]);
                     buf->buffer = d.mapper_.get_buffer(handle_to_u64(buf->buffer));
+                }
+            }
+            if (w.pTexelBufferView) {
+                for (uint32_t j = 0; j < w.descriptorCount; j++) {
+                    auto* view = const_cast<VkBufferView*>(&w.pTexelBufferView[j]);
+                    *view = d.mapper_.get_buffer_view(handle_to_u64(*view));
                 }
             }
         }
@@ -1457,7 +1480,7 @@ CommandDispatcher::CommandDispatcher() {
         VkQueryResultFlags flags = static_cast<VkQueryResultFlags>(r.read_u32());
 
         VkQueryPool pool = d.mapper_.get_query_pool(gPool);
-        std::vector<uint8_t> data(dataSize, 0);
+        std::vector<uint8_t> data(static_cast<size_t>(dataSize), 0);
         if (dev && pool && dataSize > 0) {
             VkResult res = vkGetQueryPoolResults(dev, pool, firstQuery, queryCount,
                                                  static_cast<size_t>(dataSize), data.data(),
@@ -1616,6 +1639,45 @@ CommandDispatcher::CommandDispatcher() {
                 vkGetDeviceProcAddr(d.mapper_.device(), "vkCmdPipelineBarrier2"));
             if (pfnCmdPipelineBarrier2) {
                 pfnCmdPipelineBarrier2(cb, &di);
+            } else {
+                VkPipelineStageFlags srcStages = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+                VkPipelineStageFlags dstStages = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+                std::vector<VkMemoryBarrier> legacyMem(mem_br);
+                for (size_t k = 0; k < mem_br; k++) {
+                    legacyMem[k].sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+                    legacyMem[k].pNext = nullptr;
+                    legacyMem[k].srcAccessMask = static_cast<VkAccessFlags>(memBarriers2[k].srcAccessMask);
+                    legacyMem[k].dstAccessMask = static_cast<VkAccessFlags>(memBarriers2[k].dstAccessMask);
+                }
+                std::vector<VkBufferMemoryBarrier> legacyBuf(buf_br);
+                for (size_t k = 0; k < buf_br; k++) {
+                    legacyBuf[k].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+                    legacyBuf[k].pNext = nullptr;
+                    legacyBuf[k].srcAccessMask = static_cast<VkAccessFlags>(bufBarriers2[k].srcAccessMask);
+                    legacyBuf[k].dstAccessMask = static_cast<VkAccessFlags>(bufBarriers2[k].dstAccessMask);
+                    legacyBuf[k].srcQueueFamilyIndex = bufBarriers2[k].srcQueueFamilyIndex;
+                    legacyBuf[k].dstQueueFamilyIndex = bufBarriers2[k].dstQueueFamilyIndex;
+                    legacyBuf[k].buffer = bufBarriers2[k].buffer;
+                    legacyBuf[k].offset = bufBarriers2[k].offset;
+                    legacyBuf[k].size = bufBarriers2[k].size;
+                }
+                std::vector<VkImageMemoryBarrier> legacyImg(img_br);
+                for (size_t k = 0; k < img_br; k++) {
+                    legacyImg[k].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+                    legacyImg[k].pNext = nullptr;
+                    legacyImg[k].srcAccessMask = static_cast<VkAccessFlags>(imgBarriers2[k].srcAccessMask);
+                    legacyImg[k].dstAccessMask = static_cast<VkAccessFlags>(imgBarriers2[k].dstAccessMask);
+                    legacyImg[k].oldLayout = imgBarriers2[k].oldLayout;
+                    legacyImg[k].newLayout = imgBarriers2[k].newLayout;
+                    legacyImg[k].srcQueueFamilyIndex = imgBarriers2[k].srcQueueFamilyIndex;
+                    legacyImg[k].dstQueueFamilyIndex = imgBarriers2[k].dstQueueFamilyIndex;
+                    legacyImg[k].image = imgBarriers2[k].image;
+                    legacyImg[k].subresourceRange = imgBarriers2[k].subresourceRange;
+                }
+                vkCmdPipelineBarrier(cb, srcStages, dstStages, depFlags,
+                                     static_cast<uint32_t>(legacyMem.size()), legacyMem.data(),
+                                     static_cast<uint32_t>(legacyBuf.size()), legacyBuf.data(),
+                                     static_cast<uint32_t>(legacyImg.size()), legacyImg.data());
             }
         }
     });
@@ -1960,8 +2022,8 @@ CommandDispatcher::CommandDispatcher() {
         auto ds = d.mapper_.get_ds(gDS);
         auto tpl = d.mapper_.get_descriptor_update_template(gTpl);
         uint64_t remaining = r.remaining();
-        std::vector<uint8_t> data(remaining);
-        if (remaining > 0) r.read_raw(data.data(), remaining);
+        std::vector<uint8_t> data(static_cast<size_t>(remaining));
+        if (remaining > 0) r.read_raw(data.data(), static_cast<size_t>(remaining));
         if (dev && ds && tpl) {
             vkUpdateDescriptorSetWithTemplate(dev, ds, tpl, data.data());
         }
@@ -2586,12 +2648,7 @@ void CommandDispatcher::dispatch(fbs::FunctionId func_id,
     }
 
     VulkanDeserializer reader(args, args_size);
-    try {
-        it->second(*this, reader);
-    } catch (const std::exception& e) {
-        SPDLOG_ERROR("Handler for {} (id={}) threw: {}",
-                     fbs::EnumNameFunctionId(func_id), static_cast<int>(func_id), e.what());
-    }
+    it->second(*this, reader);
 }
 
 bool CommandDispatcher::begin_render_pass(VkRenderPass rp, VkFramebuffer fb,
@@ -2934,6 +2991,259 @@ bool CommandDispatcher::upload_to_device_buffer(VkBuffer dst, VkDeviceSize dstOf
     vkDestroyFence(dev, fence, nullptr);
     vkFreeCommandBuffers(dev, mapper_.command_pool(), 1, &cb);
 
+    vkDestroyBuffer(dev, stagingBuf, nullptr);
+    vkFreeMemory(dev, stagingMem, nullptr);
+    return true;
+}
+
+bool CommandDispatcher::upload_to_device_memory(VkDeviceMemory dstMem, VkDeviceSize dstOffset, const uint8_t* data, size_t size) {
+    auto dev = mapper_.device();
+    auto q = mapper_.queue();
+    if (!dev || !q || !dstMem || !data || size == 0) return false;
+
+    // 1. Create Staging Buffer (HOST_VISIBLE)
+    VkBuffer stagingBuf = VK_NULL_HANDLE;
+    VkDeviceMemory stagingMem = VK_NULL_HANDLE;
+
+    VkBufferCreateInfo bci{};
+    bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bci.size = size;
+    bci.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    if (vkCreateBuffer(dev, &bci, nullptr, &stagingBuf) != VK_SUCCESS) return false;
+
+    VkMemoryRequirements mr{};
+    vkGetBufferMemoryRequirements(dev, stagingBuf, &mr);
+    VkMemoryAllocateInfo mai{};
+    mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    mai.allocationSize = mr.size;
+
+    VkPhysicalDeviceMemoryProperties mp{};
+    vkGetPhysicalDeviceMemoryProperties(physDev_, &mp);
+    bool found = false;
+    for (uint32_t t = 0; t < mp.memoryTypeCount; t++) {
+        if ((mr.memoryTypeBits & (1u << t)) &&
+            (mp.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
+            mai.memoryTypeIndex = t; found = true; break;
+        }
+    }
+    if (!found || vkAllocateMemory(dev, &mai, nullptr, &stagingMem) != VK_SUCCESS ||
+        vkBindBufferMemory(dev, stagingBuf, stagingMem, 0) != VK_SUCCESS) {
+        if (stagingBuf) vkDestroyBuffer(dev, stagingBuf, nullptr);
+        if (stagingMem) vkFreeMemory(dev, stagingMem, nullptr);
+        return false;
+    }
+
+    void* sm = nullptr;
+    if (vkMapMemory(dev, stagingMem, 0, size, 0, &sm) != VK_SUCCESS || !sm) {
+        vkDestroyBuffer(dev, stagingBuf, nullptr);
+        vkFreeMemory(dev, stagingMem, nullptr);
+        return false;
+    }
+    std::memcpy(sm, data, size);
+    vkUnmapMemory(dev, stagingMem);
+
+    // 2. Create Temporary Target Buffer bound to aligned dstMem offset
+    VkBuffer targetBuf = VK_NULL_HANDLE;
+    VkBufferCreateInfo targetBci{};
+    targetBci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    targetBci.size = size;
+    targetBci.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    if (vkCreateBuffer(dev, &targetBci, nullptr, &targetBuf) != VK_SUCCESS) {
+        vkDestroyBuffer(dev, stagingBuf, nullptr);
+        vkFreeMemory(dev, stagingMem, nullptr);
+        return false;
+    }
+
+    VkMemoryRequirements targetMr{};
+    vkGetBufferMemoryRequirements(dev, targetBuf, &targetMr);
+
+    VkDeviceSize alignMask = targetMr.alignment > 0 ? targetMr.alignment : 1;
+    VkDeviceSize alignedOffset = (dstOffset / alignMask) * alignMask;
+    VkDeviceSize offsetDiff = dstOffset - alignedOffset;
+    VkDeviceSize requiredSize = size + offsetDiff;
+
+    if (requiredSize > targetMr.size) {
+        vkDestroyBuffer(dev, targetBuf, nullptr);
+        targetBci.size = requiredSize;
+        if (vkCreateBuffer(dev, &targetBci, nullptr, &targetBuf) != VK_SUCCESS) {
+            vkDestroyBuffer(dev, stagingBuf, nullptr);
+            vkFreeMemory(dev, stagingMem, nullptr);
+            return false;
+        }
+    }
+
+    if (vkBindBufferMemory(dev, targetBuf, dstMem, alignedOffset) != VK_SUCCESS) {
+        vkDestroyBuffer(dev, targetBuf, nullptr);
+        vkDestroyBuffer(dev, stagingBuf, nullptr);
+        vkFreeMemory(dev, stagingMem, nullptr);
+        return false;
+    }
+
+    // 3. One-shot command buffer copy
+    VkCommandBufferAllocateInfo cbai{};
+    cbai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cbai.commandPool = mapper_.command_pool();
+    cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cbai.commandBufferCount = 1;
+    VkCommandBuffer cb = VK_NULL_HANDLE;
+    if (vkAllocateCommandBuffers(dev, &cbai, &cb) != VK_SUCCESS) {
+        vkDestroyBuffer(dev, targetBuf, nullptr);
+        vkDestroyBuffer(dev, stagingBuf, nullptr);
+        vkFreeMemory(dev, stagingMem, nullptr);
+        return false;
+    }
+
+    VkCommandBufferBeginInfo bi{};
+    bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cb, &bi);
+
+    VkBufferCopy region{};
+    region.srcOffset = 0;
+    region.dstOffset = offsetDiff;
+    region.size = size;
+    vkCmdCopyBuffer(cb, stagingBuf, targetBuf, 1, &region);
+    vkEndCommandBuffer(cb);
+
+    VkSubmitInfo si{};
+    si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    si.commandBufferCount = 1;
+    si.pCommandBuffers = &cb;
+    VkFence fence = VK_NULL_HANDLE;
+    VkFenceCreateInfo fci{};
+    fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    vkCreateFence(dev, &fci, nullptr, &fence);
+    vkQueueSubmit(q, 1, &si, fence);
+    vkWaitForFences(dev, 1, &fence, VK_TRUE, UINT64_MAX);
+    vkDestroyFence(dev, fence, nullptr);
+    vkFreeCommandBuffers(dev, mapper_.command_pool(), 1, &cb);
+
+    vkDestroyBuffer(dev, targetBuf, nullptr);
+    vkDestroyBuffer(dev, stagingBuf, nullptr);
+    vkFreeMemory(dev, stagingMem, nullptr);
+    return true;
+}
+
+bool CommandDispatcher::download_from_device_memory(VkDeviceMemory srcMem, VkDeviceSize srcOffset, uint8_t* outData, size_t size) {
+    auto dev = mapper_.device();
+    auto q = mapper_.queue();
+    if (!dev || !q || !srcMem || !outData || size == 0) return false;
+
+    // 1. Create Staging Buffer (HOST_VISIBLE | HOST_COHERENT)
+    VkBuffer stagingBuf = VK_NULL_HANDLE;
+    VkDeviceMemory stagingMem = VK_NULL_HANDLE;
+
+    VkBufferCreateInfo bci{};
+    bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bci.size = size;
+    bci.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    if (vkCreateBuffer(dev, &bci, nullptr, &stagingBuf) != VK_SUCCESS) return false;
+
+    VkMemoryRequirements mr{};
+    vkGetBufferMemoryRequirements(dev, stagingBuf, &mr);
+    VkMemoryAllocateInfo mai{};
+    mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    mai.allocationSize = mr.size;
+
+    VkPhysicalDeviceMemoryProperties mp{};
+    vkGetPhysicalDeviceMemoryProperties(physDev_, &mp);
+    bool found = false;
+    for (uint32_t t = 0; t < mp.memoryTypeCount; t++) {
+        if ((mr.memoryTypeBits & (1u << t)) &&
+            (mp.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
+            mai.memoryTypeIndex = t; found = true; break;
+        }
+    }
+    if (!found || vkAllocateMemory(dev, &mai, nullptr, &stagingMem) != VK_SUCCESS ||
+        vkBindBufferMemory(dev, stagingBuf, stagingMem, 0) != VK_SUCCESS) {
+        if (stagingBuf) vkDestroyBuffer(dev, stagingBuf, nullptr);
+        if (stagingMem) vkFreeMemory(dev, stagingMem, nullptr);
+        return false;
+    }
+
+    // 2. Create Temporary Source Buffer bound to aligned srcMem offset
+    VkBuffer srcBuf = VK_NULL_HANDLE;
+    VkBufferCreateInfo srcBci{};
+    srcBci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    srcBci.size = size;
+    srcBci.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    if (vkCreateBuffer(dev, &srcBci, nullptr, &srcBuf) != VK_SUCCESS) {
+        vkDestroyBuffer(dev, stagingBuf, nullptr);
+        vkFreeMemory(dev, stagingMem, nullptr);
+        return false;
+    }
+
+    VkMemoryRequirements srcMr{};
+    vkGetBufferMemoryRequirements(dev, srcBuf, &srcMr);
+
+    VkDeviceSize alignMask = srcMr.alignment > 0 ? srcMr.alignment : 1;
+    VkDeviceSize alignedOffset = (srcOffset / alignMask) * alignMask;
+    VkDeviceSize offsetDiff = srcOffset - alignedOffset;
+    VkDeviceSize requiredSize = size + offsetDiff;
+
+    if (requiredSize > srcMr.size) {
+        vkDestroyBuffer(dev, srcBuf, nullptr);
+        srcBci.size = requiredSize;
+        if (vkCreateBuffer(dev, &srcBci, nullptr, &srcBuf) != VK_SUCCESS) {
+            vkDestroyBuffer(dev, stagingBuf, nullptr);
+            vkFreeMemory(dev, stagingMem, nullptr);
+            return false;
+        }
+    }
+
+    if (vkBindBufferMemory(dev, srcBuf, srcMem, alignedOffset) != VK_SUCCESS) {
+        vkDestroyBuffer(dev, srcBuf, nullptr);
+        vkDestroyBuffer(dev, stagingBuf, nullptr);
+        vkFreeMemory(dev, stagingMem, nullptr);
+        return false;
+    }
+
+    // 3. One-shot command buffer copy
+    VkCommandBufferAllocateInfo cbai{};
+    cbai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cbai.commandPool = mapper_.command_pool();
+    cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cbai.commandBufferCount = 1;
+    VkCommandBuffer cb = VK_NULL_HANDLE;
+    if (vkAllocateCommandBuffers(dev, &cbai, &cb) != VK_SUCCESS) {
+        vkDestroyBuffer(dev, srcBuf, nullptr);
+        vkDestroyBuffer(dev, stagingBuf, nullptr);
+        vkFreeMemory(dev, stagingMem, nullptr);
+        return false;
+    }
+
+    VkCommandBufferBeginInfo bi{};
+    bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cb, &bi);
+
+    VkBufferCopy region{};
+    region.srcOffset = offsetDiff;
+    region.dstOffset = 0;
+    region.size = size;
+    vkCmdCopyBuffer(cb, srcBuf, stagingBuf, 1, &region);
+    vkEndCommandBuffer(cb);
+
+    VkSubmitInfo si{};
+    si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    si.commandBufferCount = 1;
+    si.pCommandBuffers = &cb;
+    VkFence fence = VK_NULL_HANDLE;
+    VkFenceCreateInfo fci{};
+    fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    vkCreateFence(dev, &fci, nullptr, &fence);
+    vkQueueSubmit(q, 1, &si, fence);
+    vkWaitForFences(dev, 1, &fence, VK_TRUE, UINT64_MAX);
+    vkDestroyFence(dev, fence, nullptr);
+
+    void* sm = nullptr;
+    if (vkMapMemory(dev, stagingMem, 0, size, 0, &sm) == VK_SUCCESS && sm) {
+        std::memcpy(outData, sm, size);
+        vkUnmapMemory(dev, stagingMem);
+    }
+
+    vkFreeCommandBuffers(dev, mapper_.command_pool(), 1, &cb);
+    vkDestroyBuffer(dev, srcBuf, nullptr);
     vkDestroyBuffer(dev, stagingBuf, nullptr);
     vkFreeMemory(dev, stagingMem, nullptr);
     return true;

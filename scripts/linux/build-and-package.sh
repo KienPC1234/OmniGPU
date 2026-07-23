@@ -53,9 +53,6 @@ mkdir -p "${DIST_DIR}/docs"
 # Copy libraries and binaries
 cp "${BUILD_DIR}/bin/omnigpu_guest.so" "${DIST_DIR}/bin/" 2>/dev/null || true
 cp "${BUILD_DIR}/bin/omnigpu_host" "${DIST_DIR}/bin/" 2>/dev/null || true
-cp "${BUILD_DIR}/bin/omnigpu_guestd" "${DIST_DIR}/bin/" 2>/dev/null || true
-cp "${BUILD_DIR}/bin/omnigpu_guest_test" "${DIST_DIR}/bin/" 2>/dev/null || true
-cp "${BUILD_DIR}/bin/omnigpu_vk_test" "${DIST_DIR}/bin/" 2>/dev/null || true
 cp "${PROJECT_ROOT}/src/guest/vk_icd.json" "${DIST_DIR}/bin/" 2>/dev/null || true
 
 # Copy clvk libraries if present in third_party
@@ -68,6 +65,7 @@ fi
 cp "${PROJECT_ROOT}/scripts/linux/install_guest.sh" "${DIST_DIR}/scripts/" 2>/dev/null || true
 cp "${PROJECT_ROOT}/scripts/linux/diagnose.sh" "${DIST_DIR}/scripts/" 2>/dev/null || true
 cp "${PROJECT_ROOT}/omnigpu_guest.json" "${DIST_DIR}/" 2>/dev/null || true
+cp "${PROJECT_ROOT}/omnigpu_host.json" "${DIST_DIR}/" 2>/dev/null || true
 
 # Copy docs
 cp "${PROJECT_ROOT}/README.md" "${DIST_DIR}/docs/" 2>/dev/null || true

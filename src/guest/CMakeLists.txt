@@ -31,6 +31,7 @@ target_link_libraries(omnigpu_guest PRIVATE
 )
 
 if(WIN32)
+  target_compile_definitions(omnigpu_guest PRIVATE _CRT_SECURE_NO_WARNINGS)
   target_link_libraries(omnigpu_guest PRIVATE ws2_32)
   target_link_libraries(omnigpu_guest PRIVATE mfplat mfuuid mf ole32)
 endif()
@@ -71,6 +72,7 @@ add_executable(omnigpu_guest_test
 )
 target_link_libraries(omnigpu_guest_test PRIVATE omnigpu_common)
 if(WIN32)
+  target_compile_definitions(omnigpu_guest_test PRIVATE _CRT_SECURE_NO_WARNINGS)
   target_link_libraries(omnigpu_guest_test PRIVATE ws2_32)
   target_link_libraries(omnigpu_guest_test PRIVATE mfplat mfuuid mf ole32)
 endif()

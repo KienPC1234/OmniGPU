@@ -72,32 +72,35 @@ endif()
 if(OMNIGPU_BUILD_FFMPEG)
     if(WIN32)
         if(CMAKE_SIZEOF_VOID_P EQUAL 4)
-            # 32-bit: FFmpeg pre-built not available, skip
-            set(FFMPEG_FOUND FALSE)
+            set(FFMPEG_ARCH_SUFFIX "-x86")
+            set(FFMPEG_ARCH_ARG "win32")
         else()
-            # 64-bit: download pre-built shared binaries
-            set(FFMPEG_BIN_DIR "${CMAKE_SOURCE_DIR}/third_party/ffmpeg-bin")
-            set(FFMPEG_LIB_DIR "${FFMPEG_BIN_DIR}/lib")
-            set(FFMPEG_INC_DIR "${FFMPEG_BIN_DIR}/include")
+            set(FFMPEG_ARCH_SUFFIX "")
+            set(FFMPEG_ARCH_ARG "win64")
+        endif()
+        set(FFMPEG_BIN_DIR "${CMAKE_SOURCE_DIR}/third_party/ffmpeg-bin${FFMPEG_ARCH_SUFFIX}")
+        set(FFMPEG_LIB_DIR "${FFMPEG_BIN_DIR}/lib")
+        set(FFMPEG_INC_DIR "${FFMPEG_BIN_DIR}/include")
 
-            if(NOT EXISTS "${FFMPEG_LIB_DIR}/avcodec.lib")
-                if(NOT Python3_EXECUTABLE)
-                    message(FATAL_ERROR "FFmpeg download requires Python3.")
-                endif()
-                add_custom_target(omnigpu_fetch_ffmpeg
-                    COMMAND "${Python3_EXECUTABLE}"
-                            "${CMAKE_SOURCE_DIR}/third_party/fetch_ffmpeg.py"
-                            --output-dir "${FFMPEG_BIN_DIR}"
-                    COMMENT "Downloading FFmpeg shared binaries..."
-                )
-                message(STATUS "FFmpeg: not found — will download automatically during build")
-            else()
-                message(STATUS "FFmpeg: found in third_party/ffmpeg-bin")
+        if(NOT EXISTS "${FFMPEG_LIB_DIR}/avcodec.lib")
+            if(NOT Python3_EXECUTABLE)
+                message(FATAL_ERROR "FFmpeg download requires Python3.")
             endif()
+            set(_ffmpeg_tag "${FFMPEG_ARCH_ARG}")
+            add_custom_target(omnigpu_fetch_ffmpeg
+                COMMAND "${Python3_EXECUTABLE}"
+                        "${CMAKE_SOURCE_DIR}/third_party/fetch_ffmpeg.py"
+                        --output-dir "${FFMPEG_BIN_DIR}"
+                        --arch "${_ffmpeg_tag}"
+                COMMENT "Downloading FFmpeg ${FFMPEG_ARCH_ARG} shared binaries..."
+            )
+            message(STATUS "FFmpeg: not found — will download automatically during build")
+        else()
+            message(STATUS "FFmpeg: found in third_party/ffmpeg-bin${FFMPEG_ARCH_SUFFIX}")
+        endif()
 
-            if(EXISTS "${FFMPEG_LIB_DIR}/avcodec.lib")
-                set(FFMPEG_FOUND TRUE)
-            endif()
+        if(EXISTS "${FFMPEG_LIB_DIR}/avcodec.lib")
+            set(FFMPEG_FOUND TRUE)
         endif()
     else()
         # Linux: use system FFmpeg (pkg-config)

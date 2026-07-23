@@ -124,14 +124,14 @@ caps::GpuCapabilities query_host_gpu_caps() {
             caps.max_color_attachments = props.limits.maxColorAttachments;
             caps.timestamp_period = props.limits.timestampPeriod;
             caps.max_viewports = props.limits.maxViewports;
-            caps.max_viewport_dimensions_w = props.limits.maxViewportDimensions[0];
-            caps.max_viewport_dimensions_h = props.limits.maxViewportDimensions[1];
+            caps.max_viewport_dimensions_w = static_cast<float>(props.limits.maxViewportDimensions[0]);
+            caps.max_viewport_dimensions_h = static_cast<float>(props.limits.maxViewportDimensions[1]);
             caps.max_fragment_output_attachments = props.limits.maxFragmentOutputAttachments;
             caps.min_uniform_buffer_offset_alignment = props.limits.minUniformBufferOffsetAlignment;
             caps.min_storage_buffer_offset_alignment = props.limits.minStorageBufferOffsetAlignment;
             caps.max_uniform_buffer_range = props.limits.maxUniformBufferRange;
             caps.max_storage_buffer_range = props.limits.maxStorageBufferRange;
-            caps.non_coherent_atom_size = props.limits.nonCoherentAtomSize;
+            caps.non_coherent_atom_size = static_cast<uint32_t>(props.limits.nonCoherentAtomSize);
             caps.buffer_image_granularity = props.limits.bufferImageGranularity;
             caps.max_compute_work_group_count_x = props.limits.maxComputeWorkGroupCount[0];
             caps.max_compute_work_group_count_y = props.limits.maxComputeWorkGroupCount[1];

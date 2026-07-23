@@ -18,6 +18,30 @@ $BuildDir32 = "$ProjectRoot\build\release-x86"
 $ThirdParty = "$ProjectRoot\third_party"
 
 # ============================================================================
+# Step 0: Fetch FFmpeg before cmake configure (avoids "not yet downloaded")
+# ============================================================================
+$py = (Get-Command python3 -ErrorAction SilentlyContinue).Source
+if (-not $py) { $py = (Get-Command python -ErrorAction SilentlyContinue).Source }
+
+$ffmpegDir64 = "$ThirdParty\ffmpeg-bin"
+if (-not $SkipBuild -and $py -and -not (Test-Path "$ffmpegDir64\lib\avcodec.lib")) {
+    Write-Host "=== [0/6] Fetching FFmpeg (win64) ===" -ForegroundColor Cyan
+    & $py "$ProjectRoot\third_party\fetch_ffmpeg.py" --output-dir "$ffmpegDir64" --arch win64
+    if ($LASTEXITCODE -ne 0) { Write-Warning "FFmpeg win64 fetch failed; 64-bit build will fall back" }
+}
+
+$ffmpegDir86 = "$ThirdParty\ffmpeg-bin-x86"
+if (-not $SkipBuild -and $py -and -not (Test-Path "$ffmpegDir86\lib\avcodec.lib")) {
+    Write-Host "=== [0/6] Fetching FFmpeg (win32) ===" -ForegroundColor Cyan
+    & $py "$ProjectRoot\third_party\fetch_ffmpeg.py" --output-dir "$ffmpegDir86" --arch win32
+    if ($LASTEXITCODE -ne 0) { Write-Warning "FFmpeg win32 fetch failed; 32-bit build will fall back" }
+}
+
+if (-not $py) {
+    Write-Warning "Python not found; FFmpeg fetch skipped. Builds will fall back."
+}
+
+# ============================================================================
 # Step 1: Build 64-bit
 # ============================================================================
 # Locate Visual Studio installation via vswhere, with hardcoded fallback
@@ -152,6 +176,13 @@ Get-ChildItem "$Bin64\*.dll" | ForEach-Object {
 if (Test-Path $FfmpegBin) {
     Get-ChildItem "$FfmpegBin\*.dll" | ForEach-Object {
         Copy-Item -Path $_.FullName -Destination $DistDir -Force
+    }
+}
+# x86 FFmpeg DLLs to x86/ (for 32-bit guest)
+$FfmpegBin86 = "$ThirdParty\ffmpeg-bin-x86\bin"
+if (Test-Path $FfmpegBin86) {
+    Get-ChildItem "$FfmpegBin86\*.dll" | ForEach-Object {
+        Copy-Item -Path $_.FullName -Destination "$DistDir\x86" -Force
     }
 }
 

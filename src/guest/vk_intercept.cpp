@@ -543,6 +543,72 @@ void VKAPI_PTR vkGetPhysicalDeviceSparseImageFormatProperties2_hook(
     if (pPropertyCount) *pPropertyCount = 0;
 }
 
+VkResult VKAPI_PTR vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR_hook(
+    VkPhysicalDevice physicalDevice,
+    uint32_t* pPropertyCount,
+    VkCooperativeMatrixPropertiesKHR* pProperties)
+{
+    SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR");
+    if (!pPropertyCount) return VK_ERROR_INITIALIZATION_FAILED;
+
+    static const std::vector<VkCooperativeMatrixPropertiesKHR> coop_props = []() {
+        std::vector<VkCooperativeMatrixPropertiesKHR> list;
+        // Float16 x Float16 -> Float32 (M=16, N=16, K=16)
+        VkCooperativeMatrixPropertiesKHR p1{};
+        p1.sType = VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_KHR;
+        p1.MSize = 16;
+        p1.NSize = 16;
+        p1.KSize = 16;
+        p1.AType = VK_COMPONENT_TYPE_FLOAT16_KHR;
+        p1.BType = VK_COMPONENT_TYPE_FLOAT16_KHR;
+        p1.CType = VK_COMPONENT_TYPE_FLOAT32_KHR;
+        p1.ResultType = VK_COMPONENT_TYPE_FLOAT32_KHR;
+        p1.saturatingAccumulation = VK_FALSE;
+        p1.scope = VK_SCOPE_SUBGROUP_KHR;
+        list.push_back(p1);
+
+        // Float16 x Float16 -> Float16 (M=16, N=16, K=16)
+        VkCooperativeMatrixPropertiesKHR p2 = p1;
+        p2.CType = VK_COMPONENT_TYPE_FLOAT16_KHR;
+        p2.ResultType = VK_COMPONENT_TYPE_FLOAT16_KHR;
+        list.push_back(p2);
+
+        // Int8 x Int8 -> Int32 (M=16, N=16, K=32)
+        VkCooperativeMatrixPropertiesKHR p3{};
+        p3.sType = VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_KHR;
+        p3.MSize = 16;
+        p3.NSize = 16;
+        p3.KSize = 32;
+        p3.AType = VK_COMPONENT_TYPE_SINT8_KHR;
+        p3.BType = VK_COMPONENT_TYPE_SINT8_KHR;
+        p3.CType = VK_COMPONENT_TYPE_SINT32_KHR;
+        p3.ResultType = VK_COMPONENT_TYPE_SINT32_KHR;
+        p3.saturatingAccumulation = VK_FALSE;
+        p3.scope = VK_SCOPE_SUBGROUP_KHR;
+        list.push_back(p3);
+
+        return list;
+    }();
+
+    if (!pProperties) {
+        *pPropertyCount = static_cast<uint32_t>(coop_props.size());
+        return VK_SUCCESS;
+    }
+
+    uint32_t copy_count = std::min(*pPropertyCount, static_cast<uint32_t>(coop_props.size()));
+    for (uint32_t i = 0; i < copy_count; i++) {
+        VkStructureType st = pProperties[i].sType;
+        void* pNext = pProperties[i].pNext;
+        pProperties[i] = coop_props[i];
+        pProperties[i].sType = st ? st : VK_STRUCTURE_TYPE_COOPERATIVE_MATRIX_PROPERTIES_KHR;
+        pProperties[i].pNext = pNext;
+    }
+    *pPropertyCount = copy_count;
+
+    if (copy_count < coop_props.size()) return VK_INCOMPLETE;
+    return VK_SUCCESS;
+}
+
 void VKAPI_PTR vkGetPhysicalDeviceProperties_hook(
     VkPhysicalDevice physicalDevice,
     VkPhysicalDeviceProperties* pProperties)
@@ -665,10 +731,6 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties_hook(
     // Critical: minMemoryMapAlignment — used by host buffer allocator as divisor
     pProperties->limits.minMemoryMapAlignment = 64;
 
-    // Store minStorageBufferOffsetAlignment for diagnostic access
-    static VkDeviceSize s_last_min_storage_align = 0;
-    s_last_min_storage_align = pProperties->limits.minStorageBufferOffsetAlignment;
-
     // Diagnostic: log key alignment/divisor properties
     static bool diag_logged = false;
     if (!diag_logged) {
@@ -727,7 +789,7 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties2_hook(
     VkBaseOutStructure* ext = reinterpret_cast<VkBaseOutStructure*>(pProperties->pNext);
     bool has_driver_props = false;
     while (ext) {
-        switch (ext->sType) {
+        switch (static_cast<int>(ext->sType)) {
         // In modern Vulkan headers (1.4+):
         //   VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES = 1000094000
         //   VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES = 50
@@ -1012,7 +1074,7 @@ void VKAPI_PTR vkGetPhysicalDeviceFeatures2_hook(
 
     VkBaseOutStructure* ext = reinterpret_cast<VkBaseOutStructure*>(pFeatures->pNext);
     while (ext) {
-        switch (ext->sType) {
+        switch (static_cast<int>(ext->sType)) {
         case 1000094001: // old VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES: {
             auto* f11 = reinterpret_cast<VkPhysicalDeviceVulkan11Features*>(ext);
@@ -2422,7 +2484,6 @@ VkResult VKAPI_PTR vkMapMemory_hook(
 
     uint64_t mem_key = handle_to_u64(memory);
     void* ptr = nullptr;
-    bool is_remap = false;
     bool need_invalidate = false;
     {
         std::lock_guard<std::mutex> lock(s_map_mutex);
@@ -2430,14 +2491,12 @@ VkResult VKAPI_PTR vkMapMemory_hook(
         if (reuse_it != s_unmapped_ptrs.end()) {
             ptr = reuse_it->second;
             s_unmapped_ptrs.erase(reuse_it);
-            is_remap = true;
             need_invalidate = true;  // was unmapped → need to fetch from host
             SPDLOG_INFO("vkMapMemory: REUSE unmapped shadow for mem={:#x}", mem_key);
         } else {
             auto already_it = s_mapped_ptrs.find(mem_key);
             if (already_it != s_mapped_ptrs.end()) {
                 ptr = already_it->second;
-                is_remap = true;  // already mapped, just update offset
                 SPDLOG_TRACE("vkMapMemory: already mapped, reuse ptr for mem={:#x}", mem_key);
             }
         }
@@ -2483,7 +2542,7 @@ VkResult VKAPI_PTR vkMapMemory_hook(
         // Always mark dirty on map — app will write data after mapping
         s_memory_dirty[mem_key] = true;
     }
-    SPDLOG_TRACE("vkMapMemory_hook exit: ptr={} mem={:#x} (map_offset={}, remap={})", *ppData, mem_key, offset, is_remap);
+    SPDLOG_TRACE("vkMapMemory_hook exit: ptr={} mem={:#x} (map_offset={})", *ppData, mem_key, offset);
     return VK_SUCCESS;
 }
 
@@ -2525,7 +2584,6 @@ VkResult VKAPI_PTR vkMapMemory2_hook(
 
     uint64_t mem_key = handle_to_u64(pMemoryMapInfo->memory);
     void* ptr = nullptr;
-    bool is_remap = false;
     bool need_invalidate = false;
     {
         std::lock_guard<std::mutex> lock(s_map_mutex);
@@ -2533,14 +2591,12 @@ VkResult VKAPI_PTR vkMapMemory2_hook(
         if (reuse_it != s_unmapped_ptrs.end()) {
             ptr = reuse_it->second;
             s_unmapped_ptrs.erase(reuse_it);
-            is_remap = true;
             need_invalidate = true;
             SPDLOG_INFO("vkMapMemory2: REUSE unmapped shadow for mem={:#x}", mem_key);
         } else {
             auto already_it = s_mapped_ptrs.find(mem_key);
             if (already_it != s_mapped_ptrs.end()) {
                 ptr = already_it->second;
-                is_remap = true;
                 SPDLOG_TRACE("vkMapMemory2: already mapped, reuse ptr for mem={:#x}", mem_key);
             }
         }
@@ -3190,6 +3246,7 @@ struct ManualHookRegistrar {
 
         // KHR
         register_manual_hook("vkGetPhysicalDeviceSurfaceSupportKHR", reinterpret_cast<void*>(vkGetPhysicalDeviceSurfaceSupportKHR_hook));
+        register_manual_hook("vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR", reinterpret_cast<void*>(vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR_hook));
 
         // KHR aliases for query functions (promoted to core in 1.1).
         // Only register KHR variants of manual query functions that fill output data.
@@ -3245,6 +3302,8 @@ struct ManualHookRegistrar {
 
         // Memory mapping (must allocate host memory for guest writes)
         register_manual_hook("vkAllocateMemory", reinterpret_cast<void*>(vkAllocateMemory_hook));
+        register_manual_hook("vkAllocateMemory2", reinterpret_cast<void*>(vkAllocateMemory_hook));
+        register_manual_hook("vkAllocateMemory2KHR", reinterpret_cast<void*>(vkAllocateMemory_hook));
         register_manual_hook("vkFreeMemory", reinterpret_cast<void*>(vkFreeMemory_hook));
         register_manual_hook("vkMapMemory", reinterpret_cast<void*>(vkMapMemory_hook));
         register_manual_hook("vkUnmapMemory", reinterpret_cast<void*>(vkUnmapMemory_hook));

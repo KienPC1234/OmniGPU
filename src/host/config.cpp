@@ -44,41 +44,39 @@ bool load_config(HostConfig& config) {
         return true;
     }
 
-    try {
-        nlohmann::json j;
-        file >> j;
-
-        if (j.contains("port")) config.port = j["port"].get<uint16_t>();
-        if (j.contains("jpeg_quality")) config.jpeg_quality = j["jpeg_quality"].get<int>();
-        if (j.contains("multi_gpu_enabled")) config.multi_gpu_enabled = j["multi_gpu_enabled"].get<bool>();
-        if (j.contains("max_fps")) config.max_fps = j["max_fps"].get<int>();
-        if (j.contains("render_width")) config.render_width = j["render_width"].get<uint32_t>();
-        if (j.contains("render_height")) config.render_height = j["render_height"].get<uint32_t>();
-
-        if (j.contains("video_codec")) config.video_codec = j["video_codec"].get<std::string>();
-        if (j.contains("video_bitrate_kbps")) config.video_bitrate_kbps = j["video_bitrate_kbps"].get<int>();
-        if (j.contains("video_fps")) config.video_fps = j["video_fps"].get<int>();
-        if (j.contains("video_width")) config.video_width = j["video_width"].get<uint32_t>();
-        if (j.contains("video_height")) config.video_height = j["video_height"].get<uint32_t>();
-
-        auto enc = j.value("encoder", nlohmann::json::object());
-        config.encoder.preset = enc.value("preset", config.encoder.preset);
-        config.encoder.tuning = enc.value("tuning", config.encoder.tuning);
-        config.encoder.gop_length = enc.value("gop_length", config.encoder.gop_length);
-
-        // Security settings
-        config.auth_token = j.value("auth_token", config.auth_token);
-        config.max_sessions = j.value("max_sessions", config.max_sessions);
-        config.max_msg_size_mb = j.value("max_msg_size_mb", config.max_msg_size_mb);
-        config.session_timeout_s = j.value("session_timeout_s", config.session_timeout_s);
-        config.per_session_memory_budget = j.value("per_session_memory_budget", config.per_session_memory_budget);
-
-        SPDLOG_INFO("Loaded config from '{}'", config.config_path);
-        return true;
-    } catch (const std::exception& e) {
-        SPDLOG_WARN("Failed to parse '{}': {}, using defaults", config.config_path, e.what());
+    nlohmann::json j = nlohmann::json::parse(file, nullptr, false);
+    if (j.is_discarded()) {
+        SPDLOG_WARN("Failed to parse '{}': invalid JSON, using defaults", config.config_path);
         return false;
     }
+
+    if (j.contains("port")) config.port = j["port"].get<uint16_t>();
+    if (j.contains("jpeg_quality")) config.jpeg_quality = j["jpeg_quality"].get<int>();
+    if (j.contains("multi_gpu_enabled")) config.multi_gpu_enabled = j["multi_gpu_enabled"].get<bool>();
+    if (j.contains("max_fps")) config.max_fps = j["max_fps"].get<int>();
+    if (j.contains("render_width")) config.render_width = j["render_width"].get<uint32_t>();
+    if (j.contains("render_height")) config.render_height = j["render_height"].get<uint32_t>();
+
+    if (j.contains("video_codec")) config.video_codec = j["video_codec"].get<std::string>();
+    if (j.contains("video_bitrate_kbps")) config.video_bitrate_kbps = j["video_bitrate_kbps"].get<int>();
+    if (j.contains("video_fps")) config.video_fps = j["video_fps"].get<int>();
+    if (j.contains("video_width")) config.video_width = j["video_width"].get<uint32_t>();
+    if (j.contains("video_height")) config.video_height = j["video_height"].get<uint32_t>();
+
+    auto enc = j.value("encoder", nlohmann::json::object());
+    config.encoder.preset = enc.value("preset", config.encoder.preset);
+    config.encoder.tuning = enc.value("tuning", config.encoder.tuning);
+    config.encoder.gop_length = enc.value("gop_length", config.encoder.gop_length);
+
+    // Security settings
+    config.auth_token = j.value("auth_token", config.auth_token);
+    config.max_sessions = j.value("max_sessions", config.max_sessions);
+    config.max_msg_size_mb = j.value("max_msg_size_mb", config.max_msg_size_mb);
+    config.session_timeout_s = j.value("session_timeout_s", config.session_timeout_s);
+    config.per_session_memory_budget = j.value("per_session_memory_budget", config.per_session_memory_budget);
+
+    SPDLOG_INFO("Loaded config from '{}'", config.config_path);
+    return true;
 }
 
 void print_config(const HostConfig& config) {

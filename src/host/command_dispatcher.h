@@ -189,6 +189,8 @@ public:
     void set_compute_mode(bool cm) { isComputeMode_ = cm; }
     void readback_all_buffers();
     bool upload_to_device_buffer(VkBuffer dst, VkDeviceSize dstOffset, const uint8_t* data, size_t size);
+    bool upload_to_device_memory(VkDeviceMemory dstMem, VkDeviceSize dstOffset, const uint8_t* data, size_t size);
+    bool download_from_device_memory(VkDeviceMemory srcMem, VkDeviceSize srcOffset, uint8_t* outData, size_t size);
     uint64_t vram_used() const { return vramUsed_; }
     auto& bufferAddresses() { return bufferAddresses_; }
     const auto& bufferAddresses() const { return bufferAddresses_; }
