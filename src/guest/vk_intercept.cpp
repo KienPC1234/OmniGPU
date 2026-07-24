@@ -2546,7 +2546,8 @@ VkResult VKAPI_PTR vkMapMemory_hook(
         std::lock_guard<std::mutex> lock(s_map_mutex);
         s_mapped_ptrs[mem_key] = ptr;
         s_memory_map_offsets[mem_key] = offset;
-        // Always mark dirty on map — app will write data after mapping
+        // Always mark dirty on map — the app may write data after mapping.
+        // This ensures data is uploaded on the next sync_all.
         s_memory_dirty[mem_key] = true;
     }
     SPDLOG_TRACE("vkMapMemory_hook exit: ptr={} mem={:#x} (map_offset={})", *ppData, mem_key, offset);
@@ -2947,14 +2948,41 @@ void update_shadow_buffer(uint64_t mem_key, const uint8_t* data, size_t size, Vk
             dest = uit->second;
         }
     }
-    if (!dest || !data || size == 0) {
-        SPDLOG_TRACE("update_shadow_buffer: skip mem={:#x}", mem_key);
+    // Lazily create shadow buffer if none exists — this handles the case
+    // where the host sends readback data before the guest has mapped the buffer
+    // (e.g., compute output buffers that haven't been touched by the guest yet).
+    if (!dest) {
+        auto size_it = s_memory_sizes.find(mem_key);
+        if (size_it == s_memory_sizes.end() || size_it->second == 0) {
+            SPDLOG_TRACE("update_shadow_buffer: skip mem={:#x} — unknown size", mem_key);
+            return;
+        }
+        size_t aligned_size = (static_cast<size_t>(size_it->second) + 255) & ~255;
+        dest = omni_aligned_alloc(256, aligned_size);
+        if (!dest) {
+            SPDLOG_ERROR("update_shadow_buffer: failed to alloc shadow for mem={:#x}", mem_key);
+            return;
+        }
+        std::memset(dest, 0, aligned_size);
+        s_unmapped_ptrs[mem_key] = dest;
+        SPDLOG_INFO("update_shadow_buffer: lazy-created shadow for mem={:#x} ({}KB)", mem_key, aligned_size / 1024);
+    }
+    if (!data || size == 0) {
+        SPDLOG_TRACE("update_shadow_buffer: skip mem={:#x} (no data)", mem_key);
         return;
     }
     auto size_it = s_memory_sizes.find(mem_key);
     VkDeviceSize total_size = (size_it != s_memory_sizes.end()) ? size_it->second : 0;
     if (offset + size <= total_size) {
         std::memcpy(static_cast<uint8_t*>(dest) + offset, data, size);
+        // Clear dirty flag: the host just sent us the latest GPU data, so
+        // there's no need to upload this buffer back to the host on the next
+        // sync_all. Without this, every vkQueueSubmit would re-upload the
+        // buffer shadow, overwriting GPU results with stale data.
+        auto dit = s_memory_dirty.find(mem_key);
+        if (dit != s_memory_dirty.end()) {
+            dit->second = false;
+        }
         SPDLOG_TRACE("update_shadow_buffer: mem={:#x} offset={} size={}", mem_key, offset, size);
     } else {
         SPDLOG_ERROR("update_shadow_buffer: write out of bounds! mem={:#x} offset={} size={} total_size={}",
@@ -2991,6 +3019,22 @@ VkResult VKAPI_PTR vkWaitForFences_hook(
                 reinterpret_cast<const uint8_t*>(extra), sizeof(extra));
             if (static_cast<VkResult>(res) != VK_SUCCESS) {
                 final_res = static_cast<VkResult>(res);
+            }
+        }
+    }
+
+    // After readback completes, clear dirty for large GPU-only buffers
+    // (KV cache, etc.) that were skipped by readback_all_buffers (>1MB).
+    // Without this, every sync_all re-uploads stale shadow data to the
+    // GPU, overwriting GPU-computed results.
+    {
+        std::lock_guard<std::mutex> lock(s_map_mutex);
+        for (auto& [mem_key, size] : s_memory_sizes) {
+            if (size > 1024 * 1024) { // >1MB = skipped by readback
+                auto dit = s_memory_dirty.find(mem_key);
+                if (dit != s_memory_dirty.end() && dit->second) {
+                    dit->second = false;
+                }
             }
         }
     }

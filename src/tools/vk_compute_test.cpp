@@ -13,6 +13,7 @@
 
 #include "compute_add_spv.h"
 #include "compute_mul_spv.h"
+#include "compute_bda_spv.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -598,9 +599,199 @@ static void test_mat_mul(VkPhysicalDevice physDev, VkDevice device, VkQueue queu
 }
 
 // -----------------------------------------------------------------------
-// Test 3: Buffer Device Address query
+// Test 3: Compute with Buffer Device Address (BDA) — the llama.cpp pattern
 // -----------------------------------------------------------------------
-static void test_buffer_address(VkDevice device) {
+static void test_bda_compute(VkPhysicalDevice physDev, VkDevice device, VkQueue queue, uint32_t qf) {
+    printf("\n--- [Test 3] BDA Compute (llama.cpp pattern) ---\n");
+    const uint32_t N = 256;
+    const VkDeviceSize bufSize = N * sizeof(float);
+    std::mt19937 rng(42);
+    std::uniform_real_distribution<float> dist(-100.0f, 100.0f);
+
+    std::vector<float> inA(N), inB(N), expected(N);
+    for (uint32_t i = 0; i < N; i++) {
+        inA[i] = dist(rng);
+        inB[i] = dist(rng);
+        expected[i] = inA[i] + inB[i];
+    }
+
+    // Create buffers with SHADER_DEVICE_ADDRESS_BIT (like llama.cpp)
+    VkBufferCreateInfo bci{};
+    bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bci.size = bufSize;
+    bci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    bci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VkBuffer bufA, bufB, bufOut;
+    VkDeviceMemory memA, memB, memOut;
+    CHK(vkCreateBuffer(device, &bci, nullptr, &bufA), "Create bufA");
+    CHK(vkCreateBuffer(device, &bci, nullptr, &bufB), "Create bufB");
+    CHK(vkCreateBuffer(device, &bci, nullptr, &bufOut), "Create bufOut");
+
+    auto alloc_and_bind = [&](VkBuffer buf, VkDeviceMemory* mem) {
+        VkMemoryRequirements mr;
+        vkGetBufferMemoryRequirements(device, buf, &mr);
+
+        VkPhysicalDeviceMemoryProperties pmp;
+        vkGetPhysicalDeviceMemoryProperties(physDev, &pmp);
+        uint32_t memType = UINT32_MAX;
+        for (uint32_t i = 0; i < pmp.memoryTypeCount; i++) {
+            if ((mr.memoryTypeBits & (1 << i)) &&
+                (pmp.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
+                memType = i; break;
+            }
+        }
+        VkMemoryAllocateFlagsInfo mafi{};
+        mafi.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
+        mafi.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
+
+        VkMemoryAllocateInfo mai{};
+        mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        mai.pNext = &mafi;
+        mai.allocationSize = mr.size;
+        mai.memoryTypeIndex = memType;
+        CHK(vkAllocateMemory(device, &mai, nullptr, mem), "Alloc");
+        CHK(vkBindBufferMemory(device, buf, *mem, 0), "Bind");
+    };
+    alloc_and_bind(bufA, &memA);
+    alloc_and_bind(bufB, &memB);
+    alloc_and_bind(bufOut, &memOut);
+
+    // Upload input data
+    upload(device, memA, inA.data(), bufSize);
+    upload(device, memB, inB.data(), bufSize);
+
+    // Query buffer device addresses
+    VkBufferDeviceAddressInfo bdai{};
+    bdai.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+    bdai.buffer = bufA;
+    VkDeviceAddress bdaA = vkGetBufferDeviceAddress(device, &bdai);
+    bdai.buffer = bufB;
+    VkDeviceAddress bdaB = vkGetBufferDeviceAddress(device, &bdai);
+    bdai.buffer = bufOut;
+    VkDeviceAddress bdaO = vkGetBufferDeviceAddress(device, &bdai);
+    printf("  BDA: A=0x%llx B=0x%llx O=0x%llx\n",
+        (unsigned long long)bdaA, (unsigned long long)bdaB, (unsigned long long)bdaO);
+
+    // Create pipeline (no descriptor sets needed — BDA only!)
+    VkShaderModuleCreateInfo smci{};
+    smci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    smci.codeSize = compute_bda_spv_size;
+    smci.pCode = compute_bda_spv;
+    VkShaderModule sm;
+    CHK(vkCreateShaderModule(device, &smci, nullptr, &sm), "Create shader");
+
+    VkPipelineShaderStageCreateInfo stage{};
+    stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    stage.module = sm;
+    stage.pName = "main";
+
+    VkPushConstantRange pcr{};
+    pcr.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pcr.size = sizeof(VkDeviceAddress) * 3 + sizeof(uint32_t); // 3 BDAs + N
+
+    VkPipelineLayoutCreateInfo plci{};
+    plci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    plci.setLayoutCount = 0;
+    plci.pushConstantRangeCount = 1;
+    plci.pPushConstantRanges = &pcr;
+    VkPipelineLayout layout;
+    CHK(vkCreatePipelineLayout(device, &plci, nullptr, &layout), "Create pipeline layout");
+
+    VkComputePipelineCreateInfo cpci{};
+    cpci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    cpci.stage = stage;
+    cpci.layout = layout;
+    VkPipeline pipeline;
+    CHK(vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &cpci, nullptr, &pipeline), "Create pipeline");
+
+    // Command buffer
+    VkCommandPoolCreateInfo cpci_cmd{};
+    cpci_cmd.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    cpci_cmd.queueFamilyIndex = qf;
+    VkCommandPool cmdPool;
+    CHK(vkCreateCommandPool(device, &cpci_cmd, nullptr, &cmdPool), "Create cmd pool");
+
+    VkCommandBufferAllocateInfo cbai{};
+    cbai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cbai.commandPool = cmdPool;
+    cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cbai.commandBufferCount = 1;
+    VkCommandBuffer cmd;
+    CHK(vkAllocateCommandBuffers(device, &cbai, &cmd), "Alloc cmd buf");
+
+    // Timed run
+    auto t0 = std::chrono::high_resolution_clock::now();
+    const int ITERS = 50;
+    for (int iter = 0; iter < ITERS; iter++) {
+        VkCommandBufferBeginInfo bi{};
+        bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        CHK(vkBeginCommandBuffer(cmd, &bi), "Begin cmd");
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+
+        // Push BDAs as push constants — exactly like llama.cpp does
+        struct { uint64_t a, b, o; uint32_t n; } pc;
+        pc.a = bdaA; pc.b = bdaB; pc.o = bdaO; pc.n = N;
+        vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
+
+        vkCmdDispatch(cmd, (N + 255) / 256, 1, 1);
+        CHK(vkEndCommandBuffer(cmd), "End cmd");
+
+        VkSubmitInfo si{};
+        si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        si.commandBufferCount = 1;
+        si.pCommandBuffers = &cmd;
+        VkFence fence;
+        VkFenceCreateInfo fci{};
+        fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        CHK(vkCreateFence(device, &fci, nullptr, &fence), "Create fence");
+        CHK(vkQueueSubmit(queue, 1, &si, fence), "Submit");
+        CHK(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX), "Wait");
+        vkDestroyFence(device, fence, nullptr);
+        vkResetCommandPool(device, cmdPool, 0);
+    }
+    auto t1 = std::chrono::high_resolution_clock::now();
+    double ms_total = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    printf("  %d dispatches in %.2f ms = %.2f us/dispatch\n", ITERS, ms_total, ms_total * 1000.0 / ITERS);
+
+    // Read back output
+    std::vector<float> result(N);
+    download(device, memOut, result.data(), bufSize);
+
+    uint32_t errors = 0;
+    for (uint32_t i = 0; i < N; i++) {
+        float diff = std::fabs(result[i] - expected[i]);
+        float maxVal = (std::max)(1.0f, std::fabs(expected[i]));
+        if (diff / maxVal > 0.001f) {
+            if (errors < 3)
+                printf("  MISMATCH [%u]: expected %.4f, got %.4f\n", i, expected[i], result[i]);
+            errors++;
+        }
+    }
+    if (errors == 0)
+        printf("  [PASS] BDA compute: %.4f + %.4f = %.4f\n", inA[0], inB[0], result[0]);
+    else
+        printf("  [FAIL] %u / %u elements wrong\n", errors, N);
+
+    vkDestroyPipeline(device, pipeline, nullptr);
+    vkDestroyPipelineLayout(device, layout, nullptr);
+    vkDestroyShaderModule(device, sm, nullptr);
+    vkDestroyBuffer(device, bufA, nullptr);
+    vkDestroyBuffer(device, bufB, nullptr);
+    vkDestroyBuffer(device, bufOut, nullptr);
+    vkFreeMemory(device, memA, nullptr);
+    vkFreeMemory(device, memB, nullptr);
+    vkFreeMemory(device, memOut, nullptr);
+    vkDestroyCommandPool(device, cmdPool, nullptr);
+}
+
+// -----------------------------------------------------------------------
+// Test 4: Buffer Device Address query
+// -----------------------------------------------------------------------
+static void test_buffer_address(VkPhysicalDevice physDev, VkDevice device) {
     printf("\n--- [Test 3] Buffer Device Address ---\n");
     VkBufferCreateInfo bci{};
     bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -619,8 +810,7 @@ static void test_buffer_address(VkDevice device) {
     mai.allocationSize = mr.size;
     // Find a memory type that supports device address
     VkPhysicalDeviceMemoryProperties pmp;
-    vkGetPhysicalDeviceMemoryProperties(
-        reinterpret_cast<VkPhysicalDevice>(device), &pmp);
+    vkGetPhysicalDeviceMemoryProperties(physDev, &pmp);
     mai.memoryTypeIndex = 0; // just use 0
     for (uint32_t i = 0; i < pmp.memoryTypeCount; i++) {
         if (mr.memoryTypeBits & (1 << i)) { mai.memoryTypeIndex = i; break; }
@@ -720,7 +910,8 @@ int main() {
     // 5. Run tests
     test_vector_add(physDev, device, queue, static_cast<uint32_t>(qf));
     test_mat_mul(physDev, device, queue, static_cast<uint32_t>(qf));
-    test_buffer_address(device);
+    test_bda_compute(physDev, device, queue, static_cast<uint32_t>(qf));
+    test_buffer_address(physDev, device);
 
     // 6. Cleanup
     vkDestroyDevice(device, nullptr);

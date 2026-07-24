@@ -46,6 +46,48 @@ CommandDispatcher::CommandDispatcher() {
             if (fence == VK_NULL_HANDLE)
                 fence = VK_NULL_HANDLE;  // no host fence needed
             d.hasPendingSubmit_ = false;
+
+            // Flush GPU caches after staging uploads (aliased buffer writes).
+            // Submit a global memory barrier to transition from TRANSFER to
+            // COMPUTE_SHADER access, ensuring all staging writes are visible
+            // to subsequent shader dispatches.
+            if (d.needsQueueDrain_) {
+                VkCommandBufferAllocateInfo cbai{};
+                cbai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+                cbai.commandPool = d.mapper_.command_pool();
+                cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+                cbai.commandBufferCount = 1;
+                VkCommandBuffer barrierCB = VK_NULL_HANDLE;
+                if (vkAllocateCommandBuffers(dev, &cbai, &barrierCB) == VK_SUCCESS) {
+                    VkCommandBufferBeginInfo bi{};
+                    bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+                    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+                    vkBeginCommandBuffer(barrierCB, &bi);
+                    VkMemoryBarrier mb{};
+                    mb.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+                    mb.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
+                    mb.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_MEMORY_READ_BIT;
+                    vkCmdPipelineBarrier(barrierCB,
+                        VK_PIPELINE_STAGE_HOST_BIT,
+                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                        0, 1, &mb, 0, nullptr, 0, nullptr);
+                    vkEndCommandBuffer(barrierCB);
+                    VkSubmitInfo si2{};
+                    si2.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+                    si2.commandBufferCount = 1;
+                    si2.pCommandBuffers = &barrierCB;
+                    VkFence barrierFence = VK_NULL_HANDLE;
+                    VkFenceCreateInfo fci2{};
+                    fci2.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+                    vkCreateFence(dev, &fci2, nullptr, &barrierFence);
+                    vkQueueSubmit(q, 1, &si2, barrierFence);
+                    vkWaitForFences(dev, 1, &barrierFence, VK_TRUE, UINT64_MAX);
+                    vkDestroyFence(dev, barrierFence, nullptr);
+                    vkFreeCommandBuffers(dev, d.mapper_.command_pool(), 1, &barrierCB);
+                    SPDLOG_INFO("vkQueueSubmit: GPU barrier submitted for staging uploads");
+                }
+                d.needsQueueDrain_ = false;
+            }
         } else {
             if (fence == VK_NULL_HANDLE) {
                 VkFenceCreateInfo fci{};
@@ -234,12 +276,41 @@ CommandDispatcher::CommandDispatcher() {
         }
 
         std::vector<uint32_t> candidateTypes;
-        for (uint32_t t = 0; t < memProps.memoryTypeCount; t++) {
-            if ((memProps.memoryTypes[t].propertyFlags & desiredFlags) == desiredFlags) {
-                candidateTypes.push_back(t);
+        // FORCE HOST_VISIBLE for all buffers to avoid VRAM staging/aliasing bugs
+        bool preferHostVisible = true; // (ai.allocationSize <= 256ULL * 1024 * 1024);
+
+        if (preferHostVisible) {
+            // Small buffer: prefer types with HOST_VISIBLE
+            for (uint32_t t = 0; t < memProps.memoryTypeCount; t++) {
+                if ((memProps.memoryTypes[t].propertyFlags & desiredFlags) == desiredFlags &&
+                    (memProps.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
+                    candidateTypes.push_back(t);
+                }
+            }
+            // Then try non-host-visible exact matches
+            for (uint32_t t = 0; t < memProps.memoryTypeCount; t++) {
+                if ((memProps.memoryTypes[t].propertyFlags & desiredFlags) == desiredFlags &&
+                    !(memProps.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
+                    candidateTypes.push_back(t);
+                }
+            }
+        } else {
+            for (uint32_t t = 0; t < memProps.memoryTypeCount; t++) {
+                if ((memProps.memoryTypes[t].propertyFlags & desiredFlags) == desiredFlags) {
+                    candidateTypes.push_back(t);
+                }
             }
         }
         if (desiredFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
+            // Try HOST_VISIBLE types first (system RAM) for large buffers
+            // before falling back to pure VRAM (non-host-visible)
+            if (preferHostVisible) {
+                for (uint32_t t = 0; t < memProps.memoryTypeCount; t++) {
+                    if (!(memProps.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) continue;
+                    if (std::find(candidateTypes.begin(), candidateTypes.end(), t) == candidateTypes.end())
+                        candidateTypes.push_back(t);
+                }
+            }
             for (uint32_t t = 0; t < memProps.memoryTypeCount; t++) {
                 if (!(memProps.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) continue;
                 if (std::find(candidateTypes.begin(), candidateTypes.end(), t) == candidateTypes.end())
@@ -324,6 +395,13 @@ CommandDispatcher::CommandDispatcher() {
                 VkResult res = vkMapMemory(dev, hostMem, offset, size, 0, &mapped);
                 if (res == VK_SUCCESS && mapped) {
                     std::memcpy(mapped, data.data(), sz);
+                    // Explicitly flush CPU writes to make them visible to GPU
+                    VkMappedMemoryRange flushRange{};
+                    flushRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+                    flushRange.memory = hostMem;
+                    flushRange.offset = offset;
+                    flushRange.size = size;
+                    vkFlushMappedMemoryRanges(dev, 1, &flushRange);
                     // Data integrity: log first 16B of first chunk for model weights
                     if (offset == 0 && size >= 16 && size > 512*1024) {
                         auto szIt = d.memorySizes_.find(gMem);
@@ -337,9 +415,11 @@ CommandDispatcher::CommandDispatcher() {
                     }
                     vkUnmapMemory(dev, hostMem);
                 } else {
-                    // Non-host-visible memory (pure VRAM) — upload directly into hostMem at offset
+                    // Non-host-visible memory (pure VRAM) — use memory aliasing.
                     if (!d.upload_to_device_memory(hostMem, offset, data.data(), sz)) {
                         SPDLOG_WARN("FlushMappedMemory: upload_to_device_memory failed for mem={:#x} off={}", gMem, offset);
+                    } else {
+                        d.needsQueueDrain_ = true;
                     }
                 }
             }
@@ -390,11 +470,20 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); // device
         VkBufferCreateInfo ci{};
         read_VkBufferCreateInfo(r, &ci);
+        // Add TRANSFER_DST to allow direct staging uploads via vkCmdCopyBuffer,
+        // avoiding aliased-buffer GPU cache coherence issues
+        VkBufferUsageFlags orig = ci.usage;
+        ci.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        if (ci.usage != orig) {
+            SPDLOG_DEBUG("vkCreateBuffer: added TRANSFER_DST (orig=0x{:x} new=0x{:x})", orig, ci.usage);
+        }
         r.skip(sizeof(VkAllocationCallbacks));
         uint64_t pBuf = r.read_handle();
         VkBuffer buf;
         if (vkCreateBuffer(d.mapper_.device(), &ci, nullptr, &buf) == VK_SUCCESS) {
             d.mapper_.store_buffer(pBuf, buf);
+        } else {
+            SPDLOG_ERROR("vkCreateBuffer failed on host: size={} usage=0x{:x}", ci.size, ci.usage);
         }
         delete[] ci.pQueueFamilyIndices;
     });
@@ -518,8 +607,11 @@ CommandDispatcher::CommandDispatcher() {
         r.skip(sizeof(VkAllocationCallbacks));
         uint64_t pSM = r.read_handle();
         VkShaderModule sm;
-        if (vkCreateShaderModule(d.mapper_.device(), &ci, nullptr, &sm) == VK_SUCCESS) {
+        VkResult smRes = vkCreateShaderModule(d.mapper_.device(), &ci, nullptr, &sm);
+        if (smRes == VK_SUCCESS) {
             d.mapper_.store_shader_module(pSM, sm);
+        } else {
+            SPDLOG_ERROR("vkCreateShaderModule failed: codeSize={} res={}", ci.codeSize, static_cast<int>(smRes));
         }
     });
     REGISTER(fbs::FunctionId_vkDestroyShaderModule, [](auto& d, auto& r) {
@@ -644,6 +736,9 @@ CommandDispatcher::CommandDispatcher() {
         VkResult res = vkCreateComputePipelines(dev, cache, count,
                                                  infos.data(), nullptr,
                                                  pipelines.data());
+        if (res != VK_SUCCESS) {
+            SPDLOG_ERROR("vkCreateComputePipelines failed: count={} res={}", count, static_cast<int>(res));
+        }
         uint32_t guestCount2 = r.read_u32();
         for (uint32_t i = 0; i < guestCount2; i++) {
             uint64_t guestPipeline = r.read_handle();
@@ -847,7 +942,11 @@ CommandDispatcher::CommandDispatcher() {
         // Remap handles
         SPDLOG_TRACE("vkUpdateDescriptorSets: remapping handles");
         for (auto& w : writes) {
-            w.dstSet = d.mapper_.get_ds(handle_to_u64(w.dstSet));
+            uint64_t guestDS = handle_to_u64(w.dstSet);
+            w.dstSet = d.mapper_.get_ds(guestDS);
+            if (w.dstSet == VK_NULL_HANDLE && guestDS != 0) {
+                SPDLOG_ERROR("vkUpdateDescriptorSets: NULL dstSet — guest handle {:#x} not found in mapper", guestDS);
+            }
             if (w.pImageInfo) {
                 for (uint32_t j = 0; j < w.descriptorCount; j++) {
                     auto* img = const_cast<VkDescriptorImageInfo*>(&w.pImageInfo[j]);
@@ -858,7 +957,12 @@ CommandDispatcher::CommandDispatcher() {
             if (w.pBufferInfo) {
                 for (uint32_t j = 0; j < w.descriptorCount; j++) {
                     auto* buf = const_cast<VkDescriptorBufferInfo*>(&w.pBufferInfo[j]);
-                    buf->buffer = d.mapper_.get_buffer(handle_to_u64(buf->buffer));
+                    uint64_t guestBuf = handle_to_u64(buf->buffer);
+                    buf->buffer = d.mapper_.get_buffer(guestBuf);
+                    if (buf->buffer == VK_NULL_HANDLE && guestBuf != 0) {
+                        SPDLOG_ERROR("vkUpdateDescriptorSets: NULL buffer in write — guest handle {:#x} not found in mapper (binding={})",
+                            guestBuf, w.dstBinding);
+                    }
                 }
             }
             if (w.pTexelBufferView) {
@@ -1016,6 +1120,9 @@ CommandDispatcher::CommandDispatcher() {
         VkPipelineBindPoint bp = static_cast<VkPipelineBindPoint>(r.read_u32());
         uint64_t pp = r.read_handle();
         auto ppl = d.mapper_.get_pipeline(pp);
+        if (!ppl && pp != 0) {
+            SPDLOG_ERROR("vkCmdBindPipeline: pipeline {:#x} not found — bind skipped!", pp);
+        }
         if (cb && ppl) vkCmdBindPipeline(cb, bp, ppl);
     });
     REGISTER(fbs::FunctionId_vkCmdBindVertexBuffers, [](auto& d, auto& r) {
@@ -1087,6 +1194,14 @@ CommandDispatcher::CommandDispatcher() {
         uint32_t size = r.read_u32();
         auto data = r.template read_array<uint8_t>(size);
         VkPipelineLayout pl = d.mapper_.get_pipeline_layout(layout);
+        // Dump push constants for debugging output BDA
+        static std::atomic<int> pc_count{0};
+        int n = pc_count.fetch_add(1);
+        if (n < 3 && size >= 8 && d.isComputeMode_) {
+            SPDLOG_INFO("PUSH_CONST[{}]: size={} bytes first16={:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
+                n, size, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
+                data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15]);
+        }
         if (cb && data.size() > 0)
             vkCmdPushConstants(cb, pl, stages, offset, static_cast<uint32_t>(data.size()), data.data());
     });
@@ -1137,6 +1252,11 @@ CommandDispatcher::CommandDispatcher() {
     REGISTER(fbs::FunctionId_vkCmdDispatch, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint32_t x = r.read_u32(); uint32_t y = r.read_u32(); uint32_t z = r.read_u32();
+        static std::atomic<int> dispatch_n{0};
+        int dn = dispatch_n.fetch_add(1);
+        if (dn < 5 && d.isComputeMode_) {
+            SPDLOG_INFO("DISPATCH[{}]: groups=({},{},{})", dn, x, y, z);
+        }
         if (cb) vkCmdDispatch(cb, x, y, z);
     });
     REGISTER(fbs::FunctionId_vkCmdDrawIndirect, [](auto& d, auto& r) {
@@ -1161,6 +1281,9 @@ CommandDispatcher::CommandDispatcher() {
         uint32_t count = r.read_u32();
         auto regions = r.template read_array<VkBufferCopy>(count);
         auto s = d.mapper_.get_buffer(src); auto d2 = d.mapper_.get_buffer(dst);
+        if ((!s && src != 0) || (!d2 && dst != 0)) {
+            SPDLOG_ERROR("vkCmdCopyBuffer: buffer not found — src={:#x} dst={:#x}", src, dst);
+        }
         if (cb && s && d2)
             vkCmdCopyBuffer(cb, s, d2, static_cast<uint32_t>(regions.size()), regions.data());
     });
@@ -1226,6 +1349,9 @@ CommandDispatcher::CommandDispatcher() {
         uint64_t dst = r.read_handle(); uint64_t off = r.read_u64();
         uint64_t sz = r.read_u64(); uint32_t val = r.read_u32();
         auto b = d.mapper_.get_buffer(dst);
+        if (!b && dst != 0) {
+            SPDLOG_ERROR("vkCmdFillBuffer: buffer {:#x} not found — fill skipped!", dst);
+        }
         if (cb && b) vkCmdFillBuffer(cb, b, off, sz, val);
     });
     REGISTER(fbs::FunctionId_vkCmdClearColorImage, [](auto& d, auto& r) {
@@ -2339,6 +2465,9 @@ CommandDispatcher::CommandDispatcher() {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint64_t buf = r.read_handle(); uint64_t off = r.read_u64();
         auto b = d.mapper_.get_buffer(buf);
+        if (!b && buf != 0) {
+            SPDLOG_ERROR("vkCmdDispatchIndirect: buffer {:#x} not found — dispatch skipped!", buf);
+        }
         if (cb && b) vkCmdDispatchIndirect(cb, b, off);
     });
     REGISTER(fbs::FunctionId_vkCmdSetDepthBounds, [](auto& d, auto& r) {
@@ -2416,9 +2545,39 @@ void CommandDispatcher::readback_all_buffers() {
     // not large model weights which don't change between dispatches.
     static constexpr size_t kComputeMaxReadback = 1024 * 1024;
 
+    static std::atomic<bool> s_checked_large{false};
+
     for (const auto& [guestHandle, allocSize] : memorySizes_) {
         VkDeviceMemory hostMem = mapper_.get_device_memory(guestHandle);
         if (hostMem == VK_NULL_HANDLE || allocSize == 0) continue;
+
+        // Verify weight buffer integrity: read back first 1MB of large buffers ONCE
+        if (isComputeMode_ && !weightVerified_ && allocSize > 100ULL * 1024 * 1024) {
+            weightVerified_ = true;
+            void* lmapped = nullptr;
+            size_t checkSize = std::min(allocSize, 1024ULL * 1024);
+            VkResult lres = vkMapMemory(dev, hostMem, 0, checkSize, 0, &lmapped);
+            if (lres == VK_SUCCESS && lmapped) {
+                const uint8_t* p = static_cast<const uint8_t*>(lmapped);
+                SPDLOG_INFO("WEIGHT_VERIFY: mem={:#x} total={}MB first16={:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
+                    guestHandle, allocSize / (1024*1024),
+                    p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7],
+                    p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]);
+                vkUnmapMemory(dev, hostMem);
+            } else {
+                // Pure VRAM: use staging download
+                std::vector<uint8_t> buf(checkSize);
+                if (download_from_device_memory(hostMem, 0, buf.data(), checkSize)) {
+                    const uint8_t* p = buf.data();
+                    SPDLOG_INFO("WEIGHT_VERIFY: mem={:#x} total={}MB (via staging) first16={:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
+                        guestHandle, allocSize / (1024*1024),
+                        p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7],
+                        p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]);
+                } else {
+                    SPDLOG_WARN("WEIGHT_VERIFY: staging download failed for mem={:#x}", guestHandle);
+                }
+            }
+        }
 
         // Skip large buffers (model weights) — they don't change
         if (isComputeMode_ && allocSize > kComputeMaxReadback) continue;
@@ -2426,7 +2585,30 @@ void CommandDispatcher::readback_all_buffers() {
 
         void* mapped = nullptr;
         VkResult res = vkMapMemory(dev, hostMem, 0, allocSize, 0, &mapped);
-        if (res != VK_SUCCESS || !mapped) continue;
+        if (res != VK_SUCCESS || !mapped) {
+            // Non-host-visible memory (pure VRAM): use staging buffer fallback
+            if (allocSize <= kMaxChunk) {
+                std::vector<uint8_t> readback_buf(static_cast<size_t>(allocSize));
+                if (download_from_device_memory(hostMem, 0, readback_buf.data(), static_cast<size_t>(allocSize))) {
+                    sendDataFn_(guestHandle, readback_buf.data(), static_cast<size_t>(allocSize), 0);
+                    SPDLOG_INFO("readback: mem={:#x} size={}KB sent via staging", guestHandle, allocSize / 1024);
+                } else {
+                    SPDLOG_WARN("readback: staging download failed for mem={:#x} size={}KB", guestHandle, allocSize / 1024);
+                }
+            } else {
+                SPDLOG_WARN("readback: mem={:#x} size={}KB not host-visible, too large for staging", guestHandle, allocSize / 1024);
+            }
+            continue;
+        }
+
+        // Dump first 16 bytes of readback data for small compute output buffers
+        if (isComputeMode_ && allocSize <= 256 * 1024) {
+            const uint8_t* p = static_cast<const uint8_t*>(mapped);
+            SPDLOG_INFO("READBACK_DATA: mem={:#x} size={} first16={:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
+                guestHandle, allocSize,
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7],
+                p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]);
+        }
 
         // Chunk and send
         const uint8_t* src = static_cast<const uint8_t*>(mapped);

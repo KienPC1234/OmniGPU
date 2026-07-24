@@ -238,6 +238,9 @@ private:
 
     SendDataFn sendDataFn_;
 
+    bool needsQueueDrain_ = false;  // Set when staging upload uses aliased buffers
+    bool weightVerified_ = false;   // One-shot weight buffer verification
+
     // Cached function pointers (void* to avoid VK header dep issues)
     void* pfnCmdPipelineBarrier2_ = nullptr;
     void* pfnCmdCopyBuffer2_ = nullptr;

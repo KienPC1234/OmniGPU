@@ -1,0 +1,26 @@
+#version 450
+#extension GL_EXT_buffer_reference : require
+
+// Buffer reference types — access buffers via 64-bit GPU addresses
+layout(buffer_reference, std430) readonly buffer FloatReadBuf {
+    float data[];
+};
+layout(buffer_reference, std430) buffer FloatWriteBuf {
+    float data[];
+};
+
+// Push constants with buffer device addresses
+layout(push_constant) uniform Params {
+    FloatReadBuf in_a;   // 8 bytes: BDA of first input
+    FloatReadBuf in_b;   // 8 bytes: BDA of second input
+    FloatWriteBuf out_o; // 8 bytes: BDA of output
+    uint n;              // 4 bytes: element count
+} params;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= params.n) return;
+    params.out_o.data[idx] = params.in_a.data[idx] + params.in_b.data[idx];
+}

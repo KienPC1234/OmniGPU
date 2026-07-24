@@ -106,6 +106,7 @@ if(GLSLANG_VALIDATOR)
     set(COMPUTE_SHADERS
         compute_add.comp
         compute_mul.comp
+        compute_bda.comp
     )
     foreach(SHADER ${COMPUTE_SHADERS})
         set(SPV_OUT "${CMAKE_CURRENT_BINARY_DIR}/${SHADER}.spv")
