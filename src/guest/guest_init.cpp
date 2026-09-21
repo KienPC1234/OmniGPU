@@ -335,7 +335,7 @@ bool initialize_guest_internal(const char* host_hint, uint16_t port_hint) {
     SPDLOG_INFO("BUILD: sync_all_safety_v2 max_256mb");  // Marker
     intercept::initialize_hooks();
 
-    SPDLOG_INFO("Guest initialized (deferred host connection). Pipeline: OpenGL/OpenCL/Vulkan → omniGPU → Host GPU");
+    SPDLOG_INFO("Guest initialized (deferred host connection). Pipeline: Vulkan compute → OmniGPU → Host GPU");
     return true;
 }
 
@@ -344,6 +344,14 @@ bool initialize_guest_internal(const char* host_hint, uint16_t port_hint) {
 bool initialize_guest(const char* host_hint, uint16_t port_hint) {
     std::call_once(g_init_flag, [host_hint, port_hint]() {
         g_init_result = initialize_guest_internal(host_hint, port_hint);
+#ifndef _WIN32
+        // On Linux the shared library's __attribute__((destructor)) runs after
+        // spdlog's global registry has already been torn down, so a late
+        // shutdown logging from the receive thread would touch freed state.
+        // Registering atexit here makes shutdown run while the runtime (and
+        // spdlog) are still fully alive.
+        std::atexit([]() { shutdown_guest(); });
+#endif
     });
     return g_init_result;
 }
@@ -419,6 +427,9 @@ Client* get_client() {
 }
 
 void shutdown_guest() {
+    static std::atomic<bool> s_shutdown_done{false};
+    if (s_shutdown_done.exchange(true)) return;
+
     g_running = false;
 
     // Flush any pending commands before shutdown

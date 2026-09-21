@@ -240,8 +240,7 @@ OmniGPU/
 │       └── *_spv.h              Generated SPIR-V headers
 ├── gen/                   Code generation pipeline
 ├── scripts/linux/         Build & deploy automation
-├── tests/                 GTest suite
-└── third_party/           clvk (OpenCL → Vulkan)
+└── tests/                 GTest suite
 ```
 
 ## Roadmap

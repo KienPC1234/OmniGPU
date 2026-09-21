@@ -154,7 +154,9 @@ void init_logger(const char* log_name, bool debug) {
     auto logger = std::make_shared<spdlog::logger>("omnigpu", sinks.begin(), sinks.end());
     logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] [%n] %v");
     logger->set_level(spdlog::level::trace);
-    logger->flush_on(spdlog::level::trace);
+    // Flush only on warnings/errors: flushing on every trace/info line makes
+    // per-command hot paths disk-bound and destroys throughput.
+    logger->flush_on(spdlog::level::warn);
     spdlog::set_default_logger(logger);
 }
 

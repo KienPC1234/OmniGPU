@@ -66,32 +66,8 @@ install(
 )
 
 # ---------------------------------------------------------------------------
-# Deploy clvk (OpenCL.dll + clspv.exe) alongside the guest intercept
-# ---------------------------------------------------------------------------
-if(DEFINED CLVK_DLL AND EXISTS "${CLVK_DLL}")
-  get_filename_component(CLVK_DLL_NAME "${CLVK_DLL}" NAME)
-  configure_file("${CLVK_DLL}" "${CMAKE_CURRENT_BINARY_DIR}/${CLVK_DLL_NAME}" COPYONLY)
-  add_custom_command(TARGET omnigpu_guest POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E copy
-      "${CMAKE_CURRENT_BINARY_DIR}/${CLVK_DLL_NAME}"
-      "$<TARGET_FILE_DIR:omnigpu_guest>/${CLVK_DLL_NAME}"
-    COMMENT "Deploying clvk ${CLVK_DLL_NAME}..."
-  )
-
-  # Also deploy clspv.exe (required by clvk at runtime)
-  set(CLVK_BIN_DIR "${CMAKE_SOURCE_DIR}/third_party/clvk-bin")
-  if(EXISTS "${CLVK_BIN_DIR}/clspv.exe")
-    configure_file("${CLVK_BIN_DIR}/clspv.exe" "${CMAKE_CURRENT_BINARY_DIR}/clspv.exe" COPYONLY)
-    add_custom_command(TARGET omnigpu_guest POST_BUILD
-      COMMAND "${CMAKE_COMMAND}" -E copy
-        "${CMAKE_CURRENT_BINARY_DIR}/clspv.exe"
-        "$<TARGET_FILE_DIR:omnigpu_guest>/clspv.exe"
-      COMMENT "Deploying clspv.exe..."
-    )
-  endif()
-endif()
-
 # Copy ICD manifest to output binary dir for runtime loading
+# ---------------------------------------------------------------------------
 add_custom_command(TARGET omnigpu_guest POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E copy
     "${CMAKE_CURRENT_BINARY_DIR}/vk_icd.json"

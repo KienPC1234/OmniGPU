@@ -55,12 +55,6 @@ cp "${BUILD_DIR}/bin/omnigpu_guest.so" "${DIST_DIR}/bin/" 2>/dev/null || true
 cp "${BUILD_DIR}/bin/omnigpu_host" "${DIST_DIR}/bin/" 2>/dev/null || true
 cp "${PROJECT_ROOT}/src/guest/vk_icd.json" "${DIST_DIR}/bin/" 2>/dev/null || true
 
-# Copy clvk libraries if present in third_party
-if [[ -d "${PROJECT_ROOT}/third_party/clvk" ]]; then
-    mkdir -p "${DIST_DIR}/third_party/clvk"
-    cp -r "${PROJECT_ROOT}/third_party/clvk"/* "${DIST_DIR}/third_party/clvk/" 2>/dev/null || true
-fi
-
 # Copy scripts and configurations
 cp "${PROJECT_ROOT}/scripts/linux/install_guest.sh" "${DIST_DIR}/scripts/" 2>/dev/null || true
 cp "${PROJECT_ROOT}/scripts/linux/diagnose.sh" "${DIST_DIR}/scripts/" 2>/dev/null || true

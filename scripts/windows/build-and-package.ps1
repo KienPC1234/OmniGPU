@@ -67,7 +67,6 @@ if (Test-Path $DistDir) { Remove-Item -Recurse -Force $DistDir }
 New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
 New-Item -ItemType Directory -Path "$DistDir\x64" -Force | Out-Null
 New-Item -ItemType Directory -Path "$DistDir\x86" -Force | Out-Null
-New-Item -ItemType Directory -Path "$DistDir\clvk" -Force | Out-Null
 New-Item -ItemType Directory -Path "$DistDir\docs" -Force | Out-Null
 
 $Bin64 = "$BuildDir64\bin"
@@ -85,7 +84,7 @@ $x64json = Get-Content "$DistDir\x64\vk_icd.json" -Raw | ConvertFrom-Json
 $x64json.ICD | Add-Member -NotePropertyName "library_arch" -NotePropertyValue "64" -Force
 $x64json | ConvertTo-Json -Depth 5 | Set-Content "$DistDir\x64\vk_icd.json" -Encoding UTF8
 Get-ChildItem "$Bin64\*.dll" | ForEach-Object {
-    if ($_.Name -notmatch "^(omnigpu_guest|vulkan-1|OpenCL|avcodec|avutil|avformat|avfilter|avdevice|swscale|swresample|postproc)") {
+    if ($_.Name -notmatch "^(omnigpu_guest|vulkan-1)") {
         Copy-Item -Path $_.FullName -Destination "$DistDir\x64" -Force
     }
 }
@@ -119,7 +118,7 @@ if (Test-Path "$Bin32\omnigpu_guest.dll") {
     $x86json.ICD | Add-Member -NotePropertyName "library_arch" -NotePropertyValue "32" -Force
     $x86json | ConvertTo-Json -Depth 5 | Set-Content "$DistDir\x86\vk_icd.json" -Encoding UTF8
     Get-ChildItem "$Bin32\*.dll" | ForEach-Object {
-        if ($_.Name -notmatch "^(omnigpu_guest|vulkan-1|OpenCL)") {
+        if ($_.Name -notmatch "^(omnigpu_guest|vulkan-1)") {
             Copy-Item -Path $_.FullName -Destination "$DistDir\x86" -Force
         }
     }
@@ -146,46 +145,6 @@ Get-ChildItem "$Bin64\*.dll" | ForEach-Object {
         Copy-Item -Path $_.FullName -Destination $DistDir -Force
     }
 }
-
-# ----- clvk folder (remove from root, belongs in clvk/) -----
-if (Test-Path "$DistDir\OpenCL.dll") { Remove-Item "$DistDir\OpenCL.dll" -Force }
-if (Test-Path "$DistDir\clspv.exe") { Remove-Item "$DistDir\clspv.exe" -Force }
-if (Test-Path "$Bin64\OpenCL.dll") {
-    Copy-Item -Path "$Bin64\OpenCL.dll" -Destination "$DistDir\clvk" -Force
-}
-if (Test-Path "$Bin64\clspv.exe") {
-    Copy-Item -Path "$Bin64\clspv.exe" -Destination "$DistDir\clvk" -Force
-}
-# Create install_clvk.bat inside clvk folder
-@"
-@echo off
-title clvk OpenCL ICD Installer
-cd /d "%~dp0"
-setlocal enabledelayedexpansion
-
-net session >nul 2>&1
-if %%errorlevel%% neq 0 (
-    echo Requesting Administrator privileges...
-    powershell -Command "Start-Process '%~f0' -Verb RunAs -Wait"
-    exit /b
-)
-
-if not exist "OpenCL.dll" (
-    echo OpenCL.dll not found in current directory.
-    pause
-    exit /b 1
-)
-
-set INSTDIR=%ProgramFiles%\OmniGPU
-if not exist "%INSTDIR%" mkdir "%INSTDIR%"
-copy /y "OpenCL.dll" "%INSTDIR%\" >nul
-if exist "clspv.exe" copy /y "clspv.exe" "%INSTDIR%\" >nul
-
-reg add "HKLM\SOFTWARE\Khronos\OpenCL\Vendors" /v "%INSTDIR%\OpenCL.dll" /t REG_DWORD /d 0 /f >nul
-reg add "HKLM\SOFTWARE\WOW6432Node\Khronos\OpenCL\Vendors" /v "%INSTDIR%\OpenCL.dll" /t REG_DWORD /d 0 /f >nul
-echo clvk OpenCL ICD registered.
-pause
-"@ | Out-File -FilePath "$DistDir\clvk\install_clvk.bat" -Encoding ASCII
 
 # ============================================================================
 # Step 4: Scripts + Docs

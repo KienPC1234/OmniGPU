@@ -60,9 +60,6 @@ jobs:
           $newPath = ($env:PATH -split ';' | Where-Object { $_ -ne $gitBin }) -join ';'
           echo "PATH=$newPath" | Out-File -Append $env:GITHUB_ENV
 
-      - name: Fetch translation layers (Mesa3D)
-        run: |
-          python third_party/fetch_mesa3d.py --output-dir third_party/mesa3d || echo "Mesa3D fetch skipped"
 
       - name: Generate intercept stubs
         run: python gen/generate.py --manifest gen/vulkan_api.json --output src/guest/vk_intercept_gen.cpp
@@ -74,7 +71,7 @@ jobs:
           cmake --version
 
       - name: Configure CMake (${{ matrix.preset }})
-        run: cmake --preset ${{ matrix.preset }} -DOMNIGPU_FETCH_MESA3D=ON
+        run: cmake --preset ${{ matrix.preset }}
 
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}
@@ -88,7 +85,7 @@ jobs:
         run: |
           $pkgDir = "omnigpu-windows-${{ matrix.preset }}"
 
-          # Let CMake install everything it knows about (binaries, DLLs, configs, Mesa3D, clvk)
+          # Let CMake install everything it knows about (binaries, DLLs, configs)
           cmake --install "build/${{ matrix.preset }}" --prefix "$pkgDir"
 
           # Scripts and docs (not part of cmake install)

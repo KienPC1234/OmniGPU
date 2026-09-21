@@ -1,13 +1,12 @@
 OmniGPU v0.1.0 - GPU Compute Forwarding over LAN
 ================================================
 
-Forward Vulkan compute/AI and OpenCL workloads from a guest VM to a remote
-host GPU via TCP. Compute-only: rendering/presentation is not supported.
+Forward Vulkan compute/AI workloads from a guest VM to a remote host GPU
+via TCP. Compute-only: rendering/presentation is not supported.
 
 QUICK START (Guest VM - no GPU needed):
   1. Edit omnigpu_guest.json -> set "host" to your host machine IP
   2. sudo ./scripts/linux/install_guest.sh
-  3. (optional) deploy clvk for OpenCL support
   4. On host machine: run omnigpu_host
 
 INSTALL:

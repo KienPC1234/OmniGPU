@@ -22,19 +22,13 @@ echo.
 set INSTDIR=%ProgramFiles%\OmniGPU
 
 :: ========== Remove Vulkan ICD registration ==========
-echo [1/6] Removing Vulkan ICD registry...
+echo [1/5] Removing Vulkan ICD registry...
 reg delete "HKLM\SOFTWARE\Khronos\Vulkan\Drivers" /v "%INSTDIR%\x64\vk_icd.json" /f >nul 2>&1
 reg delete "HKLM\SOFTWARE\WOW6432Node\Khronos\Vulkan\Drivers" /v "%INSTDIR%\x86\vk_icd.json" /f >nul 2>&1
 echo   [OK] Vulkan ICD registry removed
 
-:: ========== Remove OpenCL ICD registration ==========
-echo [2/6] Removing OpenCL ICD registry...
-reg delete "HKLM\SOFTWARE\Khronos\OpenCL\Vendors" /v "%INSTDIR%\OpenCL.dll" /f >nul 2>&1
-reg delete "HKLM\SOFTWARE\WOW6432Node\Khronos\OpenCL\Vendors" /v "%INSTDIR%\OpenCL.dll" /f >nul 2>&1
-echo   [OK] OpenCL ICD registry removed
-
 :: ========== Remove vulkan-1.dll from System32 ==========
-echo [3/6] Removing vulkan-1.dll from System32...
+echo [2/5] Removing vulkan-1.dll from System32...
 if exist "%WINDIR%\System32\vulkan-1.dll" (
     del /f "%WINDIR%\System32\vulkan-1.dll" >nul 2>&1
     echo   [OK] System32\vulkan-1.dll removed
@@ -45,13 +39,13 @@ if exist "%WINDIR%\SysWOW64\vulkan-1.dll" (
 )
 
 :: ========== Remove shortcuts ==========
-echo [5/6] Removing shortcuts...
+echo [3/5] Removing shortcuts...
 set STARTMENU=%APPDATA%\Microsoft\Windows\Start Menu\Programs\OmniGPU
 if exist "%STARTMENU%" rmdir /s /q "%STARTMENU%" >nul 2>&1
 echo   [OK] Shortcuts removed
 
 :: ========== Remove install directory ==========
-echo [6/6] Removing OmniGPU files...
+echo [4/5] Removing OmniGPU files...
 if exist "%INSTDIR%" (
     rmdir /s /q "%INSTDIR%" >nul 2>&1
     echo   [OK] Deleted %INSTDIR%

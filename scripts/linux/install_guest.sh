@@ -66,7 +66,6 @@ ICD_DIR="${PREFIX}/share/vulkan/icd.d"
 BIN_DIR="${BUILD_DIR}/bin"
 ICD_JSON_SRC="${PROJECT_ROOT}/src/guest/vk_icd.json"
 ICD_JSON_DST="${ICD_DIR}/omnigpu_guest.json"
-THIRD_PARTY="${PROJECT_ROOT}/third_party"
 
 # ============================================================================
 # Uninstall
@@ -125,17 +124,6 @@ if [[ -f "${ICD_JSON_SRC}" ]]; then
     echo "[OK] Registered ICD: ${ICD_JSON_DST}"
     echo "     library_path -> ${LIB_DIR}/omnigpu_guest.so"
 fi
-
-# Copy translation layers
-if [[ -f "${THIRD_PARTY}/clvk/libOpenCL.so" ]]; then
-    cp "${THIRD_PARTY}/clvk/libOpenCL.so" "${LIB_DIR}/" 2>/dev/null || true
-    echo "[OK] Copied: clvk/libOpenCL.so"
-fi
-for lib in "${THIRD_PARTY}/clvk/"*.so*; do
-    if [[ -f "$lib" ]]; then
-        cp "$lib" "${LIB_DIR}/" 2>/dev/null || true
-    fi
-done
 
 # Copy binary test tool if present
 if [[ -f "${BIN_DIR}/omnigpu_guest_test" ]]; then

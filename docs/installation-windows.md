@@ -2,7 +2,7 @@
 
 ## Overview
 
-OmniGPU forwards Vulkan/OpenGL/OpenCL from a guest VM to a remote host GPU over TCP.
+OmniGPU forwards Vulkan compute/AI workloads from a guest VM to a remote host GPU over TCP.
 Once installed, any Vulkan application on the VM automatically discovers the OmniGPU
 driver without environment variables or launcher scripts.
 
@@ -39,24 +39,19 @@ Chuột phải **install.bat** → **Run as Administrator**
 
 This copies OmniGPU binaries to `C:\Program Files\OmniGPU` and registers the Vulkan ICD in HKLM.
 
-### Step 2: Register OpenCL (optional)
-Chuột phải **install_clvk.bat** → **Run as Administrator**
-
-Đăng ký clvk với OpenCL ICD Loader. Mọi ứng dụng OpenCL sẽ tự động dùng OpenCL→Vulkan→OmniGPU→Host GPU.
-
-### Step 3: Start Daemon
+### Step 2: Start Daemon
 Nhấn đúp **start-daemon.bat**
 
 Daemon chạy nền, kết nối tới host machine.
 
-### Step 4: Start Host Server
+### Step 3: Start Host Server
 Trên máy chủ (có GPU thật), chạy:
 
 ```powershell
 .\omnigpu_host.exe
 ```
 
-### Step 5: Set Host Address
+### Step 4: Set Host Address
 ```cmd
 set OMNIGPU_HOST=192.168.1.100
 set OMNIGPU_PORT=9443
@@ -70,7 +65,7 @@ Hoặc tạo `C:\Program Files\OmniGPU\omnigpu_guest.json`:
 }
 ```
 
-### Step 6: Verify
+### Step 5: Verify
 
 Any Vulkan application now uses OmniGPU automatically:
 
@@ -86,13 +81,6 @@ After installation, the Vulkan Loader finds the OmniGPU ICD through:
 |--------------|---------|------|----------------|
 | `HKLM\SOFTWARE\Khronos\Vulkan\Drivers` | 64-bit | System-wide | Yes |
 | `HKCU\SOFTWARE\Khronos\Vulkan\Drivers` | Both | Per-user | No |
-
-## OpenCL via clvk
-
-`install_clvk.bat` registers clvk with the OpenCL ICD Loader via:
-
-- ICD file: `%windir%\System32\clvk.icd` (contains path to OpenCL.dll)
-- Registry: `HKLM\SOFTWARE\Khronos\OpenCL\Vendors`
 
 ## Troubleshooting
 

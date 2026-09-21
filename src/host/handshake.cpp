@@ -101,18 +101,40 @@ caps::GpuCapabilities query_host_gpu_caps() {
             std::vector<VkPhysicalDevice> devices(devCount);
             vkEnumeratePhysicalDevices(instance, &devCount, devices.data());
 
-            // Pick device with highest VRAM (best for compute/rendering)
+            // Rank GPUs for compute: real hardware over software rasterizers.
+            // A discrete/integrated GPU always beats a CPU (llvmpipe) device,
+            // regardless of reported VRAM. Within the same device type, prefer
+            // the one with the largest DEVICE_LOCAL heap.
+            auto device_rank = [](VkPhysicalDeviceType t) -> int {
+                switch (t) {
+                case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:   return 4;
+                case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: return 3;
+                case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:    return 2;
+                case VK_PHYSICAL_DEVICE_TYPE_CPU:            return 1;
+                default:                                     return 0;
+                }
+            };
+
             VkPhysicalDevice bestDev = VK_NULL_HANDLE;
+            int bestRank = -1;
             uint64_t bestVram = 0;
             for (auto pd : devices) {
+                VkPhysicalDeviceProperties p{};
+                vkGetPhysicalDeviceProperties(pd, &p);
                 VkPhysicalDeviceMemoryProperties memProps;
                 vkGetPhysicalDeviceMemoryProperties(pd, &memProps);
+                uint64_t vram = 0;
                 for (uint32_t i = 0; i < memProps.memoryHeapCount; i++) {
                     if ((memProps.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) &&
-                        memProps.memoryHeaps[i].size > bestVram) {
-                        bestVram = memProps.memoryHeaps[i].size;
-                        bestDev = pd;
+                        memProps.memoryHeaps[i].size > vram) {
+                        vram = memProps.memoryHeaps[i].size;
                     }
+                }
+                int rank = device_rank(p.deviceType);
+                if (rank > bestRank || (rank == bestRank && vram > bestVram)) {
+                    bestRank = rank;
+                    bestVram = vram;
+                    bestDev = pd;
                 }
             }
             if (bestDev == VK_NULL_HANDLE && devCount > 0)

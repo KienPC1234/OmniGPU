@@ -90,10 +90,6 @@ for %%V in ("%REG_HKLM%" "%REG_WOW%" "%REG_HKCU%") do (
     reg delete %%~V /v "%cd%\x64\dzn_icd.x86_64.json" /f >nul 2>&1
 )
 
-:: 0e. Clean OpenCL stale entries
-reg delete "HKLM\SOFTWARE\Khronos\OpenCL\Vendors" /v "%INSTDIR%\OpenCL.dll" /f >nul 2>&1
-reg delete "HKLM\SOFTWARE\WOW6432Node\Khronos\OpenCL\Vendors" /v "%INSTDIR%\OpenCL.dll" /f >nul 2>&1
-
 echo   [OK] Registry cleaned.
 
 :: 0f. Remove old program directory if exists

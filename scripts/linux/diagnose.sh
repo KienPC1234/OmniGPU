@@ -124,16 +124,14 @@ fi
 echo ""
 
 # ---------------------------------------------------------
-# 3. Check OpenCL translation layer (optional)
+# 3. Check Guest ICD registration
 # ---------------------------------------------------------
-echo -e "${YELLOW}[3/3] Checking OpenCL Translation Layer...${NC}"
+echo -e "${YELLOW}[3/3] Checking Guest ICD Registration...${NC}"
 
-# Check clvk
-clvk_so="$bin_dir/libOpenCL.so"
-if [ -f "$clvk_so" ] || [ -f "$bin_dir/OpenCL.dll" ]; then
-    echo -e "  ${GREEN}[OK] clvk translation layer deployed${NC}"
+if [ -f "/usr/share/vulkan/icd.d/omnigpu_guest.json" ] || [ -n "${VK_ICD_FILENAMES:-}" ]; then
+    echo -e "  ${GREEN}[OK] OmniGPU ICD registered with the Vulkan loader${NC}"
 else
-    echo -e "  ${YELLOW}[WARN] clvk (libOpenCL.so) is missing. OpenCL compute translation unavailable.${NC}"
+    echo -e "  ${YELLOW}[WARN] OmniGPU ICD not registered system-wide. Run install_guest.sh or set VK_ICD_FILENAMES.${NC}"
     warnings=$((warnings + 1))
 fi
 

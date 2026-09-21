@@ -7,8 +7,8 @@
 #   source ./setup_guest_linux.sh /path/to/omnigpu   # specify install dir
 #
 # This script exports the environment variables needed for the Vulkan Loader
-# to discover the OmniGPU guest ICD, and for OpenGL/OpenCL applications to
-# be transparently redirected through OmniGPU.
+# to discover the OmniGPU guest ICD so Vulkan compute applications are
+# transparently forwarded through OmniGPU.
 #
 # Variables set:
 #   VK_ICD_FILENAMES   → points to omnigpu_guest's vk_icd.json
@@ -82,7 +82,7 @@ echo ""
 echo "============================================"
 echo " OmniGPU Guest Environment Ready"
 echo "============================================"
-echo " Run any Vulkan/OpenGL/OpenCL application:"
+echo " Run any Vulkan compute application:"
 echo "   vulkaninfo | grep 'deviceName'"
 echo "   clinfo"
 echo ""

@@ -59,8 +59,6 @@ option(OMNIGPU_BUILD_COMPUTE "Build compute host and guest components" ON)
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
 
-include(cmake/OmniGPUThirdParty.cmake)
-
 find_package(flatbuffers CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
@@ -158,22 +156,5 @@ if(OMNIGPU_BUILD_HOST)
     COMPONENT "Config"
     OPTIONAL
   )
-endif()
-
-# clvk OpenCL translation layer
-if(OMNIGPU_BUILD_GUEST AND DEFINED CLVK_DLL AND EXISTS "${CLVK_DLL}")
-  install(
-    FILES "${CLVK_DLL}"
-    DESTINATION "${CMAKE_INSTALL_BINDIR}"
-    COMPONENT "ThirdParty"
-  )
-  set(CLVK_BIN_DIR "${CMAKE_SOURCE_DIR}/third_party/clvk-bin")
-  if(EXISTS "${CLVK_BIN_DIR}/clspv.exe")
-    install(
-      PROGRAMS "${CLVK_BIN_DIR}/clspv.exe"
-      DESTINATION "${CMAKE_INSTALL_BINDIR}"
-      COMPONENT "ThirdParty"
-    )
-  endif()
 endif()
 
