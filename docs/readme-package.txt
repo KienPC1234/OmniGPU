@@ -1,26 +1,24 @@
 OmniGPU v0.1.0 - GPU Forwarding over LAN
 ============================================
 
-Forward Vulkan/OpenGL/OpenCL from a guest VM to a remote host GPU via TCP.
+Forward Vulkan compute/OpenCL from a guest VM to a remote host GPU via TCP.
 
 QUICK START (Guest VM - no GPU needed):
   1. Edit omnigpu_guest.json → set "host" to your host machine IP
   2. Right-click install.bat → Run as Administrator
-  3. Run mesa3d\systemwidedeploy.cmd, select: 1 → 3 → 9
-  4. When prompted, deploy clvk for OpenCL support (optional)
-  5. Double-click start-daemon.bat
-  6. On host machine: run omnigpu_host.exe
+  3. When prompted, deploy clvk for OpenCL support (optional)
+  4. Double-click start-daemon.bat
+  5. On host machine: run omnigpu_host.exe
 
 INSTALL:
   Right-click install.bat → Run as Administrator.
   Script copies binaries → Program Files\OmniGPU,
-  registers Vulkan/OpenCL ICD,
-  deploys FFmpeg codecs to System32 (global).
-  clvk and Mesa3D are optional (prompted during install).
+  registers Vulkan/OpenCL ICD.
+  clvk is optional (prompted during install).
 
 UNINSTALL:
   Right-click uninstall.bat → Run as Administrator.
-  Cleans registry, removes System32 DLLs (vulkan-1 + FFmpeg),
+  Cleans registry and removes obsolete runtime DLLs,
   and deletes Program Files\OmniGPU.
 
 BUILD FROM SOURCE (requires Visual Studio 2022 Build Tools):
@@ -36,7 +34,7 @@ BUILD FROM SOURCE (requires Visual Studio 2022 Build Tools):
     - Ninja
     - Clang-cl or MSVC
     - vcpkg (set VCPKG_ROOT env or install in C:\Users\<user>\vcpkg)
-    - Python 3 (for auto-fetching Mesa3D + FFmpeg)
+    - Python 3 (for optional tooling)
 
   Output: build\dist\OmniGPU-v0.1.0\ (ready-to-install package)
 
@@ -44,7 +42,6 @@ PACKAGE CONTENTS:
   install.bat              Install OmniGPU + register Vulkan ICD
   start-daemon.bat         Start guest daemon
   uninstall.bat            Remove OmniGPU (incl. System32 DLLs)
-  mesa3d/                  Full Mesa3D (OpenGL, Vulkan, OpenCL drivers)
   clvk/                    OpenCL → Vulkan translation layer
 
   omnigpu_host.exe         HOST - Run on machine WITH physical GPU
@@ -55,10 +52,6 @@ PACKAGE CONTENTS:
   omnigpu_guest.json       Configuration template (edit IP first!)
   omnigpu_host.json        Host configuration
   vulkan-1.dll             Vulkan Loader
-  avcodec-63.dll           FFmpeg (codecs, globally installed)
-  avutil-61.dll            FFmpeg utilities
-  swscale-10.dll           FFmpeg scaling
-  swresample-7.dll         FFmpeg audio resample
 
 CONFIGURATION (omnigpu_guest.json):
   {

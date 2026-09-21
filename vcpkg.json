@@ -8,7 +8,6 @@
     "vulkan-loader",
     "flatbuffers",
     "lz4",
-    "libjpeg-turbo",
     "spdlog",
     "fmt",
     "gtest",

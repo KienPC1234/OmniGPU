@@ -62,12 +62,6 @@ Compute workloads are a **perfect fit** for TCP-based GPU forwarding because:
 - **Synchronization** — Fences, semaphores, pipeline barriers (Vulkan 1.3 sync2)
 - **Performance** — Adaptive command batching with RTT-smoothed thresholds
 
-### Rendering (Secondary — basic support)
-- Vulkan 1.0–1.3 forwarding (instance, device, swapchain, WSI)
-- Offscreen rendering + readback
-- Video encoding via FFmpeg (H.264/HEVC/AV1)
-- Multi-GPU split rendering
-
 ### Infrastructure
 - **Guest OS**: Windows / Linux VM or thin client
 - **Host OS**: Windows / Linux with any Vulkan 1.3 GPU
@@ -262,7 +256,7 @@ OmniGPU/
 ├── gen/                   Code generation pipeline
 ├── scripts/               Build & deploy automation
 ├── tests/                 GTest suite
-└── third_party/           Vulkan-Headers, FFmpeg, Mesa3D, clvk
+└── third_party/           Vulkan-Headers, clvk
 ```
 
 ## Roadmap

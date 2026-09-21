@@ -110,7 +110,7 @@ if (Test-Path $msvcRedist) {
     }
 }
 
-# x86: Vulkan ICD driver (FFmpeg DLLs go to System32 by install.bat)
+# x86: Vulkan ICD driver
 if (Test-Path "$Bin32\omnigpu_guest.dll") {
     Copy-Item -Path "$Bin32\omnigpu_guest.dll" -Destination "$DistDir\x86" -Force
     Copy-Item -Path "$Bin32\vk_icd.json" -Destination "$DistDir\x86" -Force
@@ -119,7 +119,7 @@ if (Test-Path "$Bin32\omnigpu_guest.dll") {
     $x86json.ICD | Add-Member -NotePropertyName "library_arch" -NotePropertyValue "32" -Force
     $x86json | ConvertTo-Json -Depth 5 | Set-Content "$DistDir\x86\vk_icd.json" -Encoding UTF8
     Get-ChildItem "$Bin32\*.dll" | ForEach-Object {
-        if ($_.Name -notmatch "^(omnigpu_guest|vulkan-1|OpenCL|avcodec|avutil|avformat|avfilter|avdevice|swscale|swresample|postproc)") {
+        if ($_.Name -notmatch "^(omnigpu_guest|vulkan-1|OpenCL)") {
             Copy-Item -Path $_.FullName -Destination "$DistDir\x86" -Force
         }
     }

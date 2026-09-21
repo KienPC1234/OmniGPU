@@ -34,7 +34,6 @@ std::thread* g_recv_thread = nullptr;
 std::atomic<bool> g_running{false};
 std::once_flag g_init_flag;
 bool g_init_result = false;
-bool g_is_compute = false;
 
 static void recv_thread_main() {
     while (g_running) {
@@ -159,7 +158,6 @@ bool do_handshake(Client& client, const std::string& auth_token) {
                    || (getenv("GGML_CUDA_NO_PINNED") != nullptr)
                    || (getenv("GGML_OPENCL_NO_BINARY") != nullptr)
                    || (getenv("GGML_SYCL_NO_MULTI_BACKEND") != nullptr);
-    g_is_compute = is_compute;
 
     auto req = fbs::CreateCapabilitiesRequest(builder, 1, pref_w, pref_h,
         auth_token.empty() ? 0 : token_str, is_compute, is_compute);
@@ -394,20 +392,19 @@ bool connect_to_host() {
         return false;
     }
 
-    size_t min_cmd = g_is_compute ? 64 : cfg.min_batch_commands;
-    size_t min_bytes = g_is_compute ? 65536 : cfg.min_batch_bytes;
-    uint32_t interval = g_is_compute ? 2 : cfg.max_batch_interval_ms;
+    size_t min_cmd = 64;
+    size_t min_bytes = 65536;
+    uint32_t interval = 2;
     g_batch = new batch::CommandBatch(
         g_client,
         min_cmd,
         min_bytes,
-        true,
         cfg.adaptive_batching,
         interval);
 
     if (cfg.adaptive_batching) {
         SPDLOG_INFO("Adaptive batching enabled (interval={}ms, min_cmd={}, max_cmd={})",
-                     interval, min_cmd, g_is_compute ? 1024 : cfg.max_batch_commands);
+                     interval, min_cmd, 1024);
     } else {
         SPDLOG_INFO("Batching: {}ms interval, {} min commands", interval, min_cmd);
     }

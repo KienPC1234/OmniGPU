@@ -8,13 +8,11 @@ namespace omnigpu::batch {
 CommandBatch::CommandBatch(Client* client,
                            size_t cmd_threshold,
                            size_t byte_threshold,
-                           bool flush_on_present,
                            bool adaptive,
                            uint32_t max_interval_ms)
     : client_(client),
       cmd_threshold_(cmd_threshold),
       byte_threshold_(byte_threshold),
-      flush_on_present_(flush_on_present),
       adaptive_(adaptive),
       max_interval_ms_(max_interval_ms),
       last_flush_time_(Clock::now()) {}
@@ -88,12 +86,6 @@ void CommandBatch::force_flush() {
     flush();
 }
 
-void CommandBatch::on_present() {
-    if (!flush_on_present_.load()) return;
-    if (empty()) return;
-    flush();
-}
-
 void CommandBatch::record_latency_sample(uint32_t rtt_ms) {
     uint32_t prev = smoothed_rtt_ms_.load();
     uint32_t next = static_cast<uint32_t>(
@@ -122,10 +114,6 @@ void CommandBatch::set_thresholds(size_t cmd_threshold, size_t byte_threshold) {
     std::lock_guard<std::mutex> lock(mutex_);
     cmd_threshold_ = cmd_threshold;
     byte_threshold_ = byte_threshold;
-}
-
-void CommandBatch::set_flush_on_present(bool enabled) {
-    flush_on_present_ = enabled;
 }
 
 void CommandBatch::set_adaptive(bool enabled) {

@@ -18,7 +18,6 @@ namespace omnigpu::batch {
 // Default thresholds
 inline constexpr size_t kDefaultCommandThreshold = 32;
 inline constexpr size_t kDefaultByteThreshold = 64 * 1024;
-inline constexpr bool kDefaultFlushOnPresent = true;
 
 // Adaptive batching defaults
 inline constexpr bool kDefaultAdaptiveEnabled = true;
@@ -33,7 +32,6 @@ public:
     explicit CommandBatch(Client* client,
                           size_t cmd_threshold = kDefaultCommandThreshold,
                           size_t byte_threshold = kDefaultByteThreshold,
-                          bool flush_on_present = kDefaultFlushOnPresent,
                           bool adaptive = kDefaultAdaptiveEnabled,
                           uint32_t max_interval_ms = kDefaultMaxFlushIntervalMs);
 
@@ -42,7 +40,6 @@ public:
 
     void flush();
     void force_flush();
-    void on_present();
 
     // Record a latency sample (from response timestamps)
     void record_latency_sample(uint32_t rtt_ms);
@@ -52,7 +49,6 @@ public:
     bool empty() const;
 
     void set_thresholds(size_t cmd_threshold, size_t byte_threshold);
-    void set_flush_on_present(bool enabled);
     void set_adaptive(bool enabled);
     void set_max_interval_ms(uint32_t ms);
 
@@ -60,7 +56,6 @@ private:
     Client* client_;
     size_t cmd_threshold_;
     size_t byte_threshold_;
-    std::atomic<bool> flush_on_present_{true};
     std::atomic<bool> adaptive_{true};
     std::atomic<uint32_t> max_interval_ms_{16};
 

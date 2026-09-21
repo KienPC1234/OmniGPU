@@ -6,7 +6,7 @@ setlocal
 ::
 :: Usage:
 ::   build.bat              Incremental build (fast, default)
-::   build.bat clean        Full clean build (slow - rebuilds Qt5 + FFmpeg)
+::   build.bat clean        Full clean build
 ::   build.bat debug        Build debug preset
 ::   build.bat help         Show this help
 :: ============================================================================
@@ -19,13 +19,12 @@ if /I "%1"=="help" (
     echo ====================
     echo.
     echo   build.bat              Incremental build (release, default)
-    echo   build.bat clean        Full clean build ^(slow! rebuilds Qt5 + FFmpeg^)
+    echo   build.bat clean        Full clean build
     echo   build.bat debug        Build debug preset incrementally
     echo   build.bat debug clean  Full clean debug build
     echo   build.bat help         This message
     echo.
-    echo NOTE: Clean builds rebuild FFmpeg + Qt5 from source ^(~30 min^).
-    echo       Use plain "build.bat" for daily work.
+    echo NOTE: Use plain "build.bat" for daily work.
     echo.
     exit /b 0
 )
