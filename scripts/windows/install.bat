@@ -50,11 +50,6 @@ for %%V in ("%REG_HKLM%" "%REG_WOW%" "%REG_HKCU%") do (
     reg delete %%~V /v "%INSTDIR%\vk_icd.json" /f >nul 2>&1
     reg delete %%~V /v "%INSTDIR%\x64\vk_icd.json" /f >nul 2>&1
     reg delete %%~V /v "%INSTDIR%\x86\vk_icd.json" /f >nul 2>&1
-    :: Mesa3D entries
-    reg delete %%~V /v "%INSTDIR%\x64\lvp_icd.x86_64.json" /f >nul 2>&1
-    reg delete %%~V /v "%INSTDIR%\x64\dzn_icd.x86_64.json" /f >nul 2>&1
-    reg delete %%~V /v "%INSTDIR%\x86\lvp_icd.x86.json" /f >nul 2>&1
-    reg delete %%~V /v "%INSTDIR%\x86\dzn_icd.x86.json" /f >nul 2>&1
 )
 
 :: 0b2. Clean PnP device VulkanDriverName entries (cause of loader dedup bug)
@@ -190,21 +185,6 @@ if exist "%INSTDIR%\omnigpu_guest.json" (
     echo   [OK] Guest configuration deployed to driver contexts.
 ) else (
     echo   [--] No guest config file found.
-)
-
-:: ========== STEP 5: Optional Mesa3D ==========
-echo.
-echo [5/5] Checking for optional Mesa3D OpenGL library...
-if exist "mesa3d\systemwidedeploy.cmd" (
-    set /p "DEPLOY=Mesa3D found. Do you want to deploy Mesa3D? (Y/N): "
-    if /i "!DEPLOY!"=="Y" (
-        echo [*] Deploying Mesa3D system-wide...
-        call mesa3d\systemwidedeploy.cmd 1
-    ) else (
-        echo   [--] Skipped Mesa3D deployment.
-    )
-) else (
-    echo   [--] Mesa3D folder not found. Skipping optional step.
 )
 
 echo.

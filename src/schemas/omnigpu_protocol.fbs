@@ -62,21 +62,18 @@ enum FunctionId : uint16 {
   vkCreateGraphicsPipelines = 28,
   vkCreateComputePipelines = 29,
   vkDestroyPipeline = 30,
-  vkCreatePipelineCache = 84,
-  vkDestroyPipelineCache = 85,
-  vkMergePipelineCaches = 86,
-
-  // Render pass & Framebuffer
   vkCreateRenderPass = 31,
   vkDestroyRenderPass = 32,
   vkCreateFramebuffer = 33,
   vkDestroyFramebuffer = 34,
-
-  // Command recording — Draw / Dispatch
   vkCmdDraw = 35,
   vkCmdDrawIndexed = 36,
   vkCmdDrawIndirect = 37,
-  vkCmdDrawIndexedIndirect = 87,
+  vkCreatePipelineCache = 84,
+  vkDestroyPipelineCache = 85,
+  vkMergePipelineCaches = 86,
+
+  // Command recording — Dispatch
   vkCmdDispatch = 38,
   vkCmdDispatchIndirect = 88,
 
@@ -158,36 +155,10 @@ enum FunctionId : uint16 {
   vkTrimCommandPool = 115,
 
   // Vulkan 1.2
-  vkCmdDrawIndirectCount = 116,
-  vkCmdDrawIndexedIndirectCount = 117,
-  vkCreateRenderPass2 = 118,
-  vkCmdBeginRenderPass2 = 119,
-  vkCmdNextSubpass2 = 120,
-  vkCmdEndRenderPass2 = 121,
   vkResetQueryPool = 122,
   vkGetSemaphoreCounterValue = 123,
   vkWaitSemaphores = 124,
   vkSignalSemaphore = 125,
-
-  // Vulkan 1.3 — Dynamic Rendering
-  vkCmdBeginRendering = 126,
-  vkCmdEndRendering = 127,
-
-  // Vulkan 1.3 — Extended Dynamic State
-  vkCmdSetCullMode = 128,
-  vkCmdSetFrontFace = 129,
-  vkCmdSetPrimitiveTopology = 130,
-  vkCmdSetViewportWithCount = 131,
-  vkCmdSetScissorWithCount = 132,
-  vkCmdSetDepthTestEnable = 133,
-  vkCmdSetDepthWriteEnable = 134,
-  vkCmdSetDepthCompareOp = 135,
-  vkCmdSetDepthBoundsTestEnable = 136,
-  vkCmdSetStencilTestEnable = 137,
-  vkCmdSetStencilOp = 138,
-  vkCmdSetRasterizerDiscardEnable = 139,
-  vkCmdSetDepthBiasEnable = 140,
-  vkCmdSetPrimitiveRestartEnable = 141,
 
   // Vulkan 1.3 — Synchronization2
   vkCmdPipelineBarrier2 = 142,
@@ -210,16 +181,6 @@ enum FunctionId : uint16 {
   vkDestroyPrivateDataSlotEXT = 155,
   vkSetPrivateDataEXT = 156,
 
-  // VK_EXT_vertex_input_dynamic_state
-  vkCmdSetVertexInputEXT = 157,
-
-  // VK_KHR_swapchain
-  vkCreateSwapchainKHR = 158,
-  vkDestroySwapchainKHR = 159,
-  vkGetSwapchainImagesKHR = 160,
-  vkAcquireNextImageKHR = 161,
-  vkAcquireNextImage2KHR = 162,
-
   // Buffer / Image View
   vkCreateBufferView = 163,
   vkDestroyBufferView = 164,
@@ -234,6 +195,26 @@ enum FunctionId : uint16 {
   // Vulkan 1.1 additions
   vkCmdSetDeviceMask = 170,
   vkCmdDispatchBase = 171,
+  vkCmdDrawIndirectCount = 116,
+  vkCmdDrawIndexedIndirectCount = 117,
+  vkCreateRenderPass2 = 118,
+  vkCmdBeginRenderPass2 = 119,
+  vkCmdNextSubpass2 = 120,
+  vkCmdEndRenderPass2 = 121,
+  vkCmdSetCullMode = 128,
+  vkCmdSetFrontFace = 129,
+  vkCmdSetPrimitiveTopology = 130,
+  vkCmdSetViewportWithCount = 131,
+  vkCmdSetScissorWithCount = 132,
+  vkCmdSetDepthTestEnable = 133,
+  vkCmdSetDepthWriteEnable = 134,
+  vkCmdSetDepthCompareOp = 135,
+  vkCmdSetDepthBoundsTestEnable = 136,
+  vkCmdSetStencilTestEnable = 137,
+  vkCmdSetStencilOp = 138,
+  vkCmdSetRasterizerDiscardEnable = 139,
+  vkCmdSetDepthBiasEnable = 140,
+  vkCmdSetPrimitiveRestartEnable = 141,
   vkGetDeviceGroupPeerMemoryFeatures = 172,
 
   // Vulkan 1.3 promoted from EXT
@@ -249,10 +230,12 @@ enum FunctionId : uint16 {
   vkGetDeviceBufferMemoryRequirements = 178,
   vkGetDeviceImageMemoryRequirements = 179,
   vkGetDeviceImageSparseMemoryRequirements = 180,
-
-  // Device group present (KHR)
-  vkGetDeviceGroupPresentCapabilitiesKHR = 181,
-  vkGetDeviceGroupSurfacePresentModesKHR = 182,
+  vkCmdSetVertexInputEXT = 157,
+  vkCreateSwapchainKHR = 158,
+  vkDestroySwapchainKHR = 159,
+  vkGetSwapchainImagesKHR = 160,
+  vkAcquireNextImageKHR = 161,
+  vkAcquireNextImage2KHR = 162,
 
   // Sparse binding
   vkQueueBindSparse = 183,
@@ -261,16 +244,16 @@ enum FunctionId : uint16 {
   vkGetBufferDeviceAddress = 188,
   vkGetBufferOpaqueCaptureAddress = 189,
   vkGetDeviceMemoryOpaqueCaptureAddress = 190,
-
-  // Surface extensions
-  vkCreateWin32SurfaceKHR = 184,
-  vkCreateHeadlessSurfaceEXT = 185,
-  vkGetPhysicalDeviceSurfaceCapabilities2KHR = 186,
-  vkGetPhysicalDeviceSurfaceFormats2KHR = 187,
+  vkGetDeviceGroupPresentCapabilitiesKHR = 181,
+  vkGetDeviceGroupSurfacePresentModesKHR = 182,
 
   // Synchronous query commands (guest → host → guest round-trip)
   vkGetQueryPoolResults = 191,
   vkGetImageSubresourceLayout = 192,
+  vkCreateWin32SurfaceKHR = 184,
+  vkCreateHeadlessSurfaceEXT = 185,
+  vkGetPhysicalDeviceSurfaceCapabilities2KHR = 186,
+  vkGetPhysicalDeviceSurfaceFormats2KHR = 187,
 }
 
 // ---------------------------------------------------------------------------
@@ -278,12 +261,10 @@ enum FunctionId : uint16 {
 // ---------------------------------------------------------------------------
 enum DataType : byte {
   Unknown = 0,
-  VertexBuffer = 1,
-  IndexBuffer = 2,
-  UniformBuffer = 3,
-  StorageBuffer = 4,
-  ImageData = 5,
-  ShaderCode = 6,
+  UniformBuffer = 1,
+  StorageBuffer = 2,
+  ImageData = 3,
+  ShaderCode = 4,
 }
 
 // ---------------------------------------------------------------------------
@@ -316,9 +297,6 @@ table CapabilitiesResponse {
   vendor_id: uint32 = 0x10DE;
   device_id: uint32 = 0x2684;
   device_type: uint32 = 2;  // VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
-  max_framebuffer_width: uint32 = 16384;
-  max_framebuffer_height: uint32 = 16384;
-  max_framebuffer_layers: uint32 = 256;
   max_memory_heaps: uint32 = 2;
   memory_heap_size_0: uint64 = 25769803776;  // 24 GB
   memory_heap_size_1: uint64 = 17179869184;  // 16 GB
@@ -326,7 +304,6 @@ table CapabilitiesResponse {
   heap_1_flags: uint32 = 0;
   memory_type_count: uint32 = 4;
   max_sampler_anisotropy: float = 16.0;
-  max_color_attachments: uint32 = 8;
   max_bound_descriptor_sets_ext: uint32 = 32;
   max_per_stage_descriptor_samplers: uint32 = 2048;
   max_per_stage_descriptor_uniform_buffers: uint32 = 2048;
@@ -339,7 +316,6 @@ table CapabilitiesResponse {
   max_viewports: uint32 = 16;
   max_viewport_dimensions_w: float = 16384.0;
   max_viewport_dimensions_h: float = 16384.0;
-  max_fragment_output_attachments: uint32 = 8;
   min_uniform_buffer_offset_alignment: uint64 = 256;
   min_storage_buffer_offset_alignment: uint64 = 256;
   max_uniform_buffer_range: uint64 = 65536;
@@ -354,10 +330,6 @@ table CapabilitiesResponse {
   max_clip_distances: uint32 = 8;
   max_cull_distances: uint32 = 8;
   max_combined_clip_and_cull_distances: uint32 = 8;
-  sample_counts: uint32 = 15;  // All sample count bits
-  max_samples: uint32 = 1;
-  max_tessellation_factor: uint32 = 64;
-  framebuffer_color_sample_counts: uint32 = 15;
 
   // Compute extensions (NEW fields — do not conflict with existing)
   compute_queue_count: uint32 = 1;
@@ -427,26 +399,6 @@ table ResourceCacheEvictResponse {
 }
 
 // ---------------------------------------------------------------------------
-// VideoFrame — một frame video nén từ Host (H.264/HEVC/AV1)
-// ---------------------------------------------------------------------------
-enum VideoCodec : byte {
-  Unknown = 0,
-  H264 = 1,
-  HEVC = 2,
-  AV1  = 3,
-}
-
-table VideoFrame {
-  codec: VideoCodec = Unknown;
-  frame_id: uint64 = 0;
-  width: uint32 = 0;
-  height: uint32 = 0;
-  timestamp_ms: uint64 = 0;
-  is_keyframe: bool = false;
-  data: [ubyte];
-}
-
-// ---------------------------------------------------------------------------
 // Union: tin nhắn có thể là Command, Batch, hoặc Data
 // ---------------------------------------------------------------------------
 union MessagePayload {
@@ -458,7 +410,6 @@ union MessagePayload {
   ResourceCacheUpload,
   ResourceCacheEvictRequest,
   ResourceCacheEvictResponse,
-  VideoFrame,
 }
 
 table Message {

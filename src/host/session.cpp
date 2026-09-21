@@ -3,10 +3,6 @@
 #include "handshake.h"
 #include "common/flatbuffers_utils.h"
 #include "common/logger.h"
-#if defined(OMNIGPU_USE_FFMPEG)
-#include "ffmpeg_encoder.h"
-#endif
-#include <chrono>
 #include <cstring>
 #include <spdlog/spdlog.h>
 
@@ -24,7 +20,6 @@ Session::~Session() { stop(); }
 
 void Session::start() {
     running_ = true;
-    fpsStart_ = std::chrono::steady_clock::now();
     thread_ = std::thread(&Session::handle_client, this);
 }
 
@@ -37,10 +32,6 @@ void Session::stop() {
     if (thread_.joinable()) {
         thread_.join();
     }
-    if (videoEncoder_) {
-        videoEncoder_->shutdown();
-        videoEncoder_.reset();
-    }
 }
 
 SessionSummary Session::summary() const {
@@ -48,9 +39,6 @@ SessionSummary Session::summary() const {
     s.id = sessionId_;
     s.gpu_index = gpuIndices_.empty() ? -1 : gpuIndices_[0];
     s.gpu_team_size = static_cast<int>(gpuIndices_.size());
-    s.fps = currentFps_.load();
-    s.frames_rendered = framesRendered_;
-    s.compressorStats = adaptiveCompressor_.stats();
     return s;
 }
 
@@ -112,27 +100,6 @@ bool Session::send_data_message(uint64_t data_id, const uint8_t* payload, size_t
     return tcp::send_all(clientFd_, span.data(), span.size());
 }
 
-bool Session::send_video_frame(uint64_t frame_id, uint8_t codec,
-                                const uint8_t* data, size_t data_size,
-                                uint32_t width, uint32_t height,
-                                uint64_t timestamp_ms, bool keyframe) {
-    flatbuffers::FlatBufferBuilder fbb;
-
-    auto data_vec = fbb.CreateVector(data, data_size);
-    auto vf = fbs::CreateVideoFrame(
-        fbb, static_cast<fbs::VideoCodec>(codec),
-        frame_id, width, height, timestamp_ms, keyframe, data_vec);
-    auto msg = fbs::CreateMessage(fbb, fbs::MessagePayload_VideoFrame, vf.Union());
-    fbb.Finish(msg);
-
-    auto span = fbb.GetBufferSpan();
-    uint32_t net_size = htonl(static_cast<uint32_t>(span.size()));
-
-    return tcp::send_all(clientFd_, reinterpret_cast<const uint8_t*>(&net_size),
-                          sizeof(net_size)) &&
-           tcp::send_all(clientFd_, span.data(), span.size());
-}
-
 void Session::handle_client() {
     std::string gpuList;
     for (size_t i = 0; i < gpuIndices_.size(); ++i) {
@@ -142,9 +109,6 @@ void Session::handle_client() {
 
     SPDLOG_INFO("Session #{} started for client fd={} on GPU(s) [{}]",
                 sessionId_, static_cast<int>(clientFd_), gpuList);
-
-    uint32_t client_pref_w = 0;
-    uint32_t client_pref_h = 0;
 
     // Handle initial handshake + authentication
     {
@@ -157,52 +121,9 @@ void Session::handle_client() {
             clientFd_ = INVALID_SOCKET;
             return;
         }
-        client_pref_w = config_.render_width;
-        client_pref_h = config_.render_height;
         isComputeMode_ = hs.compute_mode;
         SPDLOG_INFO("Session #{}: Guest authenticated (v{}, compute={}, large_bufs={})",
                     sessionId_, hs.client_version, hs.compute_mode, hs.large_buffers);
-    }
-
-    if (!isComputeMode_) {
-        videoEncoder_ = create_best_encoder();
-        if (videoEncoder_) {
-#if defined(OMNIGPU_USE_FFMPEG)
-            if (auto* ffmpeg = dynamic_cast<FFmpegEncoder*>(videoEncoder_.get())) {
-                ffmpeg->set_encoder_options(config_.encoder.preset, config_.encoder.tuning, config_.encoder.gop_length);
-            }
-#endif
-            VideoCodec codec = codec_from_string(config_.video_codec);
-            if (videoEncoder_->init(codec, config_.video_width, config_.video_height,
-                                     config_.video_fps, config_.video_bitrate_kbps)) {
-                useVideoEncoder_ = true;
-                active_video_codec_ = static_cast<uint8_t>(codec) + 1;
-                SPDLOG_INFO("Session #{}: Encoder {} ready", sessionId_, videoEncoder_->name());
-            } else {
-                SPDLOG_WARN("Session #{}: Encoder init failed, using software fallback", sessionId_);
-                videoEncoder_.reset();
-            }
-        }
-    }
-
-    uint32_t rw = config_.render_width;
-    uint32_t rh = config_.render_height;
-    if (client_pref_w > 0 && client_pref_h > 0) {
-        uint32_t max_w = 1920;
-        uint32_t max_h = 1080;
-        if (client_pref_w > max_w || client_pref_h > max_h) {
-            double aspect = static_cast<double>(client_pref_w) / client_pref_h;
-            if (aspect > 1.0) {
-                client_pref_w = max_w;
-                client_pref_h = static_cast<uint32_t>(max_w / aspect);
-            } else {
-                client_pref_h = max_h;
-                client_pref_w = static_cast<uint32_t>(max_h * aspect);
-            }
-        }
-        rw = client_pref_w;
-        rh = client_pref_h;
-        SPDLOG_INFO("Session #{}: Using dynamic resolution from client: {}x{}", sessionId_, rw, rh);
     }
 
     // Initialize compute engine for compute workloads
@@ -232,13 +153,8 @@ void Session::handle_client() {
         primary.queue,
         primary.queueFamily,
         primary.cmdPool);
-    commandDispatcher_.set_framebuffer_size(rw, rh);
     commandDispatcher_.set_compute_mode(isComputeMode_);
-    if (!isComputeMode_) {
-        commandDispatcher_.setup_framebuffer();
-    } else {
-        SPDLOG_INFO("Session #{}: Compute mode — skipping framebuffer setup", sessionId_);
-    }
+    SPDLOG_INFO("Session #{}: Compute-only mode", sessionId_);
     commandDispatcher_.set_vram_budget(config_.per_session_memory_budget);
 
     // Wire up readback callback: when guest invalidates memory, send data back
@@ -475,93 +391,6 @@ void Session::handle_client() {
             // Dispatch to command replay engine for ALL commands
             if (args && args_size > 0) {
                 commandDispatcher_.dispatch(func_id, args->data(), args_size);
-            }
-
-            // On vkQueueSubmit / vkQueueSubmit2 / vkQueuePresentKHR: flush and readback
-            if (func_id == fbs::FunctionId_vkQueueSubmit ||
-                func_id == fbs::FunctionId_vkQueueSubmit2 ||
-                func_id == fbs::FunctionId_vkQueuePresentKHR) {
-
-                // Compute mode: no framebuffer → skip flush/readback/encode entirely
-                if (isComputeMode_) {
-                    SPDLOG_TRACE("Session #{}: compute mode — skipping flush", sessionId_);
-                } else {
-                std::vector<uint8_t> pixels;
-                SPDLOG_TRACE("Session #{}: calling flush_and_readback", sessionId_);
-                spdlog::default_logger()->flush();
-                if (!commandDispatcher_.flush_and_readback(pixels)) {
-                    SPDLOG_ERROR("flush_and_readback failed");
-                    break;
-                }
-                SPDLOG_TRACE("Session #{}: flush_and_readback OK, pixels={} bytes", sessionId_, pixels.size());
-                framebufferPixels_ = std::move(pixels);
-
-                if (useVideoEncoder_) {
-                    std::vector<EncodedPacket> packets;
-                    if (videoEncoder_->encode(framebufferPixels_, packets)) {
-                        SPDLOG_TRACE("Session #{}: encoded {} packets", sessionId_, packets.size());
-                        auto sendStart = std::chrono::steady_clock::now();
-                        for (const auto& packet : packets) {
-                            send_video_frame(
-                                cmd->request_id(),
-                                active_video_codec_,
-                                packet.data.data(), packet.data.size(),
-                                rw, rh,
-                                packet.pts,
-                                packet.isKeyframe);
-                        }
-                        auto sendEnd = std::chrono::steady_clock::now();
-                        double sendMs = std::chrono::duration<double, std::milli>(
-                            sendEnd - sendStart).count();
-                        if (!packets.empty()) {
-                            adaptiveCompressor_.record_send(packets[0].data.size(), sendMs);
-                        } else {
-                            SPDLOG_INFO("Session #{}: encoder produced 0 packets, falling back to LZ4", sessionId_);
-                            auto compressed = adaptiveCompressor_.compress(
-                                framebufferPixels_, rw, rh);
-                            if (!compressed.empty()) {
-                                send_video_frame(cmd->request_id(), 0,
-                                    compressed.data(), compressed.size(),
-                                    rw, rh,
-                                    std::chrono::duration_cast<std::chrono::milliseconds>(
-                                        std::chrono::steady_clock::now().time_since_epoch()).count(),
-                                    true);
-                                adaptiveCompressor_.record_send(compressed.size(), 0);
-                            }
-                        }
-                    }
-                } else {
-                    auto compressed = adaptiveCompressor_.compress(
-                        framebufferPixels_, rw, rh);
-
-                    if (!compressed.empty()) {
-                        auto sendStart = std::chrono::steady_clock::now();
-
-                        send_video_frame(cmd->request_id(), 0,
-                                         compressed.data(), compressed.size(),
-                                         rw, rh,
-                                         std::chrono::duration_cast<std::chrono::milliseconds>(
-                                             std::chrono::steady_clock::now().time_since_epoch()).count(),
-                                         true);
-
-                        auto sendEnd = std::chrono::steady_clock::now();
-                        double sendMs = std::chrono::duration<double, std::milli>(
-                            sendEnd - sendStart).count();
-
-                        adaptiveCompressor_.record_send(compressed.size(), sendMs);
-                    }
-                }
-                } // end else !isComputeMode_
-
-                framesRendered_++;
-                SPDLOG_DEBUG("Session #{}: frame done (total={})", sessionId_, framesRendered_);
-                auto now = std::chrono::steady_clock::now();
-                auto elapsed = std::chrono::duration<double>(now - fpsStart_).count();
-                if (elapsed >= 1.0) {
-                    currentFps_.store(static_cast<double>(framesRendered_) / elapsed);
-                    fpsStart_ = now;
-                    framesRendered_ = 0;
-                }
             }
 
             break;

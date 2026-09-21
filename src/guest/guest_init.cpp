@@ -4,7 +4,6 @@
 #include "command_batch.h"
 #include "guest_config.h"
 #include "icd_registry.h"
-#include "video_decoder.h"
 #include "vk_intercept.h"
 #include "common/flatbuffers_utils.h"
 #include "common/gpu_caps.h"
@@ -31,7 +30,6 @@ namespace {
 
 Client* g_client = nullptr;
 batch::CommandBatch* g_batch = nullptr;
-video::VideoDecoder* g_decoder = nullptr;
 std::thread* g_recv_thread = nullptr;
 std::atomic<bool> g_running{false};
 std::once_flag g_init_flag;
@@ -85,23 +83,6 @@ static void recv_thread_main() {
                         intercept::write_query_results(key, payload->data(), payload->size());
                         g_client->set_sync_response_buf(payload->data(), payload->size());
                     }
-                }
-            }
-        } else if (msg->payload_type() == fbs::MessagePayload_VideoFrame) {
-            auto* vf = msg->payload_as_VideoFrame();
-            if (vf && g_decoder) {
-                auto* payload = vf->data();
-                auto* pdata = payload ? payload->data() : nullptr;
-                size_t psz = payload ? payload->size() : 0;
-                if (pdata && psz > 0) {
-                    g_decoder->decode(
-                        static_cast<video::Codec>(vf->codec()),
-                        vf->is_keyframe(),
-                        pdata, psz,
-                        vf->frame_id(), vf->timestamp_ms(),
-                        vf->width(), vf->height());
-                } else {
-                    SPDLOG_DEBUG("Recv thread: empty VideoFrame (id={}) skipped", vf->frame_id());
                 }
             }
         }
@@ -440,22 +421,8 @@ bool connect_to_host() {
     g_running = true;
     g_recv_thread = new std::thread([]() {
         SPDLOG_INFO("Receive thread started");
-        HRESULT coHr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
-        if (FAILED(coHr)) SPDLOG_WARN("Receive thread: CoInitializeEx failed (0x{:08X})", coHr);
         recv_thread_wrapper();
-        if (SUCCEEDED(coHr)) CoUninitialize();
     });
-
-    g_decoder = video::create_decoder();
-    if (g_decoder) {
-        g_decoder->init();
-        g_decoder->set_frame_callback([](video::DecodedFrame frame) {
-            SPDLOG_DEBUG("Decoded frame: id={}, {}x{}, rgba={} bytes",
-                         frame.frame_id, frame.width, frame.height,
-                         frame.rgba_pixels.size());
-        });
-        SPDLOG_INFO("Video decoder initialized (hw={})", g_decoder->hardware_accelerated());
-    }
 
     connected = true;
     return true;

@@ -441,6 +441,38 @@ def generate(
         print("ERROR: jinja2 is required. Install with: pip install -r gen/requirements.txt", file=sys.stderr)
         sys.exit(1)
 
+    # OmniGPU is compute-only. Graphics, presentation, and surface entrypoints
+    # must not be exposed by the generated forwarding layer.
+    graphics_names = {
+        "vkCreateGraphicsPipelines", "vkQueuePresentKHR",
+        "vkCreateRenderPass", "vkDestroyRenderPass",
+        "vkCreateRenderPass2", "vkCreateFramebuffer", "vkDestroyFramebuffer",
+        "vkCmdBeginRenderPass", "vkCmdEndRenderPass", "vkCmdNextSubpass",
+        "vkCmdBeginRenderPass2", "vkCmdEndRenderPass2", "vkCmdNextSubpass2",
+        "vkCreateSwapchainKHR", "vkDestroySwapchainKHR",
+        "vkGetSwapchainImagesKHR", "vkAcquireNextImageKHR", "vkAcquireNextImage2KHR",
+        "vkGetDeviceGroupPresentCapabilitiesKHR", "vkGetDeviceGroupSurfacePresentModesKHR",
+        "vkCreateWin32SurfaceKHR", "vkCreateHeadlessSurfaceEXT",
+        "vkGetPhysicalDeviceSurfaceCapabilitiesKHR", "vkGetPhysicalDeviceSurfaceCapabilities2KHR",
+        "vkGetPhysicalDeviceSurfaceFormatsKHR", "vkGetPhysicalDeviceSurfaceFormats2KHR",
+        "vkGetPhysicalDeviceSurfacePresentModesKHR", "vkGetPhysicalDeviceSurfaceSupportKHR",
+        "vkGetPhysicalDeviceWin32PresentationSupportKHR",
+        "vkGetRenderAreaGranularity",
+    }
+    graphics_prefixes = (
+        "vkCmdDraw", "vkCmdBindVertex", "vkCmdBindIndex",
+        "vkCmdSetViewport", "vkCmdSetScissor", "vkCmdSetDepth",
+        "vkCmdSetStencil", "vkCmdSetBlend", "vkCmdSetCull",
+        "vkCmdSetFrontFace", "vkCmdSetPrimitiveTopology",
+        "vkCmdSetRasterizer", "vkCmdSetPrimitiveRestart",
+        "vkCmdSetVertexInput",
+    )
+    functions = [
+        f for f in functions
+        if f["name"] not in graphics_names
+        and not f["name"].startswith(graphics_prefixes)
+    ]
+
     # Functions that have manual implementations in vk_intercept.cpp
     # These are NOT auto-generated — they handle instance/device creation,
     # physical device queries, enumeration, and other loader-critical operations.

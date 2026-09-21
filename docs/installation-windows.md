@@ -39,33 +39,24 @@ Chuột phải **install.bat** → **Run as Administrator**
 
 This copies OmniGPU binaries to `C:\Program Files\OmniGPU` and registers the Vulkan ICD in HKLM.
 
-### Step 2: Install Mesa3D (OpenGL support)
-Mở **mesa3d\systemwidedeploy.cmd** (Run as Administrator), chọn:
-
-1. **Core desktop OpenGL drivers** (cung cấp Zink → OpenGL → Vulkan → OmniGPU → Host GPU)
-3. **Install DirectX IL for redistribution only** (dependency)
-9. **Exit**
-
-Không cần chọn lvp (Vulkan CPU driver) vì VM dùng GPU từ xa qua OmniGPU.
-
-### Step 3: Register OpenCL (optional)
+### Step 2: Register OpenCL (optional)
 Chuột phải **install_clvk.bat** → **Run as Administrator**
 
 Đăng ký clvk với OpenCL ICD Loader. Mọi ứng dụng OpenCL sẽ tự động dùng OpenCL→Vulkan→OmniGPU→Host GPU.
 
-### Step 4: Start Daemon
+### Step 3: Start Daemon
 Nhấn đúp **start-daemon.bat**
 
 Daemon chạy nền, kết nối tới host machine.
 
-### Step 5: Start Host Server
+### Step 4: Start Host Server
 Trên máy chủ (có GPU thật), chạy:
 
 ```powershell
 .\omnigpu_host.exe
 ```
 
-### Step 6: Set Host Address
+### Step 5: Set Host Address
 ```cmd
 set OMNIGPU_HOST=192.168.1.100
 set OMNIGPU_PORT=9443
@@ -79,7 +70,7 @@ Hoặc tạo `C:\Program Files\OmniGPU\omnigpu_guest.json`:
 }
 ```
 
-### Step 7: Verify
+### Step 6: Verify
 
 Any Vulkan application now uses OmniGPU automatically:
 
@@ -102,11 +93,6 @@ After installation, the Vulkan Loader finds the OmniGPU ICD through:
 
 - ICD file: `%windir%\System32\clvk.icd` (contains path to OpenCL.dll)
 - Registry: `HKLM\SOFTWARE\Khronos\OpenCL\Vendors`
-
-## OpenGL via Mesa3D + Zink
-
-Mesa3D's `systemwidedeploy.cmd` deploys `mesadrv.dll` (Zink) to System32.
-Zink translates OpenGL → Vulkan → OmniGPU ICD → Host GPU.
 
 ## Troubleshooting
 

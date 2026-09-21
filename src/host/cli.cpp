@@ -62,8 +62,7 @@ void HostCli::handle_command(const std::string& line) {
         std::cout << "Active Sessions: " << sessions.size() << "\n";
         for (auto& s : sessions) {
             std::cout << "  Session #" << s.id << ": GPU=" << s.gpu_index
-                      << ", FPS=" << s.fps
-                      << ", frames=" << s.frames_rendered << "\n";
+                      << ", team=" << s.gpu_team_size << "\n";
         }
         std::cout << "\n";
     } else if (cmd == "sessions") {
@@ -74,8 +73,7 @@ void HostCli::handle_command(const std::string& line) {
             std::cout << "Active Sessions (" << sessions.size() << "):\n";
             for (auto& s : sessions) {
                 std::cout << "  [" << s.id << "] GPU=" << s.gpu_index
-                          << ", FPS=" << s.fps
-                          << ", frames=" << s.frames_rendered << "\n";
+                          << ", team=" << s.gpu_team_size << "\n";
             }
         }
     } else if (cmd == "disconnect") {

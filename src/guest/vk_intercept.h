@@ -19,12 +19,10 @@ PFN_vkVoidFunction get_intercept_proc(const char* name);
     ret VKAPI_PTR name##_hook(__VA_ARGS__)
 
 // Manual hook declarations (for functions in vk_intercept.cpp)
-DECL_HOOK(VkResult, vkAcquireNextImage2KHR, VkDevice, const VkAcquireNextImageInfoKHR*, uint32_t*);
 DECL_HOOK(void, vkCmdBlitImage2, VkCommandBuffer, const VkBlitImageInfo2*);
 
 // ---- Vulkan 1.0 Core — Auto-generated hooks ----
 DECL_HOOK(VkResult, vkQueueSubmit, VkQueue, uint32_t, const VkSubmitInfo*, VkFence);
-DECL_HOOK(VkResult, vkQueuePresentKHR, VkQueue, const VkPresentInfoKHR*);
 DECL_HOOK(VkResult, vkDeviceWaitIdle, VkDevice);
 DECL_HOOK(VkResult, vkQueueWaitIdle, VkQueue);
 
@@ -64,17 +62,11 @@ DECL_HOOK(void, vkDestroyShaderModule, VkDevice, VkShaderModule, const VkAllocat
 
 DECL_HOOK(VkResult, vkCreatePipelineLayout, VkDevice, const VkPipelineLayoutCreateInfo*, const VkAllocationCallbacks*, VkPipelineLayout*);
 DECL_HOOK(void, vkDestroyPipelineLayout, VkDevice, VkPipelineLayout, const VkAllocationCallbacks*);
-DECL_HOOK(VkResult, vkCreateGraphicsPipelines, VkDevice, VkPipelineCache, uint32_t, const VkGraphicsPipelineCreateInfo*, const VkAllocationCallbacks*, VkPipeline*);
 DECL_HOOK(VkResult, vkCreateComputePipelines, VkDevice, VkPipelineCache, uint32_t, const VkComputePipelineCreateInfo*, const VkAllocationCallbacks*, VkPipeline*);
 DECL_HOOK(void, vkDestroyPipeline, VkDevice, VkPipeline, const VkAllocationCallbacks*);
 DECL_HOOK(VkResult, vkCreatePipelineCache, VkDevice, const VkPipelineCacheCreateInfo*, const VkAllocationCallbacks*, VkPipelineCache*);
 DECL_HOOK(void, vkDestroyPipelineCache, VkDevice, VkPipelineCache, const VkAllocationCallbacks*);
 DECL_HOOK(VkResult, vkMergePipelineCaches, VkDevice, VkPipelineCache, uint32_t, const VkPipelineCache*);
-
-DECL_HOOK(VkResult, vkCreateRenderPass, VkDevice, const VkRenderPassCreateInfo*, const VkAllocationCallbacks*, VkRenderPass*);
-DECL_HOOK(void, vkDestroyRenderPass, VkDevice, VkRenderPass, const VkAllocationCallbacks*);
-DECL_HOOK(VkResult, vkCreateFramebuffer, VkDevice, const VkFramebufferCreateInfo*, const VkAllocationCallbacks*, VkFramebuffer*);
-DECL_HOOK(void, vkDestroyFramebuffer, VkDevice, VkFramebuffer, const VkAllocationCallbacks*);
 
 DECL_HOOK(VkResult, vkCreateDescriptorSetLayout, VkDevice, const VkDescriptorSetLayoutCreateInfo*, const VkAllocationCallbacks*, VkDescriptorSetLayout*);
 DECL_HOOK(void, vkDestroyDescriptorSetLayout, VkDevice, VkDescriptorSetLayout, const VkAllocationCallbacks*);
@@ -101,29 +93,13 @@ DECL_HOOK(VkResult, vkResetEvent, VkDevice, VkEvent);
 DECL_HOOK(VkResult, vkCreateQueryPool, VkDevice, const VkQueryPoolCreateInfo*, const VkAllocationCallbacks*, VkQueryPool*);
 DECL_HOOK(void, vkDestroyQueryPool, VkDevice, VkQueryPool, const VkAllocationCallbacks*);
 
-DECL_HOOK(void, vkCmdDraw, VkCommandBuffer, uint32_t, uint32_t, uint32_t, uint32_t);
-DECL_HOOK(void, vkCmdDrawIndexed, VkCommandBuffer, uint32_t, uint32_t, uint32_t, int32_t, uint32_t);
-DECL_HOOK(void, vkCmdDrawIndirect, VkCommandBuffer, VkBuffer, VkDeviceSize, uint32_t, uint32_t);
-DECL_HOOK(void, vkCmdDrawIndexedIndirect, VkCommandBuffer, VkBuffer, VkDeviceSize, uint32_t, uint32_t);
 DECL_HOOK(void, vkCmdDispatch, VkCommandBuffer, uint32_t, uint32_t, uint32_t);
 DECL_HOOK(void, vkCmdDispatchIndirect, VkCommandBuffer, VkBuffer, VkDeviceSize);
 DECL_HOOK(void, vkCmdExecuteCommands, VkCommandBuffer, uint32_t, const VkCommandBuffer*);
 
 DECL_HOOK(void, vkCmdBindPipeline, VkCommandBuffer, VkPipelineBindPoint, VkPipeline);
-DECL_HOOK(void, vkCmdBindVertexBuffers, VkCommandBuffer, uint32_t, uint32_t, const VkBuffer*, const VkDeviceSize*);
-DECL_HOOK(void, vkCmdBindIndexBuffer, VkCommandBuffer, VkBuffer, VkDeviceSize, VkIndexType);
 DECL_HOOK(void, vkCmdBindDescriptorSets, VkCommandBuffer, VkPipelineBindPoint, VkPipelineLayout, uint32_t, uint32_t, const VkDescriptorSet*, uint32_t, const uint32_t*);
-
-DECL_HOOK(void, vkCmdSetViewport, VkCommandBuffer, uint32_t, uint32_t, const VkViewport*);
-DECL_HOOK(void, vkCmdSetScissor, VkCommandBuffer, uint32_t, uint32_t, const VkRect2D*);
 DECL_HOOK(void, vkCmdPushConstants, VkCommandBuffer, VkPipelineLayout, VkShaderStageFlags, uint32_t, uint32_t, const void*);
-DECL_HOOK(void, vkCmdSetDepthBias, VkCommandBuffer, float, float, float);
-DECL_HOOK(void, vkCmdSetLineWidth, VkCommandBuffer, float);
-DECL_HOOK(void, vkCmdSetDepthBounds, VkCommandBuffer, float, float);
-DECL_HOOK(void, vkCmdSetStencilCompareMask, VkCommandBuffer, VkStencilFaceFlags, uint32_t);
-DECL_HOOK(void, vkCmdSetStencilWriteMask, VkCommandBuffer, VkStencilFaceFlags, uint32_t);
-DECL_HOOK(void, vkCmdSetStencilReference, VkCommandBuffer, VkStencilFaceFlags, uint32_t);
-DECL_HOOK(void, vkCmdSetBlendConstants, VkCommandBuffer, const float*);
 
 DECL_HOOK(void, vkCmdCopyBuffer, VkCommandBuffer, VkBuffer, VkBuffer, uint32_t, const VkBufferCopy*);
 DECL_HOOK(void, vkCmdCopyImage, VkCommandBuffer, VkImage, VkImageLayout, VkImage, VkImageLayout, uint32_t, const VkImageCopy*);
@@ -134,13 +110,9 @@ DECL_HOOK(void, vkCmdUpdateBuffer, VkCommandBuffer, VkBuffer, VkDeviceSize, VkDe
 DECL_HOOK(void, vkCmdFillBuffer, VkCommandBuffer, VkBuffer, VkDeviceSize, VkDeviceSize, uint32_t);
 DECL_HOOK(void, vkCmdClearColorImage, VkCommandBuffer, VkImage, VkImageLayout, const VkClearColorValue*, uint32_t, const VkImageSubresourceRange*);
 DECL_HOOK(void, vkCmdClearDepthStencilImage, VkCommandBuffer, VkImage, VkImageLayout, const VkClearDepthStencilValue*, uint32_t, const VkImageSubresourceRange*);
-DECL_HOOK(void, vkCmdClearAttachments, VkCommandBuffer, uint32_t, const VkClearAttachment*, uint32_t, const VkClearRect*);
 DECL_HOOK(void, vkCmdResolveImage, VkCommandBuffer, VkImage, VkImageLayout, VkImage, VkImageLayout, uint32_t, const VkImageResolve*);
 
 DECL_HOOK(void, vkCmdPipelineBarrier, VkCommandBuffer, VkPipelineStageFlags, VkPipelineStageFlags, VkDependencyFlags, uint32_t, const VkMemoryBarrier*, uint32_t, const VkBufferMemoryBarrier*, uint32_t, const VkImageMemoryBarrier*);
-DECL_HOOK(void, vkCmdBeginRenderPass, VkCommandBuffer, const VkRenderPassBeginInfo*, VkSubpassContents);
-DECL_HOOK(void, vkCmdEndRenderPass, VkCommandBuffer);
-DECL_HOOK(void, vkCmdNextSubpass, VkCommandBuffer, VkSubpassContents);
 
 DECL_HOOK(void, vkCmdSetEvent, VkCommandBuffer, VkEvent, VkPipelineStageFlags);
 DECL_HOOK(void, vkCmdResetEvent, VkCommandBuffer, VkEvent, VkPipelineStageFlags);
@@ -158,37 +130,10 @@ DECL_HOOK(VkResult, vkBindImageMemory2, VkDevice, uint32_t, const VkBindImageMem
 DECL_HOOK(void, vkTrimCommandPool, VkDevice, VkCommandPool, VkCommandPoolTrimFlags);
 
 // ---- Vulkan 1.2 ----
-DECL_HOOK(void, vkCmdDrawIndirectCount, VkCommandBuffer, VkBuffer, VkDeviceSize, VkBuffer, VkDeviceSize, uint32_t, uint32_t);
-DECL_HOOK(void, vkCmdDrawIndexedIndirectCount, VkCommandBuffer, VkBuffer, VkDeviceSize, VkBuffer, VkDeviceSize, uint32_t, uint32_t);
-DECL_HOOK(VkResult, vkCreateRenderPass2, VkDevice, const VkRenderPassCreateInfo2*, const VkAllocationCallbacks*, VkRenderPass*);
-DECL_HOOK(void, vkCmdBeginRenderPass2, VkCommandBuffer, const VkRenderPassBeginInfo*, const VkSubpassBeginInfo*);
-DECL_HOOK(void, vkCmdNextSubpass2, VkCommandBuffer, const VkSubpassBeginInfo*, const VkSubpassEndInfo*);
-DECL_HOOK(void, vkCmdEndRenderPass2, VkCommandBuffer, const VkSubpassEndInfo*);
 DECL_HOOK(void, vkResetQueryPool, VkDevice, VkQueryPool, uint32_t, uint32_t);
 DECL_HOOK(VkResult, vkGetSemaphoreCounterValue, VkDevice, VkSemaphore, uint64_t*);
 DECL_HOOK(VkResult, vkWaitSemaphores, VkDevice, const VkSemaphoreWaitInfo*, uint64_t);
 DECL_HOOK(VkResult, vkSignalSemaphore, VkDevice, const VkSemaphoreSignalInfo*);
-
-// ---- Vulkan 1.3 — Dynamic Rendering ----
-DECL_HOOK(void, vkCmdBeginRendering, VkCommandBuffer, const VkRenderingInfo*);
-DECL_HOOK(void, vkCmdEndRendering, VkCommandBuffer);
-
-// ---- Vulkan 1.3 — Extended Dynamic State ----
-DECL_HOOK(void, vkCmdSetCullMode, VkCommandBuffer, VkCullModeFlags);
-DECL_HOOK(void, vkCmdSetFrontFace, VkCommandBuffer, VkFrontFace);
-DECL_HOOK(void, vkCmdSetPrimitiveTopology, VkCommandBuffer, VkPrimitiveTopology);
-DECL_HOOK(void, vkCmdSetViewportWithCount, VkCommandBuffer, uint32_t, const VkViewport*);
-DECL_HOOK(void, vkCmdSetScissorWithCount, VkCommandBuffer, uint32_t, const VkRect2D*);
-DECL_HOOK(void, vkCmdSetDepthTestEnable, VkCommandBuffer, VkBool32);
-DECL_HOOK(void, vkCmdSetDepthWriteEnable, VkCommandBuffer, VkBool32);
-DECL_HOOK(void, vkCmdSetDepthCompareOp, VkCommandBuffer, VkCompareOp);
-DECL_HOOK(void, vkCmdSetDepthBoundsTestEnable, VkCommandBuffer, VkBool32);
-DECL_HOOK(void, vkCmdSetStencilTestEnable, VkCommandBuffer, VkBool32);
-DECL_HOOK(void, vkCmdSetStencilOp, VkCommandBuffer, VkStencilFaceFlags, VkStencilOp, VkStencilOp, VkStencilOp, VkCompareOp);
-DECL_HOOK(void, vkCmdSetRasterizerDiscardEnable, VkCommandBuffer, VkBool32);
-DECL_HOOK(void, vkCmdSetDepthBiasEnable, VkCommandBuffer, VkBool32);
-DECL_HOOK(void, vkCmdSetPrimitiveRestartEnable, VkCommandBuffer, VkBool32);
-DECL_HOOK(void, vkCmdSetVertexInputEXT, VkCommandBuffer, uint32_t, const VkVertexInputBindingDescription2EXT*, uint32_t, const VkVertexInputAttributeDescription2EXT*);
 
 // ---- Vulkan 1.3 — Synchronization2 ----
 DECL_HOOK(void, vkCmdPipelineBarrier2, VkCommandBuffer, const VkDependencyInfo*);
@@ -267,13 +212,9 @@ uint64_t VKAPI_PTR vkGetDeviceMemoryOpaqueCaptureAddress_hook(VkDevice, const Vk
 VkResult VKAPI_PTR vkGetFenceStatus_hook(VkDevice, VkFence);
 VkResult VKAPI_PTR vkGetEventStatus_hook(VkDevice, VkEvent);
 VkResult VKAPI_PTR vkGetPrivateData_hook(VkDevice, VkObjectType, uint64_t, VkPrivateDataSlot, uint64_t*);
-void     VKAPI_PTR vkGetRenderAreaGranularity_hook(VkDevice, VkRenderPass, VkExtent2D*);
 void     VKAPI_PTR vkGetImageSubresourceLayout_hook(VkDevice, VkImage, const VkImageSubresource*, VkSubresourceLayout*);
 VkResult VKAPI_PTR vkGetQueryPoolResults_hook(VkDevice, VkQueryPool, uint32_t, uint32_t, size_t, void*, VkDeviceSize, VkQueryResultFlags);
 VkResult VKAPI_PTR vkGetPipelineCacheData_hook(VkDevice, VkPipelineCache, size_t*, void*);
-
-// KHR
-VkResult VKAPI_PTR vkGetPhysicalDeviceSurfaceSupportKHR_hook(VkPhysicalDevice, uint32_t, VkSurfaceKHR, VkBool32*);
 
 // Tool properties (1.3)
 VkResult VKAPI_PTR vkGetPhysicalDeviceToolPropertiesEXT_hook(VkPhysicalDevice, uint32_t*, VkPhysicalDeviceToolProperties*);

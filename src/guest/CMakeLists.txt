@@ -7,7 +7,6 @@ set(GUEST_SOURCES
   guest_init.cpp
   icd_entrypoints.cpp
   icd_registry.cpp
-  video_decoder.cpp
   vk_intercept.cpp
   vk_intercept_gen.cpp
   vulkan_serializer.cpp
@@ -16,16 +15,6 @@ set(GUEST_SOURCES
 
 add_library(omnigpu_guest SHARED ${GUEST_SOURCES})
 
-# Copy full Mesa3D directory to output (when available)
-if(EXISTS "${MESA3D_OUTPUT_DIR}")
-  add_custom_command(TARGET omnigpu_guest POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E copy_directory
-      "${MESA3D_OUTPUT_DIR}"
-      "$<TARGET_FILE_DIR:omnigpu_guest>/mesa3d"
-    COMMENT "Copying Mesa3D distribution..."
-  )
-endif()
-
 target_link_libraries(omnigpu_guest PRIVATE
   omnigpu_common
 )
@@ -33,25 +22,6 @@ target_link_libraries(omnigpu_guest PRIVATE
 if(WIN32)
   target_compile_definitions(omnigpu_guest PRIVATE _CRT_SECURE_NO_WARNINGS)
   target_link_libraries(omnigpu_guest PRIVATE ws2_32)
-  target_link_libraries(omnigpu_guest PRIVATE mfplat mfuuid mf ole32)
-endif()
-
-# Optional FFmpeg integration for H.264/H.265/AV1 decoding (disabled for Windows guest)
-if(WIN32)
-  set(OMNIGPU_GUEST_USE_FFMPEG OFF)
-else()
-  set(OMNIGPU_GUEST_USE_FFMPEG ${OMNIGPU_BUILD_FFMPEG})
-endif()
-
-if(OMNIGPU_GUEST_USE_FFMPEG AND FFMPEG_FOUND)
-  target_compile_definitions(omnigpu_guest PRIVATE OMNIGPU_USE_FFMPEG=1)
-  target_sources(omnigpu_guest PRIVATE ffmpeg_decoder.cpp)
-  target_include_directories(omnigpu_guest PRIVATE ${FFMPEG_INC_DIR})
-  target_link_directories(omnigpu_guest PRIVATE ${FFMPEG_LIB_DIR})
-  target_link_libraries(omnigpu_guest PRIVATE avcodec.lib swscale.lib avutil.lib)
-  message(STATUS "FFmpeg: enabled for guest decoder")
-else()
-  message(STATUS "FFmpeg: disabled for guest — will fall back to built-in decoders")
 endif()
 
 # Standalone test client executable
@@ -62,7 +32,6 @@ add_executable(omnigpu_guest_test
   guest_init.cpp
   icd_entrypoints.cpp
   icd_registry.cpp
-  video_decoder.cpp
   client.cpp
   command_batch.cpp
   vk_intercept.cpp
@@ -74,14 +43,6 @@ target_link_libraries(omnigpu_guest_test PRIVATE omnigpu_common)
 if(WIN32)
   target_compile_definitions(omnigpu_guest_test PRIVATE _CRT_SECURE_NO_WARNINGS)
   target_link_libraries(omnigpu_guest_test PRIVATE ws2_32)
-  target_link_libraries(omnigpu_guest_test PRIVATE mfplat mfuuid mf ole32)
-endif()
-if(OMNIGPU_GUEST_USE_FFMPEG AND FFMPEG_FOUND)
-  target_compile_definitions(omnigpu_guest_test PRIVATE OMNIGPU_USE_FFMPEG=1)
-  target_sources(omnigpu_guest_test PRIVATE ffmpeg_decoder.cpp)
-  target_include_directories(omnigpu_guest_test PRIVATE ${FFMPEG_INC_DIR})
-  target_link_directories(omnigpu_guest_test PRIVATE ${FFMPEG_LIB_DIR})
-  target_link_libraries(omnigpu_guest_test PRIVATE avcodec.lib swscale.lib avutil.lib)
 endif()
 
 

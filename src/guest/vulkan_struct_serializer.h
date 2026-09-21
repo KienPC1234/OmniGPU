@@ -19,31 +19,8 @@ void write_VkDescriptorUpdateTemplateCreateInfo(
 
 void write_VkPipelineShaderStageCreateInfo(
     VulkanSerializer& ser, const VkPipelineShaderStageCreateInfo* info);
-void write_VkPipelineVertexInputStateCreateInfo(
-    VulkanSerializer& ser, const VkPipelineVertexInputStateCreateInfo* info);
-void write_VkPipelineInputAssemblyStateCreateInfo(
-    VulkanSerializer& ser, const VkPipelineInputAssemblyStateCreateInfo* info);
-void write_VkPipelineTessellationStateCreateInfo(
-    VulkanSerializer& ser, const VkPipelineTessellationStateCreateInfo* info);
-void write_VkPipelineViewportStateCreateInfo(
-    VulkanSerializer& ser, const VkPipelineViewportStateCreateInfo* info);
-void write_VkPipelineRasterizationStateCreateInfo(
-    VulkanSerializer& ser, const VkPipelineRasterizationStateCreateInfo* info);
-void write_VkPipelineMultisampleStateCreateInfo(
-    VulkanSerializer& ser, const VkPipelineMultisampleStateCreateInfo* info);
-void write_VkPipelineDepthStencilStateCreateInfo(
-    VulkanSerializer& ser, const VkPipelineDepthStencilStateCreateInfo* info);
-void write_VkPipelineColorBlendStateCreateInfo(
-    VulkanSerializer& ser, const VkPipelineColorBlendStateCreateInfo* info);
-void write_VkPipelineColorBlendAttachmentState(
-    VulkanSerializer& ser, const VkPipelineColorBlendAttachmentState* state);
-void write_VkPipelineDynamicStateCreateInfo(
-    VulkanSerializer& ser, const VkPipelineDynamicStateCreateInfo* info);
 void write_VkSpecializationInfo(
     VulkanSerializer& ser, const VkSpecializationInfo* info);
-
-void write_VkGraphicsPipelineCreateInfo(
-    VulkanSerializer& ser, const VkGraphicsPipelineCreateInfo* info);
 void write_VkComputePipelineCreateInfo(
     VulkanSerializer& ser, const VkComputePipelineCreateInfo* info);
 
@@ -67,9 +44,6 @@ void write_VkSemaphoreWaitInfo(
 void write_VkSemaphoreSignalInfo(
     VulkanSerializer& ser, const VkSemaphoreSignalInfo* info);
 
-void write_VkRenderPassBeginInfo(
-    VulkanSerializer& ser, const VkRenderPassBeginInfo* info);
-
 void write_VkCommandPoolCreateInfo(
     VulkanSerializer& ser, const VkCommandPoolCreateInfo* info);
 void write_VkBufferCreateInfo(
@@ -80,10 +54,6 @@ void write_VkImageViewCreateInfo(
     VulkanSerializer& ser, const VkImageViewCreateInfo* info);
 void write_VkSamplerCreateInfo(
     VulkanSerializer& ser, const VkSamplerCreateInfo* info);
-void write_VkRenderPassCreateInfo(
-    VulkanSerializer& ser, const VkRenderPassCreateInfo* info);
-void write_VkFramebufferCreateInfo(
-    VulkanSerializer& ser, const VkFramebufferCreateInfo* info);
 void write_VkPipelineLayoutCreateInfo(
     VulkanSerializer& ser, const VkPipelineLayoutCreateInfo* info);
 void write_VkDescriptorSetLayoutCreateInfo(
@@ -92,8 +62,6 @@ void write_VkDescriptorPoolCreateInfo(
     VulkanSerializer& ser, const VkDescriptorPoolCreateInfo* info);
 void write_VkDescriptorSetAllocateInfo(
     VulkanSerializer& ser, const VkDescriptorSetAllocateInfo* info);
-void write_VkSwapchainCreateInfoKHR(
-    VulkanSerializer& ser, const VkSwapchainCreateInfoKHR* info);
 void write_VkMemoryAllocateInfo(
     VulkanSerializer& ser, const VkMemoryAllocateInfo* info);
 

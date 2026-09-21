@@ -18,30 +18,6 @@ $BuildDir32 = "$ProjectRoot\build\release-x86"
 $ThirdParty = "$ProjectRoot\third_party"
 
 # ============================================================================
-# Step 0: Fetch FFmpeg before cmake configure (avoids "not yet downloaded")
-# ============================================================================
-$py = (Get-Command python3 -ErrorAction SilentlyContinue).Source
-if (-not $py) { $py = (Get-Command python -ErrorAction SilentlyContinue).Source }
-
-$ffmpegDir64 = "$ThirdParty\ffmpeg-bin"
-if (-not $SkipBuild -and $py -and -not (Test-Path "$ffmpegDir64\lib\avcodec.lib")) {
-    Write-Host "=== [0/6] Fetching FFmpeg (win64) ===" -ForegroundColor Cyan
-    & $py "$ProjectRoot\third_party\fetch_ffmpeg.py" --output-dir "$ffmpegDir64" --arch win64
-    if ($LASTEXITCODE -ne 0) { Write-Warning "FFmpeg win64 fetch failed; 64-bit build will fall back" }
-}
-
-$ffmpegDir86 = "$ThirdParty\ffmpeg-bin-x86"
-if (-not $SkipBuild -and $py -and -not (Test-Path "$ffmpegDir86\lib\avcodec.lib")) {
-    Write-Host "=== [0/6] Fetching FFmpeg (win32) ===" -ForegroundColor Cyan
-    & $py "$ProjectRoot\third_party\fetch_ffmpeg.py" --output-dir "$ffmpegDir86" --arch win32
-    if ($LASTEXITCODE -ne 0) { Write-Warning "FFmpeg win32 fetch failed; 32-bit build will fall back" }
-}
-
-if (-not $py) {
-    Write-Warning "Python not found; FFmpeg fetch skipped. Builds will fall back."
-}
-
-# ============================================================================
 # Step 1: Build 64-bit
 # ============================================================================
 # Locate Visual Studio installation via vswhere, with hardcoded fallback
@@ -91,19 +67,17 @@ if (Test-Path $DistDir) { Remove-Item -Recurse -Force $DistDir }
 New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
 New-Item -ItemType Directory -Path "$DistDir\x64" -Force | Out-Null
 New-Item -ItemType Directory -Path "$DistDir\x86" -Force | Out-Null
-New-Item -ItemType Directory -Path "$DistDir\mesa3d" -Force | Out-Null
 New-Item -ItemType Directory -Path "$DistDir\clvk" -Force | Out-Null
 New-Item -ItemType Directory -Path "$DistDir\docs" -Force | Out-Null
 
 $Bin64 = "$BuildDir64\bin"
 $Bin32 = "$BuildDir32\bin"
-$FfmpegBin = "$ThirdParty\ffmpeg-bin\bin"
 
 # ----- Root: 64-bit exes + runtime DLLs -----
 Copy-Item -Path "$Bin64\omnigpu_host.exe" -Destination $DistDir -Force
 Copy-Item -Path "$Bin64\omnigpu_vk_test.exe" -Destination $DistDir -Force
 
-# x64: Vulkan ICD driver (FFmpeg DLLs go to System32 by install.bat)
+# x64: Vulkan ICD driver
 Copy-Item -Path "$Bin64\omnigpu_guest.dll" -Destination "$DistDir\x64" -Force
 Copy-Item -Path "$Bin64\vk_icd.json" -Destination "$DistDir\x64" -Force
 # Inject correct library_arch for 64-bit
@@ -166,23 +140,10 @@ if (Test-Path "$Bin32\omnigpu_guest.dll") {
     }
 }
 
-# Runtime DLLs also to root (for exes, exclude FFmpeg — they come from third_party)
+# Runtime DLLs also to root (for executables)
 Get-ChildItem "$Bin64\*.dll" | ForEach-Object {
-    if ($_.Name -notmatch "^(omnigpu_guest|avcodec|avutil|avformat|avfilter|avdevice|swscale|swresample|postproc)") {
+    if ($_.Name -notmatch "^(omnigpu_guest)") {
         Copy-Item -Path $_.FullName -Destination $DistDir -Force
-    }
-}
-# FFmpeg DLLs to root (for host + daemon exes)
-if (Test-Path $FfmpegBin) {
-    Get-ChildItem "$FfmpegBin\*.dll" | ForEach-Object {
-        Copy-Item -Path $_.FullName -Destination $DistDir -Force
-    }
-}
-# x86 FFmpeg DLLs to x86/ (for 32-bit guest)
-$FfmpegBin86 = "$ThirdParty\ffmpeg-bin-x86\bin"
-if (Test-Path $FfmpegBin86) {
-    Get-ChildItem "$FfmpegBin86\*.dll" | ForEach-Object {
-        Copy-Item -Path $_.FullName -Destination "$DistDir\x86" -Force
     }
 }
 
@@ -225,12 +186,6 @@ reg add "HKLM\SOFTWARE\WOW6432Node\Khronos\OpenCL\Vendors" /v "%INSTDIR%\OpenCL.
 echo clvk OpenCL ICD registered.
 pause
 "@ | Out-File -FilePath "$DistDir\clvk\install_clvk.bat" -Encoding ASCII
-
-# ----- Mesa3D full distribution -----
-if (Test-Path "$ThirdParty\mesa3d") {
-    Write-Host "  [OK] Copying Mesa3D distribution..."
-    Copy-Item -Path "$ThirdParty\mesa3d\*" -Destination "$DistDir\mesa3d" -Recurse -Force
-}
 
 # ============================================================================
 # Step 4: Scripts + Docs

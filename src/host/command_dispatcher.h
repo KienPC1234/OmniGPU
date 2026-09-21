@@ -56,8 +56,6 @@ public:
     void store_pipeline_layout(uint64_t g, VkPipelineLayout v) { store_impl(pipelineLayouts_, g, v, "pipeline_layout"); }
     void store_pipeline(uint64_t g, VkPipeline v) { store_impl(pipelines_, g, v, "pipeline"); }
     void store_pipeline_cache(uint64_t g, VkPipelineCache v) { store_impl(pipelineCaches_, g, v, "pipeline_cache"); }
-    void store_render_pass(uint64_t g, VkRenderPass v) { store_impl(renderPasses_, g, v, "render_pass"); }
-    void store_framebuffer(uint64_t g, VkFramebuffer v) { store_impl(framebuffers_, g, v, "framebuffer"); }
     void store_descriptor_set_layout(uint64_t g, VkDescriptorSetLayout v) { store_impl(dsls_, g, v, "dsl"); }
     void store_descriptor_pool(uint64_t g, VkDescriptorPool v) { store_impl(dps_, g, v, "descriptor_pool"); }
     void store_descriptor_set(uint64_t g, VkDescriptorSet v) { store_impl(dss_, g, v, "descriptor_set"); }
@@ -81,8 +79,6 @@ public:
     void remove_pipeline_layout(uint64_t g) { pipelineLayouts_.erase(g); }
     void remove_pipeline(uint64_t g) { pipelines_.erase(g); }
     void remove_pipeline_cache(uint64_t g) { pipelineCaches_.erase(g); }
-    void remove_render_pass(uint64_t g) { renderPasses_.erase(g); }
-    void remove_framebuffer(uint64_t g) { framebuffers_.erase(g); }
     void remove_dsl(uint64_t g) { dsls_.erase(g); }
     void remove_dp(uint64_t g) { dps_.erase(g); }
     void remove_ds(uint64_t g) { dss_.erase(g); }
@@ -105,8 +101,6 @@ public:
     VkPipelineLayout get_pipeline_layout(uint64_t g) const { return lookup(pipelineLayouts_, g); }
     VkPipeline       get_pipeline(uint64_t g) const { return lookup(pipelines_, g); }
     VkPipelineCache  get_pipeline_cache(uint64_t g) const { return lookup(pipelineCaches_, g); }
-    VkRenderPass     get_render_pass(uint64_t g) const { return lookup(renderPasses_, g); }
-    VkFramebuffer    get_framebuffer(uint64_t g) const { return lookup(framebuffers_, g); }
     VkDescriptorSetLayout get_dsl(uint64_t g) const { return lookup(dsls_, g); }
     VkDescriptorPool      get_dp(uint64_t g) const { return lookup(dps_, g); }
     VkDescriptorSet       get_ds(uint64_t g) const { return lookup(dss_, g); }
@@ -148,8 +142,6 @@ private:
     std::unordered_map<uint64_t, VkPipelineLayout> pipelineLayouts_;
     std::unordered_map<uint64_t, VkPipeline> pipelines_;
     std::unordered_map<uint64_t, VkPipelineCache> pipelineCaches_;
-    std::unordered_map<uint64_t, VkRenderPass> renderPasses_;
-    std::unordered_map<uint64_t, VkFramebuffer> framebuffers_;
     std::unordered_map<uint64_t, VkDescriptorSetLayout> dsls_;
     std::unordered_map<uint64_t, VkDescriptorPool> dps_;
     std::unordered_map<uint64_t, VkDescriptorSet> dss_;
@@ -170,16 +162,7 @@ public:
     void set_device(VkPhysicalDevice physDev, VkDevice device, VkQueue queue,
                     uint32_t queueFamily, VkCommandPool cmdPool);
     VkPhysicalDevice phys_device() const { return physDev_; }
-    void set_framebuffer_size(uint32_t w, uint32_t h);
-
     void dispatch(fbs::FunctionId func_id, const uint8_t* args, size_t args_size);
-    bool flush_and_readback(std::vector<uint8_t>& out_pixels);
-
-    bool begin_render_pass(VkRenderPass rp, VkFramebuffer fb,
-                           uint32_t w, uint32_t h);
-    void end_render_pass();
-
-    bool setup_framebuffer();
 
     void cleanup();
 
@@ -210,16 +193,6 @@ private:
     ResourceMapper mapper_;
 
     VkPhysicalDevice physDev_ = VK_NULL_HANDLE;
-    VkRenderPass renderPass_ = VK_NULL_HANDLE;
-    VkFramebuffer mainFramebuffer_ = VK_NULL_HANDLE;
-    VkImage colorImage_ = VK_NULL_HANDLE;
-    VkDeviceMemory colorMemory_ = VK_NULL_HANDLE;
-    VkImageView colorView_ = VK_NULL_HANDLE;
-    VkImage renderTargetImage_ = VK_NULL_HANDLE;
-    VkBuffer readbackBuffer_ = VK_NULL_HANDLE;
-    VkDeviceMemory readbackMemory_ = VK_NULL_HANDLE;
-    uint32_t fbWidth_ = 800, fbHeight_ = 600;
-    bool inRenderPass_ = false;
 
     VkFence pendingSubmitFence_ = VK_NULL_HANDLE;
     uint64_t pendingSubmitFenceGuestHandle_ = 0;
@@ -232,9 +205,6 @@ private:
     std::unordered_map<uint64_t, uint64_t> bufferAddresses_;
     std::unordered_map<uint64_t, uint64_t> memoryToBuffer_;  // guest_mem → guest_buffer (first bound)
     bool isComputeMode_ = false;
-
-    // Per-framebuffer render target image (maps guest framebuffer handle → image)
-    std::unordered_map<uint64_t, VkImage> framebufferRenderTarget_;
 
     SendDataFn sendDataFn_;
 
@@ -251,15 +221,12 @@ private:
     void* pfnCmdResolveImage2_ = nullptr;
     void* pfnQueueSubmit2_ = nullptr;
     void* pfnCmdWaitEvents2_ = nullptr;
-    void* pfnCmdSetVertexInputEXT_ = nullptr;
     void* pfnBindBufferMemory2_ = nullptr;
     void* pfnBindImageMemory2_ = nullptr;
     void* pfnGetSemaphoreCounterValue_ = nullptr;
 
     void cache_device_procs(VkDevice dev);
 
-    void teardown_framebuffer();
-    bool copy_image_to_readback();
 };
 
 } // namespace omnigpu::host

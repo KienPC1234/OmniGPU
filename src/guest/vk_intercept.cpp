@@ -131,24 +131,14 @@ static VkQueue make_fake_queue() {
 // Check if an extension name is in the supported list (mirrors host GPU)
 static bool is_extension_supported(const char* name) {
     static const char* supported[] = {
-        VK_KHR_SURFACE_EXTENSION_NAME,
-        "VK_KHR_win32_surface",
         "VK_KHR_get_physical_device_properties2",
-        "VK_KHR_get_surface_capabilities2",
-        "VK_KHR_surface_protected_capabilities",
-        "VK_KHR_surface_maintenance1",
         "VK_KHR_device_group_creation",
         "VK_KHR_external_fence_capabilities",
         "VK_KHR_external_memory_capabilities",
         "VK_KHR_external_semaphore_capabilities",
-        "VK_KHR_display",
-        "VK_KHR_get_display_properties2",
         "VK_KHR_portability_enumeration",
-        "VK_EXT_surface_maintenance1",
-        "VK_EXT_swapchain_colorspace",
         "VK_EXT_debug_report",
         "VK_EXT_debug_utils",
-        "VK_EXT_direct_mode_display",
         "VK_LUNARG_direct_driver_loading",
         "VK_NV_external_memory_capabilities",
     };
@@ -313,25 +303,15 @@ VkResult VKAPI_PTR vkEnumerateInstanceExtensionProperties_hook(
             p.specVersion = ver;
             instance_extensions.push_back(p);
         };
-        add(VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_SURFACE_SPEC_VERSION);
-        add("VK_KHR_win32_surface", 6);
         add("VK_KHR_get_physical_device_properties2", 2);
-        add("VK_KHR_get_surface_capabilities2", 1);
-        add("VK_KHR_surface_protected_capabilities", 1);
-        add("VK_KHR_surface_maintenance1", 1);
         add("VK_KHR_device_group_creation", 1);
         add("VK_KHR_external_fence_capabilities", 1);
         add("VK_KHR_external_memory_capabilities", 1);
         add("VK_KHR_external_semaphore_capabilities", 1);
-        add("VK_KHR_display", 23);
-        add("VK_KHR_get_display_properties2", 1);
         add("VK_KHR_portability_enumeration", 1);
         add("VK_KHR_driver_properties", 1);
-        add("VK_EXT_surface_maintenance1", 1);
-        add("VK_EXT_swapchain_colorspace", 5);
         add("VK_EXT_debug_report", 10);
         add("VK_EXT_debug_utils", 2);
-        add("VK_EXT_direct_mode_display", 1);
         add("VK_LUNARG_direct_driver_loading", 1);
         add("VK_NV_external_memory_capabilities", 1);
     }
@@ -365,12 +345,10 @@ VkResult VKAPI_PTR vkEnumerateDeviceExtensionProperties_hook(
             p.specVersion = ver;
             device_extensions.push_back(p);
         };
-        add(VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_SWAPCHAIN_SPEC_VERSION);
         add("VK_KHR_maintenance1", 2);
         add("VK_KHR_maintenance2", 1);
         add("VK_KHR_maintenance3", 1);
         add("VK_KHR_maintenance4", 2);
-        add("VK_KHR_shader_draw_parameters", 1);
         add("VK_KHR_storage_buffer_storage_class", 1);
         add("VK_KHR_16bit_storage", 1);
         add("VK_KHR_8bit_storage", 1);
@@ -379,7 +357,6 @@ VkResult VKAPI_PTR vkEnumerateDeviceExtensionProperties_hook(
         add("VK_KHR_shader_integer_dot_product", 1);
         add("VK_KHR_descriptor_update_template", 1);
         add("VK_KHR_sampler_ycbcr_conversion", 14);
-        add("VK_KHR_multiview", 1);
         add("VK_KHR_get_memory_requirements2", 1);
         add("VK_KHR_bind_memory2", 1);
         add("VK_KHR_dedicated_allocation", 3);
@@ -387,17 +364,10 @@ VkResult VKAPI_PTR vkEnumerateDeviceExtensionProperties_hook(
         add("VK_KHR_timeline_semaphore", 2);
         add("VK_KHR_vulkan_memory_model", 3);
         add("VK_KHR_uniform_buffer_standard_layout", 1);
-        add("VK_KHR_imageless_framebuffer", 1);
         add("VK_KHR_spirv_1_4_extension", 1);
-        add("VK_KHR_separate_depth_stencil_layouts", 1);
         add("VK_KHR_shader_subgroup_extended_types", 1);
         add(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME, 1);
-        add("VK_KHR_create_renderpass2", 1);
-        add("VK_KHR_depth_stencil_resolve", 1);
-        add("VK_EXT_vertex_input_dynamic_state", 2);
         add("VK_EXT_private_data", 1);
-        add("VK_EXT_extended_dynamic_state", 1);
-        add("VK_EXT_extended_dynamic_state2", 1);
         add("VK_EXT_tooling_info", 1);
         add("VK_KHR_buffer_device_address", 1);
         add("VK_KHR_push_descriptor", 2);
@@ -659,28 +629,6 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties_hook(
     pProperties->limits.maxDescriptorSetSampledImages = caps.max_per_stage_descriptor_sampled_images * 4;
     pProperties->limits.maxDescriptorSetStorageImages = caps.max_per_stage_descriptor_storage_images * 4;
     pProperties->limits.maxDescriptorSetInputAttachments = caps.max_color_attachments * 4;
-    pProperties->limits.maxVertexInputAttributes = 32;
-    pProperties->limits.maxVertexInputBindings = 32;
-    pProperties->limits.maxVertexInputAttributeOffset = 2047;
-    pProperties->limits.maxVertexInputBindingStride = 2048;
-    pProperties->limits.maxVertexOutputComponents = 128;
-    pProperties->limits.maxTessellationGenerationLevel = static_cast<uint32_t>(caps.max_tessellation_factor);
-    pProperties->limits.maxTessellationPatchSize = 32;
-    pProperties->limits.maxTessellationControlPerVertexInputComponents = 128;
-    pProperties->limits.maxTessellationControlPerVertexOutputComponents = 128;
-    pProperties->limits.maxTessellationControlPerPatchOutputComponents = 128;
-    pProperties->limits.maxTessellationControlTotalOutputComponents = 4096;
-    pProperties->limits.maxTessellationEvaluationInputComponents = 128;
-    pProperties->limits.maxTessellationEvaluationOutputComponents = 128;
-    pProperties->limits.maxGeometryShaderInvocations = 128;
-    pProperties->limits.maxGeometryInputComponents = 128;
-    pProperties->limits.maxGeometryOutputComponents = 128;
-    pProperties->limits.maxGeometryOutputVertices = 1024;
-    pProperties->limits.maxGeometryTotalOutputComponents = 1024;
-    pProperties->limits.maxFragmentInputComponents = 128;
-    pProperties->limits.maxFragmentOutputAttachments = caps.max_fragment_output_attachments;
-    pProperties->limits.maxFragmentDualSrcAttachments = 1;
-    pProperties->limits.maxFragmentCombinedOutputResources = caps.max_fragment_output_attachments + caps.max_per_stage_descriptor_storage_images;
     pProperties->limits.maxComputeSharedMemorySize = caps.max_compute_shared_memory_size;
     pProperties->limits.maxComputeWorkGroupCount[0] = caps.max_compute_work_group_count_x;
     pProperties->limits.maxComputeWorkGroupCount[1] = caps.max_compute_work_group_count_y;
@@ -690,18 +638,8 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties_hook(
     pProperties->limits.maxComputeWorkGroupSize[1] = 1024;
     pProperties->limits.maxComputeWorkGroupSize[2] = 64;
     pProperties->limits.subPixelInterpolationOffsetBits = 4;
-    pProperties->limits.maxFramebufferWidth = caps.max_framebuffer_width;
-    pProperties->limits.maxFramebufferHeight = caps.max_framebuffer_height;
-    pProperties->limits.maxFramebufferLayers = caps.max_framebuffer_layers;
-    pProperties->limits.framebufferColorSampleCounts = static_cast<VkSampleCountFlags>(caps.framebuffer_color_sample_counts);
-    pProperties->limits.framebufferDepthSampleCounts = static_cast<VkSampleCountFlags>(caps.sample_counts);
-    pProperties->limits.framebufferStencilSampleCounts = static_cast<VkSampleCountFlags>(caps.sample_counts);
-    pProperties->limits.framebufferNoAttachmentsSampleCounts = static_cast<VkSampleCountFlags>(caps.sample_counts);
-    pProperties->limits.maxColorAttachments = caps.max_color_attachments;
     pProperties->limits.sampledImageColorSampleCounts = static_cast<VkSampleCountFlags>(caps.sample_counts);
     pProperties->limits.sampledImageIntegerSampleCounts = VK_SAMPLE_COUNT_1_BIT;
-    pProperties->limits.sampledImageDepthSampleCounts = static_cast<VkSampleCountFlags>(caps.sample_counts);
-    pProperties->limits.sampledImageStencilSampleCounts = static_cast<VkSampleCountFlags>(caps.sample_counts);
     pProperties->limits.storageImageSampleCounts = static_cast<VkSampleCountFlags>(caps.sample_counts);
     pProperties->limits.maxSampleMaskWords = 1;
     pProperties->limits.timestampComputeAndGraphics = VK_TRUE;
@@ -1109,7 +1047,6 @@ void VKAPI_PTR vkGetPhysicalDeviceFeatures2_hook(
             f12->hostQueryReset = VK_TRUE;
             f12->vulkanMemoryModel = VK_TRUE;
             f12->vulkanMemoryModelDeviceScope = VK_TRUE;
-            f12->drawIndirectCount = VK_TRUE;
             // ML support — default to VK_TRUE for compute
             bool okF16I8 = !caps.valid() || caps.supports_float16_int8;
             bool ok8 = !caps.valid() || caps.supports_8bit_storage;
@@ -1124,7 +1061,6 @@ void VKAPI_PTR vkGetPhysicalDeviceFeatures2_hook(
             f12->descriptorBindingUniformBufferUpdateAfterBind = VK_FALSE;
             f12->descriptorBindingSampledImageUpdateAfterBind = VK_FALSE;
             f12->descriptorBindingUpdateUnusedWhilePending = VK_FALSE;
-            f12->imagelessFramebuffer = VK_FALSE;
             f12->shaderOutputViewportIndex = VK_FALSE;
             f12->shaderOutputLayer = VK_FALSE;
             f12->subgroupBroadcastDynamicId = VK_FALSE;
@@ -1142,7 +1078,6 @@ void VKAPI_PTR vkGetPhysicalDeviceFeatures2_hook(
             f13->shaderZeroInitializeWorkgroupMemory = VK_TRUE;
             f13->shaderIntegerDotProduct = !caps.valid() || caps.supports_integer_dot_product;
             // Non-essential for compute
-            f13->dynamicRendering = VK_FALSE;
             f13->inlineUniformBlock = VK_FALSE;
             f13->privateData = VK_FALSE;
             f13->shaderDemoteToHelperInvocation = VK_FALSE;
@@ -1363,10 +1298,10 @@ void VKAPI_PTR vkGetPhysicalDeviceQueueFamilyProperties2_hook(
     for (uint32_t i = 0; i < kQueueFamilyCount; i++) {
         props[i].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2;
     }
-    // QF 0: graphics + compute + transfer
+    // QF 0: compute + transfer
     props[0].queueFamilyProperties.queueCount = 1;
     props[0].queueFamilyProperties.queueFlags =
-        VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT;
+        VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT;
     props[0].queueFamilyProperties.timestampValidBits = 64;
     props[0].queueFamilyProperties.minImageTransferGranularity = {1, 1, 1};
     // QF 1: compute + transfer dedicated
@@ -1516,18 +1451,6 @@ uint64_t VKAPI_PTR vkGetDeviceMemoryOpaqueCaptureAddress_hook(
     }
     SPDLOG_INFO("vkGetDeviceMemoryOpaqueCaptureAddress_hook exit: address={:#x}", addr);
     return addr;
-}
-
-void VKAPI_PTR vkGetRenderAreaGranularity_hook(
-    VkDevice device,
-    VkRenderPass renderPass,
-    VkExtent2D* pGranularity)
-{
-    SPDLOG_TRACE("Intercepted: vkGetRenderAreaGranularity");
-    if (pGranularity) {
-        pGranularity->width = 1;
-        pGranularity->height = 1;
-    }
 }
 
 void VKAPI_PTR vkGetImageSubresourceLayout_hook(
@@ -1852,144 +1775,6 @@ VkResult VKAPI_PTR vkResetCommandBuffer_hook(
     return VK_SUCCESS;
 }
 
-// ---------------------------------------------------------------------------
-// WSI Surface and Swapchain hooks (needed by vkcube)
-// ---------------------------------------------------------------------------
-static std::mutex g_swapchain_mutex;
-static std::unordered_map<uint64_t, std::vector<VkImage>> g_swapchain_images;
-static std::atomic<uint32_t> s_current_image{0};
-
-static uint64_t next_fake_handle_id() {
-    static std::atomic<uint64_t> counter{0x20000000};
-    return counter.fetch_add(1, std::memory_order_relaxed);
-}
-
-VkResult VKAPI_PTR vkCreateWin32SurfaceKHR_hook(
-    VkInstance instance,
-    const VkWin32SurfaceCreateInfoKHR* pCreateInfo,
-    const VkAllocationCallbacks* pAllocator,
-    VkSurfaceKHR* pSurface)
-{
-    SPDLOG_TRACE("Intercepted: vkCreateWin32SurfaceKHR");
-    if (pSurface) *pSurface = handle_from_u64<VkSurfaceKHR>(next_fake_handle_id());
-    return VK_SUCCESS;
-}
-
-void VKAPI_PTR vkDestroySurfaceKHR_hook(
-    VkInstance instance, VkSurfaceKHR surface, const VkAllocationCallbacks* pAllocator)
-{
-    SPDLOG_TRACE("Intercepted: vkDestroySurfaceKHR");
-}
-
-VkResult VKAPI_PTR vkCreateSwapchainKHR_hook(
-    VkDevice device,
-    const VkSwapchainCreateInfoKHR* pCreateInfo,
-    const VkAllocationCallbacks* pAllocator,
-    VkSwapchainKHR* pSwapchain)
-{
-    SPDLOG_TRACE("Intercepted: vkCreateSwapchainKHR {}x{}",
-                 pCreateInfo ? pCreateInfo->imageExtent.width  : 0,
-                 pCreateInfo ? pCreateInfo->imageExtent.height : 0);
-    uint64_t sc_id = next_fake_handle_id();
-    VkSwapchainKHR sc = handle_from_u64<VkSwapchainKHR>(sc_id);
-    if (pSwapchain) *pSwapchain = sc;
-    uint32_t img_count = pCreateInfo ? std::max(pCreateInfo->minImageCount, 2u) : 2;
-    std::vector<VkImage> imgs;
-    imgs.reserve(img_count);
-    for (uint32_t i = 0; i < img_count; i++) {
-        imgs.push_back(handle_from_u64<VkImage>(next_fake_handle_id()));
-    }
-    std::lock_guard<std::mutex> lock(g_swapchain_mutex);
-    g_swapchain_images[sc_id] = std::move(imgs);
-    return VK_SUCCESS;
-}
-
-VkResult VKAPI_PTR vkGetSwapchainImagesKHR_hook(
-    VkDevice device,
-    VkSwapchainKHR swapchain,
-    uint32_t* pSwapchainImageCount,
-    VkImage* pSwapchainImages)
-{
-    SPDLOG_TRACE("Intercepted: vkGetSwapchainImagesKHR");
-    if (!pSwapchainImageCount) return VK_ERROR_INITIALIZATION_FAILED;
-    uint64_t sc_id = handle_to_u64(swapchain);
-    std::lock_guard<std::mutex> lock(g_swapchain_mutex);
-    auto it = g_swapchain_images.find(sc_id);
-    uint32_t count = (it != g_swapchain_images.end()) ? static_cast<uint32_t>(it->second.size()) : 2;
-    if (!pSwapchainImages) {
-        *pSwapchainImageCount = count;
-        return VK_SUCCESS;
-    }
-    uint32_t to_copy = std::min(*pSwapchainImageCount, count);
-    if (it != g_swapchain_images.end()) {
-        for (uint32_t i = 0; i < to_copy; i++) pSwapchainImages[i] = it->second[i];
-    }
-    *pSwapchainImageCount = to_copy;
-    return (to_copy < count) ? VK_INCOMPLETE : VK_SUCCESS;
-}
-
-void VKAPI_PTR vkDestroySwapchainKHR_hook(
-    VkDevice device, VkSwapchainKHR swapchain, const VkAllocationCallbacks* pAllocator)
-{
-    SPDLOG_TRACE("Intercepted: vkDestroySwapchainKHR");
-    uint64_t sc_id = handle_to_u64(swapchain);
-    std::lock_guard<std::mutex> lock(g_swapchain_mutex);
-    g_swapchain_images.erase(sc_id);
-}
-
-VkResult VKAPI_PTR vkAcquireNextImageKHR_hook(
-    VkDevice device, VkSwapchainKHR swapchain, uint64_t timeout,
-    VkSemaphore semaphore, VkFence fence, uint32_t* pImageIndex)
-{
-    SPDLOG_TRACE("Intercepted: vkAcquireNextImageKHR");
-    if (!pImageIndex) return VK_ERROR_INITIALIZATION_FAILED;
-    uint64_t sc_id = handle_to_u64(swapchain);
-    uint32_t count = 2;
-    {
-        std::lock_guard<std::mutex> lock(g_swapchain_mutex);
-        auto it = g_swapchain_images.find(sc_id);
-        if (it != g_swapchain_images.end()) count = static_cast<uint32_t>(it->second.size());
-    }
-    *pImageIndex = s_current_image.fetch_add(1, std::memory_order_relaxed) % count;
-    return VK_SUCCESS;
-}
-
-VkResult VKAPI_PTR vkQueuePresentKHR_hook(
-    VkQueue queue, const VkPresentInfoKHR* pPresentInfo)
-{
-    SPDLOG_TRACE("Intercepted: vkQueuePresentKHR");
-    auto* batch = intercept::get_batch();
-    if (batch) {
-        batch->on_present();
-        batch->force_flush();
-    }
-    return VK_SUCCESS;
-}
-
-VkResult VKAPI_PTR vkAcquireNextImage2KHR_hook(
-    VkDevice device, const VkAcquireNextImageInfoKHR* pAcquireInfo, uint32_t* pImageIndex)
-{
-    SPDLOG_TRACE("Intercepted: vkAcquireNextImage2KHR");
-    if (!pAcquireInfo || !pImageIndex) return VK_ERROR_INITIALIZATION_FAILED;
-    return vkAcquireNextImageKHR_hook(device, pAcquireInfo->swapchain,
-                                       pAcquireInfo->timeout,
-                                       pAcquireInfo->semaphore,
-                                       pAcquireInfo->fence, pImageIndex);
-}
-
-VkResult VKAPI_PTR vkGetDeviceGroupPresentCapabilitiesKHR_hook(
-    VkDevice device,
-    VkDeviceGroupPresentCapabilitiesKHR* pDeviceGroupPresentCapabilities)
-{
-    SPDLOG_TRACE("Intercepted: vkGetDeviceGroupPresentCapabilitiesKHR");
-    if (!pDeviceGroupPresentCapabilities) return VK_ERROR_INITIALIZATION_FAILED;
-    std::memset(pDeviceGroupPresentCapabilities, 0, sizeof(*pDeviceGroupPresentCapabilities));
-    pDeviceGroupPresentCapabilities->sType = VK_STRUCTURE_TYPE_DEVICE_GROUP_PRESENT_CAPABILITIES_KHR;
-    pDeviceGroupPresentCapabilities->presentMask[0] = 1;
-    pDeviceGroupPresentCapabilities->modes = VK_DEVICE_GROUP_PRESENT_MODE_LOCAL_BIT_KHR;
-    return VK_SUCCESS;
-}
-
 // ============ MEMORY REQUIREMENT QUERIES ============
 void VKAPI_PTR vkGetBufferMemoryRequirements_hook(
     VkDevice device, VkBuffer buffer, VkMemoryRequirements* pMemoryRequirements)
@@ -2154,123 +1939,6 @@ void VKAPI_PTR vkGetDeviceImageMemoryRequirements_hook(
         pMemoryRequirements->memoryRequirements.alignment = 65536;
         pMemoryRequirements->memoryRequirements.memoryTypeBits = 0xFFFFFFFF;
     }
-}
-
-// ---------------------------------------------------------------------------
-// Surface query hooks (needed by vkcube)
-// ---------------------------------------------------------------------------
-VkResult VKAPI_PTR vkGetPhysicalDeviceSurfaceCapabilitiesKHR_hook(
-    VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
-    VkSurfaceCapabilitiesKHR* pSurfaceCapabilities)
-{
-    SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
-    if (!pSurfaceCapabilities) return VK_ERROR_INITIALIZATION_FAILED;
-    auto& caps = caps::get();
-    uint32_t w = caps.valid() ? caps.max_framebuffer_width  : 3840;
-    uint32_t h = caps.valid() ? caps.max_framebuffer_height : 2160;
-    std::memset(pSurfaceCapabilities, 0, sizeof(*pSurfaceCapabilities));
-    pSurfaceCapabilities->minImageCount = 2;
-    pSurfaceCapabilities->maxImageCount = 8;
-    pSurfaceCapabilities->currentExtent  = {w, h};
-    pSurfaceCapabilities->minImageExtent = {1, 1};
-    pSurfaceCapabilities->maxImageExtent = {w, h};
-    pSurfaceCapabilities->maxImageArrayLayers = 1;
-    pSurfaceCapabilities->supportedTransforms = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-    pSurfaceCapabilities->currentTransform    = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-    pSurfaceCapabilities->supportedCompositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    pSurfaceCapabilities->supportedUsageFlags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-        VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    return VK_SUCCESS;
-}
-
-VkResult VKAPI_PTR vkGetPhysicalDeviceSurfaceFormatsKHR_hook(
-    VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
-    uint32_t* pSurfaceFormatCount, VkSurfaceFormatKHR* pSurfaceFormats)
-{
-    SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceSurfaceFormatsKHR");
-    if (!pSurfaceFormatCount) return VK_ERROR_INITIALIZATION_FAILED;
-    static const VkSurfaceFormatKHR formats[] = {
-        {VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
-        {VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
-    };
-    uint32_t count = static_cast<uint32_t>(sizeof(formats) / sizeof(formats[0]));
-    if (!pSurfaceFormats) {
-        *pSurfaceFormatCount = count;
-        return VK_SUCCESS;
-    }
-    uint32_t to_copy = std::min(*pSurfaceFormatCount, count);
-    std::memcpy(pSurfaceFormats, formats, to_copy * sizeof(VkSurfaceFormatKHR));
-    *pSurfaceFormatCount = to_copy;
-    return (to_copy < count) ? VK_INCOMPLETE : VK_SUCCESS;
-}
-
-VkResult VKAPI_PTR vkGetPhysicalDeviceSurfacePresentModesKHR_hook(
-    VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
-    uint32_t* pPresentModeCount, VkPresentModeKHR* pPresentModes)
-{
-    SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceSurfacePresentModesKHR");
-    if (!pPresentModeCount) return VK_ERROR_INITIALIZATION_FAILED;
-    static const VkPresentModeKHR modes[] = {
-        VK_PRESENT_MODE_FIFO_KHR, VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_IMMEDIATE_KHR,
-    };
-    uint32_t count = static_cast<uint32_t>(sizeof(modes) / sizeof(modes[0]));
-    if (!pPresentModes) {
-        *pPresentModeCount = count;
-        return VK_SUCCESS;
-    }
-    uint32_t to_copy = std::min(*pPresentModeCount, count);
-    std::memcpy(pPresentModes, modes, to_copy * sizeof(VkPresentModeKHR));
-    *pPresentModeCount = to_copy;
-    return (to_copy < count) ? VK_INCOMPLETE : VK_SUCCESS;
-}
-
-VkResult VKAPI_PTR vkGetPhysicalDeviceSurfaceSupportKHR_hook(
-    VkPhysicalDevice physicalDevice, uint32_t queueFamilyIndex,
-    VkSurfaceKHR surface, VkBool32* pSupported)
-{
-    SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceSurfaceSupportKHR");
-    if (pSupported) *pSupported = VK_TRUE;
-    return VK_SUCCESS;
-}
-
-VkResult VKAPI_PTR vkGetPhysicalDeviceSurfaceCapabilities2KHR_hook(
-    VkPhysicalDevice physicalDevice,
-    const VkPhysicalDeviceSurfaceInfo2KHR* pSurfaceInfo,
-    VkSurfaceCapabilities2KHR* pSurfaceCapabilities)
-{
-    SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceSurfaceCapabilities2KHR");
-    if (!pSurfaceCapabilities) return VK_ERROR_INITIALIZATION_FAILED;
-    pSurfaceCapabilities->sType = VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR;
-    VkSurfaceKHR surf = pSurfaceInfo ? pSurfaceInfo->surface : VK_NULL_HANDLE;
-    return vkGetPhysicalDeviceSurfaceCapabilitiesKHR_hook(
-        physicalDevice, surf, &pSurfaceCapabilities->surfaceCapabilities);
-}
-
-VkResult VKAPI_PTR vkGetPhysicalDeviceSurfaceFormats2KHR_hook(
-    VkPhysicalDevice physicalDevice,
-    const VkPhysicalDeviceSurfaceInfo2KHR* pSurfaceInfo,
-    uint32_t* pSurfaceFormatCount,
-    VkSurfaceFormat2KHR* pSurfaceFormats)
-{
-    SPDLOG_TRACE("Intercepted: vkGetPhysicalDeviceSurfaceFormats2KHR");
-    if (!pSurfaceFormatCount) return VK_ERROR_INITIALIZATION_FAILED;
-    static const VkSurfaceFormatKHR fmts[] = {
-        {VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
-        {VK_FORMAT_R8G8B8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
-    };
-    uint32_t count = static_cast<uint32_t>(sizeof(fmts) / sizeof(fmts[0]));
-    if (!pSurfaceFormats) {
-        *pSurfaceFormatCount = count;
-        return VK_SUCCESS;
-    }
-    uint32_t to_copy = std::min(*pSurfaceFormatCount, count);
-    for (uint32_t i = 0; i < to_copy; i++) {
-        pSurfaceFormats[i].sType = VK_STRUCTURE_TYPE_SURFACE_FORMAT_2_KHR;
-        pSurfaceFormats[i].pNext = nullptr;
-        pSurfaceFormats[i].surfaceFormat = fmts[i];
-    }
-    *pSurfaceFormatCount = to_copy;
-    return (to_copy < count) ? VK_INCOMPLETE : VK_SUCCESS;
 }
 
 // ---------------------------------------------------------------------------
@@ -3290,13 +2958,11 @@ struct ManualHookRegistrar {
         register_manual_hook("vkGetFenceStatus", reinterpret_cast<void*>(vkGetFenceStatus_hook));
         register_manual_hook("vkGetEventStatus", reinterpret_cast<void*>(vkGetEventStatus_hook));
         register_manual_hook("vkGetPrivateData", reinterpret_cast<void*>(vkGetPrivateData_hook));
-        register_manual_hook("vkGetRenderAreaGranularity", reinterpret_cast<void*>(vkGetRenderAreaGranularity_hook));
         register_manual_hook("vkGetImageSubresourceLayout", reinterpret_cast<void*>(vkGetImageSubresourceLayout_hook));
         register_manual_hook("vkGetQueryPoolResults", reinterpret_cast<void*>(vkGetQueryPoolResults_hook));
         register_manual_hook("vkGetPipelineCacheData", reinterpret_cast<void*>(vkGetPipelineCacheData_hook));
 
         // KHR
-        register_manual_hook("vkGetPhysicalDeviceSurfaceSupportKHR", reinterpret_cast<void*>(vkGetPhysicalDeviceSurfaceSupportKHR_hook));
         register_manual_hook("vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR", reinterpret_cast<void*>(vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR_hook));
 
         // KHR aliases for query functions (promoted to core in 1.1).
@@ -3332,24 +2998,6 @@ struct ManualHookRegistrar {
         register_manual_hook("vkBeginCommandBuffer", reinterpret_cast<void*>(vkBeginCommandBuffer_hook));
         register_manual_hook("vkEndCommandBuffer", reinterpret_cast<void*>(vkEndCommandBuffer_hook));
         register_manual_hook("vkResetCommandBuffer", reinterpret_cast<void*>(vkResetCommandBuffer_hook));
-
-        // WSI Surface / Swapchain
-        register_manual_hook("vkCreateWin32SurfaceKHR", reinterpret_cast<void*>(vkCreateWin32SurfaceKHR_hook));
-        register_manual_hook("vkDestroySurfaceKHR", reinterpret_cast<void*>(vkDestroySurfaceKHR_hook));
-        register_manual_hook("vkCreateSwapchainKHR", reinterpret_cast<void*>(vkCreateSwapchainKHR_hook));
-        register_manual_hook("vkDestroySwapchainKHR", reinterpret_cast<void*>(vkDestroySwapchainKHR_hook));
-        register_manual_hook("vkGetSwapchainImagesKHR", reinterpret_cast<void*>(vkGetSwapchainImagesKHR_hook));
-        register_manual_hook("vkAcquireNextImageKHR", reinterpret_cast<void*>(vkAcquireNextImageKHR_hook));
-        register_manual_hook("vkAcquireNextImage2KHR", reinterpret_cast<void*>(vkAcquireNextImage2KHR_hook));
-        register_manual_hook("vkQueuePresentKHR", reinterpret_cast<void*>(vkQueuePresentKHR_hook));
-        register_manual_hook("vkGetDeviceGroupPresentCapabilitiesKHR", reinterpret_cast<void*>(vkGetDeviceGroupPresentCapabilitiesKHR_hook));
-
-        // Surface queries
-        register_manual_hook("vkGetPhysicalDeviceSurfaceCapabilitiesKHR", reinterpret_cast<void*>(vkGetPhysicalDeviceSurfaceCapabilitiesKHR_hook));
-        register_manual_hook("vkGetPhysicalDeviceSurfaceFormatsKHR", reinterpret_cast<void*>(vkGetPhysicalDeviceSurfaceFormatsKHR_hook));
-        register_manual_hook("vkGetPhysicalDeviceSurfacePresentModesKHR", reinterpret_cast<void*>(vkGetPhysicalDeviceSurfacePresentModesKHR_hook));
-        register_manual_hook("vkGetPhysicalDeviceSurfaceCapabilities2KHR", reinterpret_cast<void*>(vkGetPhysicalDeviceSurfaceCapabilities2KHR_hook));
-        register_manual_hook("vkGetPhysicalDeviceSurfaceFormats2KHR", reinterpret_cast<void*>(vkGetPhysicalDeviceSurfaceFormats2KHR_hook));
 
         // Memory mapping (must allocate host memory for guest writes)
         register_manual_hook("vkAllocateMemory", reinterpret_cast<void*>(vkAllocateMemory_hook));

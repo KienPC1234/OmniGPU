@@ -44,14 +44,6 @@ if exist "%WINDIR%\SysWOW64\vulkan-1.dll" (
     echo   [OK] SysWOW64\vulkan-1.dll removed
 )
 
-:: ========== Remove FFmpeg DLLs from System32 ==========
-echo [4/6] Removing FFmpeg DLLs from System32...
-for %%f in (avcodec-*.dll avutil-*.dll swscale-*.dll swresample-*.dll) do (
-    if exist "%WINDIR%\System32\%%f" del /f "%WINDIR%\System32\%%f" >nul 2>&1
-    if exist "%WINDIR%\SysWOW64\%%f" del /f "%WINDIR%\SysWOW64\%%f" >nul 2>&1
-)
-echo   [OK] FFmpeg DLLs removed from System32
-
 :: ========== Remove shortcuts ==========
 echo [5/6] Removing shortcuts...
 set STARTMENU=%APPDATA%\Microsoft\Windows\Start Menu\Programs\OmniGPU
@@ -72,9 +64,5 @@ echo.
 echo ============================================
 echo   Uninstall complete!
 echo ============================================
-echo.
-echo Note: Mesa3D OpenGL drivers are NOT removed.
-echo To uninstall Mesa3D, run:
-echo   mesa3d\systemwidedeploy.cmd (chon 10)
 echo.
 pause

@@ -54,8 +54,7 @@ endif()
 option(OMNIGPU_BUILD_TESTS "Build tests" ON)
 option(OMNIGPU_BUILD_HOST "Build host server" ON)
 option(OMNIGPU_BUILD_GUEST "Build guest client" ON)
-option(OMNIGPU_FETCH_MESA3D "Download Mesa3D (OpenGL→Vulkan) for guest" ON)
-option(OMNIGPU_BUILD_FFMPEG "Download FFmpeg pre-built with HW acceleration" ON)
+option(OMNIGPU_BUILD_COMPUTE "Build compute host and guest components" ON)
 
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
@@ -69,30 +68,16 @@ find_package(nlohmann_json CONFIG REQUIRED)
 find_package(VulkanHeaders CONFIG REQUIRED)
 find_package(VulkanLoader CONFIG REQUIRED)
 find_package(lz4 CONFIG REQUIRED)
-find_package(libjpeg-turbo CONFIG REQUIRED)
 find_package(Threads REQUIRED)
 
 add_subdirectory(src/common)
 
 if(OMNIGPU_BUILD_HOST)
   add_subdirectory(src/host)
-  if(OMNIGPU_BUILD_FFMPEG)
-    if(TARGET omnigpu_fetch_ffmpeg)
-      add_dependencies(omnigpu_host omnigpu_fetch_ffmpeg)
-    endif()
-  endif()
 endif()
 
 if(OMNIGPU_BUILD_GUEST)
   add_subdirectory(src/guest)
-  if(OMNIGPU_FETCH_MESA3D AND TARGET omnigpu_fetch_mesa3d AND NOT MESA3D_AVAILABLE)
-    add_dependencies(omnigpu_guest omnigpu_fetch_mesa3d)
-  endif()
-  if(OMNIGPU_BUILD_FFMPEG)
-    if(TARGET omnigpu_fetch_ffmpeg)
-      add_dependencies(omnigpu_guest omnigpu_fetch_ffmpeg)
-    endif()
-  endif()
 endif()
 
 # Compile compute shaders to SPIR-V
@@ -171,16 +156,6 @@ if(OMNIGPU_BUILD_HOST)
     FILES "${CMAKE_CURRENT_SOURCE_DIR}/omnigpu_host.json"
     DESTINATION "${CMAKE_INSTALL_BINDIR}"
     COMPONENT "Config"
-    OPTIONAL
-  )
-endif()
-
-# Mesa3D distribution directory (opengl32.dll + libgallium_wgl.dll)
-if(OMNIGPU_FETCH_MESA3D AND OMNIGPU_BUILD_GUEST AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mesa3d")
-  install(
-    DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/third_party/mesa3d/"
-    DESTINATION "${CMAKE_INSTALL_BINDIR}/mesa3d"
-    COMPONENT "ThirdParty"
     OPTIONAL
   )
 endif()

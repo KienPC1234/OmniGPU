@@ -46,5 +46,4 @@ endif()
 target_link_libraries(omnigpu_common PUBLIC
   flatbuffers::flatbuffers
   lz4::lz4
-  $<IF:$<TARGET_EXISTS:libjpeg-turbo::turbojpeg>,libjpeg-turbo::turbojpeg,libjpeg-turbo::turbojpeg-static>
 )

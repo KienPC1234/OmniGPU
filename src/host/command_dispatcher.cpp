@@ -114,11 +114,6 @@ CommandDispatcher::CommandDispatcher() {
         for (uint32_t i = 0; i < count; i++)
             free_VkSubmitInfo(&submits[i]);
     });
-    REGISTER(fbs::FunctionId_vkQueuePresentKHR, [](auto& d, auto& r) {
-        r.read_handle(); // queue
-        r.skip(sizeof(VkPresentInfoKHR));
-        SPDLOG_DEBUG("  vkQueuePresentKHR -> handled at flush time");
-    });
     REGISTER(fbs::FunctionId_vkDeviceWaitIdle, [](auto& d, auto& r) {
         r.read_handle(); // device
         vkDeviceWaitIdle(d.mapper_.device());
@@ -200,9 +195,8 @@ CommandDispatcher::CommandDispatcher() {
         if (has_inherit) {
             inheritInfo.sType = static_cast<VkStructureType>(r.read_u32());
             inheritInfo.pNext = nullptr;
-            inheritInfo.renderPass = d.mapper_.get_render_pass(r.read_handle());
             inheritInfo.subpass = r.read_u32();
-            inheritInfo.framebuffer = d.mapper_.get_framebuffer(r.read_handle());
+            r.read_handle();
             inheritInfo.occlusionQueryEnable = r.read_bool();
             inheritInfo.queryFlags = static_cast<VkQueryControlFlags>(r.read_u32());
             inheritInfo.pipelineStatistics = static_cast<VkQueryPipelineStatisticFlags>(r.read_u32());
@@ -548,14 +542,7 @@ CommandDispatcher::CommandDispatcher() {
         uint64_t gImg = handle_to_u64(ci.image);
         VkImage hostImg = d.mapper_.get_image(gImg);
         if (hostImg == VK_NULL_HANDLE) {
-            if (d.colorImage_ != VK_NULL_HANDLE) {
-                // Unregistered image -> assume it is a guest swapchain image.
-                // Map it to our offscreen colorImage_.
-                hostImg = d.colorImage_;
-                ci.format = VK_FORMAT_R8G8B8A8_UNORM;
-            } else {
-                SPDLOG_WARN("vkCreateImageView: cannot resolve image handle {:#x}, no fallback available", gImg);
-            }
+            SPDLOG_WARN("vkCreateImageView: cannot resolve image handle {:#x}", gImg);
         }
         ci.image = hostImg;
         VkImageView view;
@@ -645,67 +632,7 @@ CommandDispatcher::CommandDispatcher() {
         d.mapper_.remove_pipeline_layout(pl);
     });
 
-    // --- Pipelines (complex struct with pointer chains) ---
-    REGISTER(fbs::FunctionId_vkCreateGraphicsPipelines, [](auto& d, auto& r) {
-        auto dev = d.mapper_.device();
-        r.read_handle(); // device
-        uint64_t pCache = r.read_handle();
-        VkPipelineCache cache = d.mapper_.get_pipeline_cache(pCache);
-        uint32_t count = r.read_u32();
-
-        SPDLOG_INFO("vkCreateGraphicsPipelines: count={}, cache={}", count, (void*)cache);
-        std::vector<VkGraphicsPipelineCreateInfo> infos(count);
-        for (uint32_t i = 0; i < count; i++) {
-            SPDLOG_INFO("vkCreateGraphicsPipelines: deserializing info {}", i);
-            read_VkGraphicsPipelineCreateInfo(r, &infos[i]);
-        }
-
-        // Remap guest handles to host handles
-        for (uint32_t i = 0; i < count; i++) {
-            if (infos[i].pStages) {
-                for (uint32_t j = 0; j < infos[i].stageCount; j++) {
-                    auto* stage = const_cast<VkPipelineShaderStageCreateInfo*>(&infos[i].pStages[j]);
-                    auto guestModule = (uint64_t)stage->module;
-                    stage->module = d.mapper_.get_shader_module(guestModule);
-                    SPDLOG_INFO("  Remapped stage {} shader module guest={} -> host={}", j, guestModule, (void*)stage->module);
-                }
-            }
-            auto guestLayout = (uint64_t)infos[i].layout;
-            infos[i].layout = d.mapper_.get_pipeline_layout(guestLayout);
-            SPDLOG_INFO("  Remapped pipeline layout guest={} -> host={}", guestLayout, (void*)infos[i].layout);
-
-            auto guestRenderPass = (uint64_t)infos[i].renderPass;
-            infos[i].renderPass = d.mapper_.get_render_pass(guestRenderPass);
-            SPDLOG_INFO("  Remapped render pass guest={} -> host={}", guestRenderPass, (void*)infos[i].renderPass);
-
-            auto guestBasePipeline = (uint64_t)infos[i].basePipelineHandle;
-            if (guestBasePipeline != 0) {
-                infos[i].basePipelineHandle = d.mapper_.get_pipeline(guestBasePipeline);
-                SPDLOG_INFO("  Remapped base pipeline guest={} -> host={}", guestBasePipeline, (void*)infos[i].basePipelineHandle);
-            }
-        }
-
-        r.skip(sizeof(VkAllocationCallbacks));
-
-        std::vector<VkPipeline> pipelines(count);
-        SPDLOG_INFO("vkCreateGraphicsPipelines: calling Vulkan driver on device={}", (void*)dev);
-        VkResult res = vkCreateGraphicsPipelines(dev, cache, count,
-                                                  infos.data(), nullptr,
-                                                  pipelines.data());
-        SPDLOG_INFO("vkCreateGraphicsPipelines: Vulkan driver call returned res={}", (int)res);
-        uint32_t guestCount = r.read_u32();
-        for (uint32_t i = 0; i < guestCount; i++) {
-            uint64_t guestPipeline = r.read_handle();
-            if (res == VK_SUCCESS && i < count) {
-                d.mapper_.store_pipeline(guestPipeline, pipelines[i]);
-            }
-        }
-        for (auto& info : infos) {
-            SPDLOG_INFO("vkCreateGraphicsPipelines: freeing info memory");
-            free_VkGraphicsPipelineCreateInfo(&info);
-        }
-        SPDLOG_INFO("vkCreateGraphicsPipelines: completed successfully");
-    });
+    // --- Compute pipelines ---
     REGISTER(fbs::FunctionId_vkCreateComputePipelines, [](auto& d, auto& r) {
         auto dev = d.mapper_.device();
         r.read_handle(); uint64_t pCache = r.read_handle();
@@ -772,64 +699,6 @@ CommandDispatcher::CommandDispatcher() {
         auto p = d.mapper_.get_pipeline_cache(pc);
         if (p) vkDestroyPipelineCache(d.mapper_.device(), p, nullptr);
         d.mapper_.remove_pipeline_cache(pc);
-    });
-
-    // --- Render Pass ---
-    REGISTER(fbs::FunctionId_vkCreateRenderPass, [](auto& d, auto& r) {
-        r.read_handle();
-        VkRenderPassCreateInfo ci{};
-        read_VkRenderPassCreateInfo(r, &ci);
-        r.skip(sizeof(VkAllocationCallbacks));
-        uint64_t pRP = r.read_handle();
-        VkRenderPass rp;
-        VkResult res = vkCreateRenderPass(d.mapper_.device(), &ci, nullptr, &rp);
-        if (res == VK_SUCCESS) {
-            d.mapper_.store_render_pass(pRP, rp);
-        }
-        free_VkRenderPassCreateInfo(&ci);
-    });
-    REGISTER(fbs::FunctionId_vkDestroyRenderPass, [](auto& d, auto& r) {
-        r.read_handle(); auto rp = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
-        auto rph = d.mapper_.get_render_pass(rp);
-        if (rph) vkDestroyRenderPass(d.mapper_.device(), rph, nullptr);
-        d.mapper_.remove_render_pass(rp);
-    });
-    REGISTER(fbs::FunctionId_vkCreateRenderPass2, [](auto& d, auto& r) {
-        r.read_handle(); r.skip(sizeof(VkRenderPassCreateInfo2));
-        r.skip(sizeof(VkAllocationCallbacks)); r.read_handle();
-    });
-
-    // --- Framebuffer ---
-    REGISTER(fbs::FunctionId_vkCreateFramebuffer, [](auto& d, auto& r) {
-        r.read_handle();
-        VkFramebufferCreateInfo ci{};
-        read_VkFramebufferCreateInfo(r, &ci);
-        VkImage firstImg = VK_NULL_HANDLE;
-        for (uint32_t i = 0; i < ci.attachmentCount; i++) {
-            uint64_t gView = handle_to_u64(ci.pAttachments[i]);
-            VkImageView hostView = d.mapper_.get_image_view(gView);
-            if (i == 0) {
-                firstImg = d.mapper_.get_view_image(gView);
-            }
-            const_cast<VkImageView*>(ci.pAttachments)[i] = hostView;
-        }
-        if (firstImg == VK_NULL_HANDLE)
-            firstImg = d.colorImage_;
-        r.skip(sizeof(VkAllocationCallbacks));
-        uint64_t pFB = r.read_handle();
-        VkFramebuffer fb;
-        if (vkCreateFramebuffer(d.mapper_.device(), &ci, nullptr, &fb) == VK_SUCCESS) {
-            d.mapper_.store_framebuffer(pFB, fb);
-            d.framebufferRenderTarget_[pFB] = firstImg;
-        }
-        free_VkFramebufferCreateInfo(&ci);
-    });
-    REGISTER(fbs::FunctionId_vkDestroyFramebuffer, [](auto& d, auto& r) {
-        r.read_handle(); auto fb = r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
-        auto f = d.mapper_.get_framebuffer(fb);
-        if (f) vkDestroyFramebuffer(d.mapper_.device(), f, nullptr);
-        d.mapper_.remove_framebuffer(fb);
-        d.framebufferRenderTarget_.erase(fb);
     });
 
     // --- Descriptor Set Layout ---
@@ -1125,27 +994,6 @@ CommandDispatcher::CommandDispatcher() {
         }
         if (cb && ppl) vkCmdBindPipeline(cb, bp, ppl);
     });
-    REGISTER(fbs::FunctionId_vkCmdBindVertexBuffers, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint32_t first = r.read_u32();
-        uint32_t count = r.read_u32();
-        auto buf_handles = r.template read_array<uint64_t>(count);
-        auto offsets = r.template read_array<uint64_t>(count);
-        if (cb && buf_handles.size() > 0) {
-            std::vector<VkBuffer> bufs;
-            for (auto& g : buf_handles) bufs.push_back(d.mapper_.get_buffer(g));
-            vkCmdBindVertexBuffers(cb, first, static_cast<uint32_t>(bufs.size()),
-                                   bufs.data(), offsets.data());
-        }
-    });
-    REGISTER(fbs::FunctionId_vkCmdBindIndexBuffer, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint64_t buf = r.read_handle();
-        VkDeviceSize off = r.read_u64();
-        VkIndexType idxType = static_cast<VkIndexType>(r.read_u32());
-        auto b = d.mapper_.get_buffer(buf);
-        if (cb && b) vkCmdBindIndexBuffer(cb, b, off, idxType);
-    });
     REGISTER(fbs::FunctionId_vkCmdBindDescriptorSets, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         VkPipelineBindPoint bp = static_cast<VkPipelineBindPoint>(r.read_u32());
@@ -1172,20 +1020,6 @@ CommandDispatcher::CommandDispatcher() {
                                     dss.data(), dynCount, dynOffsets.data());
         }
     });
-    REGISTER(fbs::FunctionId_vkCmdSetViewport, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint32_t first = r.read_u32();
-        uint32_t count = r.read_u32();
-        auto vps = r.template read_array<VkViewport>(count);
-        if (cb) vkCmdSetViewport(cb, first, static_cast<uint32_t>(vps.size()), vps.data());
-    });
-    REGISTER(fbs::FunctionId_vkCmdSetScissor, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint32_t first = r.read_u32();
-        uint32_t count = r.read_u32();
-        auto scis = r.template read_array<VkRect2D>(count);
-        if (cb) vkCmdSetScissor(cb, first, static_cast<uint32_t>(scis.size()), scis.data());
-    });
     REGISTER(fbs::FunctionId_vkCmdPushConstants, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint64_t layout = r.read_handle();
@@ -1205,50 +1039,8 @@ CommandDispatcher::CommandDispatcher() {
         if (cb && data.size() > 0)
             vkCmdPushConstants(cb, pl, stages, offset, static_cast<uint32_t>(data.size()), data.data());
     });
-    REGISTER(fbs::FunctionId_vkCmdSetDepthBias, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        float cf = r.read_f32(); float clamp = r.read_f32(); float sf = r.read_f32();
-        if (cb) vkCmdSetDepthBias(cb, cf, clamp, sf);
-    });
-    REGISTER(fbs::FunctionId_vkCmdSetLineWidth, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        float w = r.read_f32();
-        if (cb) vkCmdSetLineWidth(cb, w);
-    });
-    REGISTER(fbs::FunctionId_vkCmdSetBlendConstants, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        float bc[4]; r.read_raw(bc, 16);
-        if (cb) vkCmdSetBlendConstants(cb, bc);
-    });
-    REGISTER(fbs::FunctionId_vkCmdSetStencilCompareMask, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        auto fm = r.read_u32(); auto cm = r.read_u32();
-        if (cb) vkCmdSetStencilCompareMask(cb, static_cast<VkStencilFaceFlags>(fm), cm);
-    });
-    REGISTER(fbs::FunctionId_vkCmdSetStencilWriteMask, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        auto fm = r.read_u32(); auto wm = r.read_u32();
-        if (cb) vkCmdSetStencilWriteMask(cb, static_cast<VkStencilFaceFlags>(fm), wm);
-    });
-    REGISTER(fbs::FunctionId_vkCmdSetStencilReference, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        auto fm = r.read_u32(); auto ref = r.read_u32();
-        if (cb) vkCmdSetStencilReference(cb, static_cast<VkStencilFaceFlags>(fm), ref);
-    });
 
-    // --- Draw / Dispatch ---
-    REGISTER(fbs::FunctionId_vkCmdDraw, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint32_t vc = r.read_u32(); uint32_t ic = r.read_u32();
-        uint32_t fv = r.read_u32(); uint32_t fi = r.read_u32();
-        if (cb) vkCmdDraw(cb, vc, ic, fv, fi);
-    });
-    REGISTER(fbs::FunctionId_vkCmdDrawIndexed, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint32_t ic = r.read_u32(); uint32_t inst = r.read_u32();
-        uint32_t fi = r.read_u32(); int32_t vo = r.read_i32(); uint32_t fInst = r.read_u32();
-        if (cb) vkCmdDrawIndexed(cb, ic, inst, fi, vo, fInst);
-    });
+    // --- Compute dispatch ---
     REGISTER(fbs::FunctionId_vkCmdDispatch, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint32_t x = r.read_u32(); uint32_t y = r.read_u32(); uint32_t z = r.read_u32();
@@ -1259,21 +1051,6 @@ CommandDispatcher::CommandDispatcher() {
         }
         if (cb) vkCmdDispatch(cb, x, y, z);
     });
-    REGISTER(fbs::FunctionId_vkCmdDrawIndirect, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint64_t buf = r.read_handle(); uint64_t off = r.read_u64();
-        uint32_t dc = r.read_u32(); uint32_t stride = r.read_u32();
-        auto b = d.mapper_.get_buffer(buf);
-        if (cb && b) vkCmdDrawIndirect(cb, b, off, dc, stride);
-    });
-    REGISTER(fbs::FunctionId_vkCmdDrawIndexedIndirect, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint64_t buf = r.read_handle(); uint64_t off = r.read_u64();
-        uint32_t dc = r.read_u32(); uint32_t stride = r.read_u32();
-        auto b = d.mapper_.get_buffer(buf);
-        if (cb && b) vkCmdDrawIndexedIndirect(cb, b, off, dc, stride);
-    });
-
     // --- Copy ---
     REGISTER(fbs::FunctionId_vkCmdCopyBuffer, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
@@ -1444,35 +1221,6 @@ CommandDispatcher::CommandDispatcher() {
             ic, imgBarriers.data());
     });
 
-    // --- Render Pass ---
-    REGISTER(fbs::FunctionId_vkCmdBeginRenderPass, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        VkRenderPassBeginInfo bi{};
-        read_VkRenderPassBeginInfo(r, &bi);
-        r.read_u32(); // contents
-        if (cb) {
-            bi.renderPass = d.mapper_.get_render_pass(handle_to_u64(bi.renderPass));
-            uint64_t gFB = handle_to_u64(bi.framebuffer);
-            bi.framebuffer = d.mapper_.get_framebuffer(gFB);
-            auto rtIt = d.framebufferRenderTarget_.find(gFB);
-            if (rtIt != d.framebufferRenderTarget_.end()) {
-                d.renderTargetImage_ = rtIt->second;
-            } else {
-                d.renderTargetImage_ = d.colorImage_;
-            }
-            vkCmdBeginRenderPass(cb, &bi, VK_SUBPASS_CONTENTS_INLINE);
-        }
-        delete[] bi.pClearValues;
-    });
-    REGISTER(fbs::FunctionId_vkCmdEndRenderPass, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        if (cb) vkCmdEndRenderPass(cb);
-    });
-    REGISTER(fbs::FunctionId_vkCmdNextSubpass, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle(); r.read_u32();
-        if (cb) vkCmdNextSubpass(cb, VK_SUBPASS_CONTENTS_INLINE);
-    });
-
     // --- Event commands ---
     REGISTER(fbs::FunctionId_vkCmdSetEvent, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
@@ -1603,76 +1351,6 @@ CommandDispatcher::CommandDispatcher() {
         }
     });
 
-    // --- Dynamic state (Vulkan 1.3) ---
-    REGISTER(fbs::FunctionId_vkCmdSetCullMode, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        VkCullModeFlags cm = r.read_u32();
-        if (cb) vkCmdSetCullMode(cb, cm);
-    });
-    REGISTER(fbs::FunctionId_vkCmdSetFrontFace, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        VkFrontFace ff = static_cast<VkFrontFace>(r.read_u32());
-        if (cb) vkCmdSetFrontFace(cb, ff);
-    });
-    REGISTER(fbs::FunctionId_vkCmdSetPrimitiveTopology, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        VkPrimitiveTopology pt = static_cast<VkPrimitiveTopology>(r.read_u32());
-        if (cb) vkCmdSetPrimitiveTopology(cb, pt);
-    });
-    REGISTER(fbs::FunctionId_vkCmdSetDepthTestEnable, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        if (cb) vkCmdSetDepthTestEnable(cb, r.read_bool());
-    });
-    REGISTER(fbs::FunctionId_vkCmdSetDepthWriteEnable, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        if (cb) vkCmdSetDepthWriteEnable(cb, r.read_bool());
-    });
-    REGISTER(fbs::FunctionId_vkCmdSetDepthCompareOp, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        if (cb) vkCmdSetDepthCompareOp(cb, static_cast<VkCompareOp>(r.read_u32()));
-    });
-    REGISTER(fbs::FunctionId_vkCmdSetDepthBoundsTestEnable, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        if (cb) vkCmdSetDepthBoundsTestEnable(cb, r.read_bool());
-    });
-    REGISTER(fbs::FunctionId_vkCmdSetStencilTestEnable, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        if (cb) vkCmdSetStencilTestEnable(cb, r.read_bool());
-    });
-    REGISTER(fbs::FunctionId_vkCmdSetStencilOp, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        VkStencilFaceFlags fm = r.read_u32();
-        VkStencilOp fo = static_cast<VkStencilOp>(r.read_u32());
-        VkStencilOp po = static_cast<VkStencilOp>(r.read_u32());
-        VkStencilOp dfo = static_cast<VkStencilOp>(r.read_u32());
-        VkCompareOp co = static_cast<VkCompareOp>(r.read_u32());
-        if (cb) vkCmdSetStencilOp(cb, fm, fo, po, dfo, co);
-    });
-    REGISTER(fbs::FunctionId_vkCmdSetRasterizerDiscardEnable, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        if (cb) vkCmdSetRasterizerDiscardEnable(cb, r.read_bool());
-    });
-    REGISTER(fbs::FunctionId_vkCmdSetDepthBiasEnable, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        if (cb) vkCmdSetDepthBiasEnable(cb, r.read_bool());
-    });
-    REGISTER(fbs::FunctionId_vkCmdSetPrimitiveRestartEnable, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        if (cb) vkCmdSetPrimitiveRestartEnable(cb, r.read_bool());
-    });
-    REGISTER(fbs::FunctionId_vkCmdSetViewportWithCount, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint32_t count = r.read_u32();
-        auto vps = r.template read_array<VkViewport>(count);
-        if (cb) vkCmdSetViewportWithCount(cb, count, vps.data());
-    });
-    REGISTER(fbs::FunctionId_vkCmdSetScissorWithCount, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint32_t count = r.read_u32();
-        auto scis = r.template read_array<VkRect2D>(count);
-        if (cb) vkCmdSetScissorWithCount(cb, count, scis.data());
-    });
-
     // --- Synchronization2 (Vulkan 1.3) ---
     REGISTER(fbs::FunctionId_vkCmdPipelineBarrier2, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
@@ -1777,43 +1455,6 @@ CommandDispatcher::CommandDispatcher() {
             }
         }
     });
-    REGISTER(fbs::FunctionId_vkCmdBeginRendering, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        VkRenderingInfo ri{};
-        read_VkRenderingInfo(r, &ri);
-        if (cb) {
-            for (uint32_t i = 0; i < ri.colorAttachmentCount && ri.pColorAttachments; i++) {
-                auto& att = const_cast<VkRenderingAttachmentInfo&>(ri.pColorAttachments[i]);
-                uint64_t gView = handle_to_u64(att.imageView);
-                att.imageView = d.mapper_.get_image_view(gView);
-                att.resolveImageView = d.mapper_.get_image_view(handle_to_u64(att.resolveImageView));
-                // Track render target from first color attachment
-                if (i == 0) {
-                    VkImage img = d.mapper_.get_view_image(gView);
-                    if (img != VK_NULL_HANDLE)
-                        d.renderTargetImage_ = img;
-                }
-            }
-            if (ri.pDepthAttachment) {
-                auto& da = const_cast<VkRenderingAttachmentInfo&>(*ri.pDepthAttachment);
-                da.imageView = d.mapper_.get_image_view(handle_to_u64(da.imageView));
-                da.resolveImageView = d.mapper_.get_image_view(handle_to_u64(da.resolveImageView));
-            }
-            if (ri.pStencilAttachment) {
-                auto& sa = const_cast<VkRenderingAttachmentInfo&>(*ri.pStencilAttachment);
-                sa.imageView = d.mapper_.get_image_view(handle_to_u64(sa.imageView));
-                sa.resolveImageView = d.mapper_.get_image_view(handle_to_u64(sa.resolveImageView));
-            }
-            if (d.renderTargetImage_ == VK_NULL_HANDLE)
-                d.renderTargetImage_ = d.colorImage_;
-            vkCmdBeginRendering(cb, &ri);
-        }
-    });
-    REGISTER(fbs::FunctionId_vkCmdEndRendering, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        if (cb) vkCmdEndRendering(cb);
-    });
-
     // --- Copy commands 2 (Vulkan 1.3) ---
     REGISTER(fbs::FunctionId_vkCmdCopyBuffer2, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd();
@@ -2052,29 +1693,6 @@ CommandDispatcher::CommandDispatcher() {
         r.read_handle(); r.read_u32(); r.read_u64(); r.read_handle(); r.read_u64();
     });
 
-    // --- Swapchain (KHR) - Offscreen only ---
-    REGISTER(fbs::FunctionId_vkCreateSwapchainKHR, [](auto& d, auto& r) {
-        r.read_handle();
-        VkSwapchainCreateInfoKHR ci{};
-        read_VkSwapchainCreateInfoKHR(r, &ci);
-        r.skip(sizeof(VkAllocationCallbacks));
-        r.read_handle();
-        delete[] ci.pQueueFamilyIndices;
-    });
-    REGISTER(fbs::FunctionId_vkDestroySwapchainKHR, [](auto& d, auto& r) {
-        r.read_handle(); r.read_handle(); r.skip(sizeof(VkAllocationCallbacks));
-    });
-    REGISTER(fbs::FunctionId_vkGetSwapchainImagesKHR, [](auto& d, auto& r) {
-        r.read_handle(); r.read_handle(); r.read_handle(); r.read_handle();
-    });
-    REGISTER(fbs::FunctionId_vkAcquireNextImageKHR, [](auto& d, auto& r) {
-        r.read_handle(); r.read_handle(); r.read_u64(); r.read_handle();
-        r.read_handle(); r.read_handle();
-    });
-    REGISTER(fbs::FunctionId_vkAcquireNextImage2KHR, [](auto& d, auto& r) {
-        r.read_handle(); r.skip(sizeof(VkAcquireNextImageInfoKHR)); r.read_handle();
-    });
-
     // --- Descriptor Update Template (1.1 promoted) ---
     REGISTER(fbs::FunctionId_vkCreateDescriptorUpdateTemplate, [](auto& d, auto& r) {
         r.read_handle(); // device
@@ -2157,25 +1775,6 @@ CommandDispatcher::CommandDispatcher() {
         if (cb) vkCmdDispatchBase(cb, 0, 0, 0, x, y, z);
     });
 
-    // --- Vertex input EXT ---
-    REGISTER(fbs::FunctionId_vkCmdSetVertexInputEXT, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint32_t bc = r.read_u32();
-        std::vector<VkVertexInputBindingDescription2EXT> bindings(bc);
-        for (auto& b : bindings) r.read_raw(&b, sizeof(b));
-
-        uint32_t ac = r.read_u32();
-        std::vector<VkVertexInputAttributeDescription2EXT> attrs(ac);
-        for (auto& a : attrs) r.read_raw(&a, sizeof(a));
-
-        if (cb) {
-            auto func = reinterpret_cast<PFN_vkCmdSetVertexInputEXT>(
-                vkGetDeviceProcAddr(d.mapper_.device(), "vkCmdSetVertexInputEXT"));
-            if (func)
-                func(cb, bc, bindings.data(), ac, attrs.data());
-        }
-    });
-
     // --- Memory requirements (3) ---
     REGISTER(fbs::FunctionId_vkGetDeviceBufferMemoryRequirements, [](auto& d, auto& r) {
         r.read_handle(); r.skip(sizeof(VkDeviceBufferMemoryRequirements));
@@ -2188,14 +1787,6 @@ CommandDispatcher::CommandDispatcher() {
     REGISTER(fbs::FunctionId_vkGetDeviceImageSparseMemoryRequirements, [](auto& d, auto& r) {
         r.read_handle(); r.skip(sizeof(VkDeviceImageMemoryRequirements));
         r.read_handle(); r.read_handle();
-    });
-
-    // --- Device group present ---
-    REGISTER(fbs::FunctionId_vkGetDeviceGroupPresentCapabilitiesKHR, [](auto& d, auto& r) {
-        r.read_handle(); r.skip(sizeof(VkDeviceGroupPresentCapabilitiesKHR));
-    });
-    REGISTER(fbs::FunctionId_vkGetDeviceGroupSurfacePresentModesKHR, [](auto& d, auto& r) {
-        r.read_handle(); r.read_handle(); r.read_handle();
     });
 
     // --- Bind buffer/image 2 (1.1) ---
@@ -2259,63 +1850,6 @@ CommandDispatcher::CommandDispatcher() {
         r.skip(c * sizeof(uint64_t));
     });
 
-    // --- Draw indirect count (1.2) ---
-    REGISTER(fbs::FunctionId_vkCmdDrawIndirectCount, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        VkBuffer buf = d.mapper_.get_buffer(r.read_handle());
-        VkDeviceSize offset = r.read_u64();
-        VkBuffer countBuf = d.mapper_.get_buffer(r.read_handle());
-        VkDeviceSize countOffset = r.read_u64();
-        uint32_t maxDrawCount = r.read_u32();
-        uint32_t stride = r.read_u32();
-        if (cb && buf && countBuf) {
-            vkCmdDrawIndirectCount(cb, buf, offset, countBuf, countOffset, maxDrawCount, stride);
-        }
-    });
-    REGISTER(fbs::FunctionId_vkCmdDrawIndexedIndirectCount, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        VkBuffer buf = d.mapper_.get_buffer(r.read_handle());
-        VkDeviceSize offset = r.read_u64();
-        VkBuffer countBuf = d.mapper_.get_buffer(r.read_handle());
-        VkDeviceSize countOffset = r.read_u64();
-        uint32_t maxDrawCount = r.read_u32();
-        uint32_t stride = r.read_u32();
-        if (cb && buf && countBuf) {
-            vkCmdDrawIndexedIndirectCount(cb, buf, offset, countBuf, countOffset, maxDrawCount, stride);
-        }
-    });
-
-    // --- Render pass 2 (1.2) ---
-    REGISTER(fbs::FunctionId_vkCmdBeginRenderPass2, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        VkRenderPassBeginInfo bi{};
-        read_VkRenderPassBeginInfo(r, &bi);
-        r.skip(sizeof(VkSubpassBeginInfo));
-        if (cb) {
-            bi.renderPass = d.mapper_.get_render_pass(handle_to_u64(bi.renderPass));
-            uint64_t gFB = handle_to_u64(bi.framebuffer);
-            bi.framebuffer = d.mapper_.get_framebuffer(gFB);
-            auto rtIt = d.framebufferRenderTarget_.find(gFB);
-            if (rtIt != d.framebufferRenderTarget_.end()) {
-                d.renderTargetImage_ = rtIt->second;
-            } else {
-                d.renderTargetImage_ = d.colorImage_;
-            }
-            vkCmdBeginRenderPass(cb, &bi, VK_SUBPASS_CONTENTS_INLINE);
-        }
-        delete[] bi.pClearValues;
-    });
-    REGISTER(fbs::FunctionId_vkCmdEndRenderPass2, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        r.skip(sizeof(VkSubpassEndInfo));
-        if (cb) vkCmdEndRenderPass(cb);
-    });
-    REGISTER(fbs::FunctionId_vkCmdNextSubpass2, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        r.skip(sizeof(VkSubpassBeginInfo) + sizeof(VkSubpassEndInfo));
-        if (cb) vkCmdNextSubpass(cb, VK_SUBPASS_CONTENTS_INLINE);
-    });
-
     // --- Wait/Signal semaphore (1.2) ---
     REGISTER(fbs::FunctionId_vkWaitSemaphores, [](auto& d, auto& r) {
         VkDevice dev = d.mapper_.device();
@@ -2355,23 +1889,6 @@ CommandDispatcher::CommandDispatcher() {
         uint32_t firstQuery = r.read_u32(); uint32_t queryCount = r.read_u32();
         auto qph = d.mapper_.get_query_pool(qp);
         if (qph) vkResetQueryPool(d.mapper_.device(), qph, firstQuery, queryCount);
-    });
-
-    // --- Bind vertex buffers 2 (1.3) ---
-    REGISTER(fbs::FunctionId_vkCmdBindVertexBuffers2, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint32_t first = r.read_u32();
-        uint32_t count = r.read_u32();
-        auto bufs = r.template read_array<uint64_t>(count);
-        auto offs = r.template read_array<uint64_t>(count);
-        auto sizes = r.template read_array<uint64_t>(count);
-        auto strides = r.template read_array<uint64_t>(count);
-        if (cb && bufs.size() > 0) {
-            std::vector<VkBuffer> hbufs;
-            for (auto& g : bufs) hbufs.push_back(d.mapper_.get_buffer(g));
-            vkCmdBindVertexBuffers2(cb, first, static_cast<uint32_t>(hbufs.size()),
-                                    hbufs.data(), offs.data(), sizes.data(), strides.data());
-        }
     });
 
     // --- Reset/Set event 2 (1.3) ---
@@ -2470,25 +1987,15 @@ CommandDispatcher::CommandDispatcher() {
         }
         if (cb && b) vkCmdDispatchIndirect(cb, b, off);
     });
-    REGISTER(fbs::FunctionId_vkCmdSetDepthBounds, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        float mn = r.read_f32(); float mx = r.read_f32();
-        if (cb) vkCmdSetDepthBounds(cb, mn, mx);
-    });
-
-    // --- Viewport/Scissor with count (1.3) already handled above ---
-
     #undef REGISTER
 }
 
 CommandDispatcher::~CommandDispatcher() {
     mapper_.cleanup();
-    teardown_framebuffer();
 }
 
 void CommandDispatcher::cleanup() {
     mapper_.cleanup();
-    teardown_framebuffer();
     mapper_.set_device(VK_NULL_HANDLE, VK_NULL_HANDLE, 0, VK_NULL_HANDLE);
 }
 
@@ -2634,195 +2141,6 @@ void CommandDispatcher::set_device(VkPhysicalDevice physDev, VkDevice device,
     cache_device_procs(device);
 }
 
-void CommandDispatcher::set_framebuffer_size(uint32_t w, uint32_t h) {
-    fbWidth_ = w;
-    fbHeight_ = h;
-}
-
-bool CommandDispatcher::setup_framebuffer() {
-    SPDLOG_INFO("setup_framebuffer: starting, size={}x{}", fbWidth_, fbHeight_);
-    
-    VkImageCreateInfo imgInfo{};
-    imgInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    imgInfo.imageType = VK_IMAGE_TYPE_2D;
-    imgInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-    imgInfo.extent = {fbWidth_, fbHeight_, 1};
-    imgInfo.mipLevels = 1;
-    imgInfo.arrayLayers = 1;
-    imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imgInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-    imgInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-    SPDLOG_INFO("setup_framebuffer: creating image, device={}", (void*)mapper_.device());
-    VkResult res = vkCreateImage(mapper_.device(), &imgInfo, nullptr, &colorImage_);
-    SPDLOG_INFO("setup_framebuffer: vkCreateImage res={}", (int)res);
-    if (res != VK_SUCCESS)
-        return false;
-
-    SPDLOG_INFO("setup_framebuffer: getting image memory requirements");
-    VkMemoryRequirements memReq;
-    vkGetImageMemoryRequirements(mapper_.device(), colorImage_, &memReq);
-    SPDLOG_INFO("setup_framebuffer: memReq size={}, typeBits={}", memReq.size, memReq.memoryTypeBits);
-
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memReq.size;
-    
-    SPDLOG_INFO("setup_framebuffer: getting physical device memory properties, physDev={}", (void*)physDev_);
-    VkPhysicalDeviceMemoryProperties memProps;
-    vkGetPhysicalDeviceMemoryProperties(physDev_, &memProps);
-    
-    allocInfo.memoryTypeIndex = 0;
-    bool found = false;
-    for (uint32_t i = 0; i < memProps.memoryTypeCount; i++) {
-        if ((memReq.memoryTypeBits & (1 << i)) &&
-            (memProps.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
-            allocInfo.memoryTypeIndex = i;
-            found = true;
-            break;
-        }
-    }
-    if (!found) {
-        for (uint32_t i = 0; i < memProps.memoryTypeCount; i++) {
-            if (memReq.memoryTypeBits & (1 << i)) {
-                allocInfo.memoryTypeIndex = i;
-                break;
-            }
-        }
-    }
-    SPDLOG_INFO("setup_framebuffer: allocating memory, typeIndex={}", allocInfo.memoryTypeIndex);
-    res = vkAllocateMemory(mapper_.device(), &allocInfo, nullptr, &colorMemory_);
-    SPDLOG_INFO("setup_framebuffer: vkAllocateMemory res={}", (int)res);
-    if (res != VK_SUCCESS)
-        return false;
-        
-    SPDLOG_INFO("setup_framebuffer: binding image memory");
-    vkBindImageMemory(mapper_.device(), colorImage_, colorMemory_, 0);
-
-    VkImageViewCreateInfo viewInfo{};
-    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    viewInfo.image = colorImage_;
-    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    viewInfo.subresourceRange.levelCount = 1;
-    viewInfo.subresourceRange.layerCount = 1;
-    
-    SPDLOG_INFO("setup_framebuffer: creating image view");
-    res = vkCreateImageView(mapper_.device(), &viewInfo, nullptr, &colorView_);
-    SPDLOG_INFO("setup_framebuffer: vkCreateImageView res={}", (int)res);
-    if (res != VK_SUCCESS)
-        return false;
-
-    VkAttachmentDescription colorAttachment{};
-    colorAttachment.format = VK_FORMAT_R8G8B8A8_UNORM;
-    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-
-    VkAttachmentReference colorRef{};
-    colorRef.attachment = 0;
-    colorRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    VkSubpassDescription subpass{};
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments = &colorRef;
-
-    VkRenderPassCreateInfo rpInfo{};
-    rpInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    rpInfo.attachmentCount = 1;
-    rpInfo.pAttachments = &colorAttachment;
-    rpInfo.subpassCount = 1;
-    rpInfo.pSubpasses = &subpass;
-    
-    SPDLOG_INFO("setup_framebuffer: creating render pass");
-    res = vkCreateRenderPass(mapper_.device(), &rpInfo, nullptr, &renderPass_);
-    SPDLOG_INFO("setup_framebuffer: vkCreateRenderPass res={}", (int)res);
-    if (res != VK_SUCCESS)
-        return false;
-
-    VkFramebufferCreateInfo fbInfo{};
-    fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    fbInfo.renderPass = renderPass_;
-    fbInfo.attachmentCount = 1;
-    fbInfo.pAttachments = &colorView_;
-    fbInfo.width = fbWidth_;
-    fbInfo.height = fbHeight_;
-    fbInfo.layers = 1;
-    
-    SPDLOG_INFO("setup_framebuffer: creating framebuffer");
-    res = vkCreateFramebuffer(mapper_.device(), &fbInfo, nullptr, &mainFramebuffer_);
-    SPDLOG_INFO("setup_framebuffer: vkCreateFramebuffer res={}", (int)res);
-    if (res != VK_SUCCESS)
-        return false;
-
-    // Readback buffer
-    VkBufferCreateInfo bufInfo{};
-    bufInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufInfo.size = fbWidth_ * fbHeight_ * 4;
-    bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    bufInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    
-    SPDLOG_INFO("setup_framebuffer: creating readback buffer");
-    res = vkCreateBuffer(mapper_.device(), &bufInfo, nullptr, &readbackBuffer_);
-    SPDLOG_INFO("setup_framebuffer: vkCreateBuffer res={}", (int)res);
-    if (res != VK_SUCCESS)
-        return false;
-
-    VkMemoryRequirements rbMemReq;
-    vkGetBufferMemoryRequirements(mapper_.device(), readbackBuffer_, &rbMemReq);
-
-    VkMemoryAllocateInfo rbAlloc{};
-    rbAlloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    rbAlloc.allocationSize = rbMemReq.size;
-    found = false;
-    for (uint32_t i = 0; i < memProps.memoryTypeCount; i++) {
-        if ((rbMemReq.memoryTypeBits & (1 << i)) &&
-            (memProps.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
-            rbAlloc.memoryTypeIndex = i;
-            found = true;
-            break;
-        }
-    }
-    if (!found) {
-        for (uint32_t i = 0; i < memProps.memoryTypeCount; i++) {
-            if (rbMemReq.memoryTypeBits & (1 << i)) {
-                rbAlloc.memoryTypeIndex = i;
-                break;
-            }
-        }
-    }
-    
-    SPDLOG_INFO("setup_framebuffer: allocating readback memory, typeIndex={}", rbAlloc.memoryTypeIndex);
-    res = vkAllocateMemory(mapper_.device(), &rbAlloc, nullptr, &readbackMemory_);
-    SPDLOG_INFO("setup_framebuffer: vkAllocateMemory res={}", (int)res);
-    if (res != VK_SUCCESS)
-        return false;
-        
-    SPDLOG_INFO("setup_framebuffer: binding readback buffer memory");
-    vkBindBufferMemory(mapper_.device(), readbackBuffer_, readbackMemory_, 0);
-
-    SPDLOG_INFO("setup_framebuffer: completed successfully");
-    return true;
-}
-
-void CommandDispatcher::teardown_framebuffer() {
-    auto dev = mapper_.device();
-    if (dev == VK_NULL_HANDLE) return;
-    if (readbackBuffer_) { vkDestroyBuffer(dev, readbackBuffer_, nullptr); readbackBuffer_ = VK_NULL_HANDLE; }
-    if (readbackMemory_) { vkFreeMemory(dev, readbackMemory_, nullptr); readbackMemory_ = VK_NULL_HANDLE; }
-    if (mainFramebuffer_) { vkDestroyFramebuffer(dev, mainFramebuffer_, nullptr); mainFramebuffer_ = VK_NULL_HANDLE; }
-    if (renderPass_) { vkDestroyRenderPass(dev, renderPass_, nullptr); renderPass_ = VK_NULL_HANDLE; }
-    if (colorView_) { vkDestroyImageView(dev, colorView_, nullptr); colorView_ = VK_NULL_HANDLE; }
-    if (colorImage_) { vkDestroyImage(dev, colorImage_, nullptr); colorImage_ = VK_NULL_HANDLE; }
-    if (colorMemory_) { vkFreeMemory(dev, colorMemory_, nullptr); colorMemory_ = VK_NULL_HANDLE; }
-    renderTargetImage_ = VK_NULL_HANDLE;
-}
-
 void CommandDispatcher::cache_device_procs(VkDevice dev) {
     pfnCmdPipelineBarrier2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkCmdPipelineBarrier2"));
     pfnCmdCopyBuffer2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkCmdCopyBuffer2"));
@@ -2833,7 +2151,6 @@ void CommandDispatcher::cache_device_procs(VkDevice dev) {
     pfnCmdResolveImage2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkCmdResolveImage2"));
     pfnQueueSubmit2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkQueueSubmit2"));
     pfnCmdWaitEvents2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkCmdWaitEvents2"));
-    pfnCmdSetVertexInputEXT_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkCmdSetVertexInputEXT"));
     pfnBindBufferMemory2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkBindBufferMemory2"));
     pfnBindImageMemory2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkBindImageMemory2"));
     pfnGetSemaphoreCounterValue_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkGetSemaphoreCounterValue"));
@@ -2852,198 +2169,6 @@ void CommandDispatcher::dispatch(fbs::FunctionId func_id,
     it->second(*this, reader);
 }
 
-bool CommandDispatcher::begin_render_pass(VkRenderPass rp, VkFramebuffer fb,
-                                           uint32_t w, uint32_t h) {
-    auto cb = mapper_.active_cmd();
-    if (!cb) return false;
-    if (inRenderPass_) end_render_pass();
-
-    VkRenderPassBeginInfo bi{};
-    bi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    bi.renderPass = rp;
-    bi.framebuffer = fb;
-    bi.renderArea.extent = {w, h};
-    bi.clearValueCount = 1;
-    VkClearValue cv{};
-    cv.color.float32[0] = 0.0f; cv.color.float32[1] = 0.0f;
-    cv.color.float32[2] = 0.0f; cv.color.float32[3] = 1.0f;
-    bi.pClearValues = &cv;
-
-    vkCmdBeginRenderPass(cb, &bi, VK_SUBPASS_CONTENTS_INLINE);
-    inRenderPass_ = true;
-    return true;
-}
-
-void CommandDispatcher::end_render_pass() {
-    auto cb = mapper_.active_cmd();
-    if (cb && inRenderPass_) {
-        vkCmdEndRenderPass(cb);
-    }
-    inRenderPass_ = false;
-}
-
-bool CommandDispatcher::copy_image_to_readback() {
-    auto dev = mapper_.device();
-    auto q = mapper_.queue();
-    if (!dev || !q) return false;
-
-    VkImage src = (renderTargetImage_ != VK_NULL_HANDLE) ? renderTargetImage_ : colorImage_;
-    if (src == VK_NULL_HANDLE || readbackBuffer_ == VK_NULL_HANDLE) return false;
-
-    // Determine source layout and access masks based on image ownership
-    VkImageLayout srcLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    VkPipelineStageFlags srcStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    VkAccessFlags srcAccess = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    VkAccessFlags dstAccess = VK_ACCESS_TRANSFER_READ_BIT;
-
-    // If this is not our own colorImage_, we don't know its exact layout.
-    // Use GENERAL as a safe universal fallback to avoid invalid transitions.
-    if (src != colorImage_) {
-        srcLayout = VK_IMAGE_LAYOUT_GENERAL;
-        srcStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-        srcAccess = VK_ACCESS_MEMORY_WRITE_BIT;
-        dstAccess = VK_ACCESS_TRANSFER_READ_BIT;
-    }
-
-    VkCommandBufferAllocateInfo poolAI{};
-    poolAI.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    poolAI.commandPool = mapper_.command_pool();
-    poolAI.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    poolAI.commandBufferCount = 1;
-
-    VkCommandBuffer copyCmd;
-    if (vkAllocateCommandBuffers(dev, &poolAI, &copyCmd) != VK_SUCCESS)
-        return false;
-
-    VkCommandBufferBeginInfo bi{};
-    bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(copyCmd, &bi);
-
-    VkImageMemoryBarrier barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.oldLayout = srcLayout;
-    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = src;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier.subresourceRange.levelCount = 1;
-    barrier.subresourceRange.layerCount = 1;
-    barrier.srcAccessMask = srcAccess;
-    barrier.dstAccessMask = dstAccess;
-
-    vkCmdPipelineBarrier(copyCmd, srcStage,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        0, 0, nullptr, 0, nullptr, 1, &barrier);
-
-    VkBufferImageCopy region{};
-    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    region.imageSubresource.layerCount = 1;
-    region.imageExtent = {fbWidth_, fbHeight_, 1};
-
-    vkCmdCopyImageToBuffer(copyCmd, src,
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        readbackBuffer_, 1, &region);
-
-    VkImageLayout finalLayout = (src != colorImage_)
-        ? VK_IMAGE_LAYOUT_GENERAL
-        : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    VkPipelineStageFlags finalStage = (src != colorImage_)
-        ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT
-        : VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    VkAccessFlags finalAccess = (src != colorImage_)
-        ? VK_ACCESS_MEMORY_READ_BIT
-        : VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    barrier.newLayout = finalLayout;
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    barrier.dstAccessMask = finalAccess;
-    vkCmdPipelineBarrier(copyCmd,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        finalStage,
-        0, 0, nullptr, 0, nullptr, 1, &barrier);
-
-    vkEndCommandBuffer(copyCmd);
-
-    VkSubmitInfo si{};
-    si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    si.commandBufferCount = 1;
-    si.pCommandBuffers = &copyCmd;
-
-    VkFence fence;
-    VkFenceCreateInfo fci{};
-    fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    if (vkCreateFence(dev, &fci, nullptr, &fence) != VK_SUCCESS) {
-        vkFreeCommandBuffers(dev, mapper_.command_pool(), 1, &copyCmd);
-        return false;
-    }
-
-    VkResult res = vkQueueSubmit(q, 1, &si, fence);
-    if (res != VK_SUCCESS) {
-        vkDestroyFence(dev, fence, nullptr);
-        vkFreeCommandBuffers(dev, mapper_.command_pool(), 1, &copyCmd);
-        return false;
-    }
-
-    vkWaitForFences(dev, 1, &fence, VK_TRUE, UINT64_MAX);
-    vkDestroyFence(dev, fence, nullptr);
-    vkFreeCommandBuffers(dev, mapper_.command_pool(), 1, &copyCmd);
-
-    return true;
-}
-
-bool CommandDispatcher::flush_and_readback(std::vector<uint8_t>& out_pixels) {
-    auto dev = mapper_.device();
-    if (!dev) return false;
-
-    // Wait for pending submit from vkQueueSubmit/vkQueueSubmit2
-    if (hasPendingSubmit_ && pendingSubmitFence_ != VK_NULL_HANDLE) {
-        // For compute-only (no readback), let the guest's vkWaitForFences sync query handle waiting
-        // This prevents blocking the host command processing loop on GPU work
-        if (readbackMemory_ == VK_NULL_HANDLE) {
-            // Compute mode: don't wait, don't destroy — fence is managed by guest
-            hasPendingSubmit_ = false;
-        } else {
-            vkWaitForFences(dev, 1, &pendingSubmitFence_, VK_TRUE, UINT64_MAX);
-            vkDestroyFence(dev, pendingSubmitFence_, nullptr);
-            if (pendingSubmitFenceGuestHandle_ != 0) {
-                mapper_.remove_fence(pendingSubmitFenceGuestHandle_);
-                pendingSubmitFenceGuestHandle_ = 0;
-            }
-            pendingSubmitFence_ = VK_NULL_HANDLE;
-            hasPendingSubmit_ = false;
-        }
-    }
-
-    // For compute-only workloads (no framebuffer), skip readback
-    if (readbackMemory_ == VK_NULL_HANDLE) {
-        return true;
-    }
-
-    // Copy render target pixels to readback buffer
-    if (!copy_image_to_readback()) {
-        SPDLOG_WARN("flush_and_readback: copy_image_to_readback failed");
-        out_pixels.assign(fbWidth_ * fbHeight_ * 4, 0);
-        return false;
-    }
-
-    // Read back pixels from the host-visible readback buffer
-    VkDeviceSize size = fbWidth_ * fbHeight_ * 4;
-    out_pixels.resize(static_cast<size_t>(size));
-
-    void* mapped = nullptr;
-    VkResult res = vkMapMemory(dev, readbackMemory_, 0, VK_WHOLE_SIZE, 0, &mapped);
-    if (res == VK_SUCCESS && mapped) {
-        std::memcpy(out_pixels.data(), mapped, static_cast<size_t>(size));
-        vkUnmapMemory(dev, readbackMemory_);
-        return true;
-    }
-
-    SPDLOG_ERROR("flush_and_readback: vkMapMemory failed: {}", static_cast<int>(res));
-    return false;
-}
-
 void ResourceMapper::cleanup() {
     VkDevice dev = device_;
     if (dev == VK_NULL_HANDLE) return;
@@ -3057,45 +2182,39 @@ void ResourceMapper::cleanup() {
     for (auto& [_, v] : pipelines_) if (v) vkDestroyPipeline(dev, v, nullptr);
     for (auto& [_, v] : pipelineCaches_) if (v) vkDestroyPipelineCache(dev, v, nullptr);
 
-    // 3. Framebuffers (reference image views, render passes)
-    for (auto& [_, v] : framebuffers_) if (v) vkDestroyFramebuffer(dev, v, nullptr);
-
-    // 4. Render passes (referenced by framebuffers and pipelines)
-    for (auto& [_, v] : renderPasses_) if (v) vkDestroyRenderPass(dev, v, nullptr);
-
-    // 5. Image views (reference images)
+    // 3. Image views (reference images)
     for (auto& [_, v] : imageViews_) if (v) vkDestroyImageView(dev, v, nullptr);
 
-    // 6. Images (backed by memory, must be destroyed before memory)
+    // 4. Images (backed by memory, must be destroyed before memory)
     for (auto& [_, v] : images_) if (v) vkDestroyImage(dev, v, nullptr);
 
-    // 7. Buffers (backed by memory, must be destroyed before memory)
+    // 5. Buffers (backed by memory, must be destroyed before memory)
     for (auto& [_, v] : buffers_) if (v) vkDestroyBuffer(dev, v, nullptr);
     for (auto& [_, v] : samplers_) if (v) vkDestroySampler(dev, v, nullptr);
     for (auto& [_, v] : shaderModules_) if (v) vkDestroyShaderModule(dev, v, nullptr);
 
-    // 8. Descriptor sets (must be freed before pool)
+    // 6. Descriptor sets (must be freed before pool)
     dss_.clear();
 
-    // 9. Descriptor pools
+    // 7. Descriptor pools
     for (auto& [_, v] : dps_) if (v) vkDestroyDescriptorPool(dev, v, nullptr);
 
-    // 10. Descriptor set layouts
+    // 8. Descriptor set layouts
     for (auto& [_, v] : dsls_) if (v) vkDestroyDescriptorSetLayout(dev, v, nullptr);
 
-    // 11. Descriptor update templates
+    // 9. Descriptor update templates
     for (auto& [_, v] : duts_) if (v) vkDestroyDescriptorUpdateTemplate(dev, v, nullptr);
 
-    // 12. Query pools
+    // 10. Query pools
     for (auto& [_, v] : queryPools_) if (v) vkDestroyQueryPool(dev, v, nullptr);
 
-    // 13. Events
+    // 11. Events
     for (auto& [_, v] : events_) if (v) vkDestroyEvent(dev, v, nullptr);
 
-    // 14. Semaphores
+    // 12. Semaphores
     for (auto& [_, v] : semaphores_) if (v) vkDestroySemaphore(dev, v, nullptr);
 
-    // 15. Fences
+    // 13. Fences
     for (auto& [_, v] : fences_) if (v) vkDestroyFence(dev, v, nullptr);
 
     // 16. Command pools (destroys all command buffers allocated from them)
