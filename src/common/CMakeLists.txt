@@ -21,6 +21,8 @@ add_library(omnigpu_common STATIC
   network_utils.cpp
 )
 
+set_target_properties(omnigpu_common PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 # Ensure generated header exists before compiling
 add_custom_target(omnigpu_fbs_generated DEPENDS ${FBS_GENERATED_HEADER})
 add_dependencies(omnigpu_common omnigpu_fbs_generated)
@@ -39,7 +41,7 @@ target_link_libraries(omnigpu_common PUBLIC
   Threads::Threads
 )
 
-if(MSVC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+if(MSVC OR (WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
   target_compile_options(omnigpu_common PRIVATE /EHsc)
 endif()
 

@@ -27,7 +27,11 @@ void Session::stop() {
     running_ = false;
     // Shutdown socket to interrupt blocking recv in handle_client
     if (clientFd_ != INVALID_SOCKET) {
+#ifdef _WIN32
         shutdown(clientFd_, SD_BOTH);
+#else
+        shutdown(clientFd_, SHUT_RDWR);
+#endif
     }
     if (thread_.joinable()) {
         thread_.join();

@@ -81,8 +81,6 @@ bool CacheManager::load(caps::GpuCapabilities& caps) const {
     caps.vendor_id = data.value("vendor_id", 0x10DEU);
     caps.device_id = data.value("device_id", 0x2684U);
     caps.device_type = data.value("device_type", 2U);
-    caps.max_framebuffer_width = data.value("max_fb_w", 16384U);
-    caps.max_framebuffer_height = data.value("max_fb_h", 16384U);
     caps.max_memory_heaps = data.value("mem_heaps", 2U);
     caps.memory_heap_size_0 = data.value("mem_heap_0", 24ULL * 1024 * 1024 * 1024);
     caps.memory_heap_size_1 = data.value("mem_heap_1", 16ULL * 1024 * 1024 * 1024);
@@ -102,11 +100,6 @@ bool CacheManager::load(caps::GpuCapabilities& caps) const {
     caps.max_compute_work_group_count_z = data.value("max_compute_work_group_count_z", 65535U);
     caps.max_compute_work_group_invocations = data.value("max_compute_work_group_invocations", 1024U);
     caps.max_compute_shared_memory_size = data.value("max_compute_shared_memory_size", 49152U);
-    caps.max_clip_distances = data.value("max_clip_distances", 8U);
-    caps.max_cull_distances = data.value("max_cull_distances", 8U);
-    caps.max_combined_clip_and_cull_distances = data.value("max_combined_clip_and_cull_distances", 8U);
-    caps.max_tessellation_factor = data.value("max_tessellation_factor", 64U);
-    caps.max_fragment_output_attachments = data.value("max_fragment_output_attachments", 8U);
 
     // ML & Subgroup support fields (Phase 1 + 2)
     uint32_t all_ops = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_VOTE_BIT |
@@ -162,8 +155,6 @@ bool CacheManager::save(const caps::GpuCapabilities& caps) {
     entry["vendor_id"] = caps.vendor_id;
     entry["device_id"] = caps.device_id;
     entry["device_type"] = caps.device_type;
-    entry["max_fb_w"] = caps.max_framebuffer_width;
-    entry["max_fb_h"] = caps.max_framebuffer_height;
     entry["mem_heaps"] = caps.max_memory_heaps;
     entry["mem_heap_0"] = caps.memory_heap_size_0;
     entry["mem_heap_1"] = caps.memory_heap_size_1;
@@ -183,11 +174,6 @@ bool CacheManager::save(const caps::GpuCapabilities& caps) {
     entry["max_compute_work_group_count_z"] = caps.max_compute_work_group_count_z;
     entry["max_compute_work_group_invocations"] = caps.max_compute_work_group_invocations;
     entry["max_compute_shared_memory_size"] = caps.max_compute_shared_memory_size;
-    entry["max_clip_distances"] = caps.max_clip_distances;
-    entry["max_cull_distances"] = caps.max_cull_distances;
-    entry["max_combined_clip_and_cull_distances"] = caps.max_combined_clip_and_cull_distances;
-    entry["max_tessellation_factor"] = caps.max_tessellation_factor;
-    entry["max_fragment_output_attachments"] = caps.max_fragment_output_attachments;
 
     // ML support fields (Phase 1 + 2)
     entry["supports_16bit_storage"] = caps.supports_16bit_storage;

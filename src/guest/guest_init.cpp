@@ -89,7 +89,20 @@ static void recv_thread_main() {
     SPDLOG_INFO("Receive thread stopped");
 }
 
-static DWORD recv_thread_wrapper() {
+static
+#ifdef _WIN32
+DWORD WINAPI
+#else
+void
+#endif
+recv_thread_wrapper(
+#ifdef _WIN32
+LPVOID
+#else
+void*
+#endif
+) {
+#ifdef _WIN32
     __try {
         recv_thread_main();
     } __except(EXCEPTION_EXECUTE_HANDLER) {
@@ -120,7 +133,12 @@ static DWORD recv_thread_wrapper() {
         SymCleanup(hProcess);
         g_client->set_sync_response(0);
     }
+#else
+    recv_thread_main();
+#endif
+#ifdef _WIN32
     return 0;
+#endif
 }
 
 bool do_handshake(Client& client, const std::string& auth_token) {
@@ -138,28 +156,13 @@ bool do_handshake(Client& client, const std::string& auth_token) {
     // Always send handshake request so host doesn't block waiting for it
     flatbuffers::FlatBufferBuilder builder;
 
-    uint32_t pref_w = 1920;
-    uint32_t pref_h = 1080;
-#ifdef _WIN32
-    int sw = GetSystemMetrics(SM_CXSCREEN);
-    int sh = GetSystemMetrics(SM_CYSCREEN);
-    if (sw > 0 && sh > 0) {
-        pref_w = static_cast<uint32_t>(sw);
-        pref_h = static_cast<uint32_t>(sh);
-    }
-#endif
-
     flatbuffers::Offset<flatbuffers::String> token_str;
     if (!auth_token.empty())
         token_str = builder.CreateString(auth_token);
 
-    bool is_compute = (getenv("GGML_VK_FORCE_MAX_BUFFER_SIZE") != nullptr)
-                   || (getenv("OMNIGPU_COMPUTE") != nullptr)
-                   || (getenv("GGML_CUDA_NO_PINNED") != nullptr)
-                   || (getenv("GGML_OPENCL_NO_BINARY") != nullptr)
-                   || (getenv("GGML_SYCL_NO_MULTI_BACKEND") != nullptr);
+    bool is_compute = true;  // OmniGPU is compute-only
 
-    auto req = fbs::CreateCapabilitiesRequest(builder, 1, pref_w, pref_h,
+    auto req = fbs::CreateCapabilitiesRequest(builder, 1,
         auth_token.empty() ? 0 : token_str, is_compute, is_compute);
     auto msg = fbs::CreateMessage(
         builder, fbs::MessagePayload_CapabilitiesRequest, req.Union());
@@ -241,9 +244,6 @@ bool do_handshake(Client& client, const std::string& auth_token) {
     gpu_caps.vendor_id = caps->vendor_id();
     gpu_caps.device_id = caps->device_id();
     gpu_caps.device_type = caps->device_type();
-    gpu_caps.max_framebuffer_width = caps->max_framebuffer_width();
-    gpu_caps.max_framebuffer_height = caps->max_framebuffer_height();
-    gpu_caps.max_framebuffer_layers = caps->max_framebuffer_layers();
     gpu_caps.max_memory_heaps = caps->max_memory_heaps();
     gpu_caps.memory_heap_size_0 = caps->memory_heap_size_0();
     gpu_caps.memory_heap_size_1 = caps->memory_heap_size_1();
@@ -251,20 +251,14 @@ bool do_handshake(Client& client, const std::string& auth_token) {
     gpu_caps.heap_1_flags = caps->heap_1_flags();
     gpu_caps.memory_type_count = caps->memory_type_count();
     gpu_caps.max_sampler_anisotropy = caps->max_sampler_anisotropy();
-    gpu_caps.max_color_attachments = caps->max_color_attachments();
     gpu_caps.subgroup_size = caps->subgroup_size();
     gpu_caps.timestamp_period = caps->timestamp_period();
-    gpu_caps.max_viewports = caps->max_viewports();
-    gpu_caps.max_viewport_dimensions_w = caps->max_viewport_dimensions_w();
-    gpu_caps.max_viewport_dimensions_h = caps->max_viewport_dimensions_h();
     gpu_caps.min_uniform_buffer_offset_alignment = caps->min_uniform_buffer_offset_alignment();
     gpu_caps.min_storage_buffer_offset_alignment = caps->min_storage_buffer_offset_alignment();
     gpu_caps.max_uniform_buffer_range = caps->max_uniform_buffer_range();
     gpu_caps.max_storage_buffer_range = caps->max_storage_buffer_range();
     gpu_caps.non_coherent_atom_size = caps->non_coherent_atom_size();
     gpu_caps.buffer_image_granularity = caps->buffer_image_granularity();
-    gpu_caps.sample_counts = caps->sample_counts();
-    gpu_caps.framebuffer_color_sample_counts = caps->framebuffer_color_sample_counts();
 
     gpu_caps.max_bound_descriptor_sets_ext = caps->max_bound_descriptor_sets_ext();
     gpu_caps.max_per_stage_descriptor_samplers = caps->max_per_stage_descriptor_samplers();
@@ -278,11 +272,6 @@ bool do_handshake(Client& client, const std::string& auth_token) {
     gpu_caps.max_compute_work_group_count_z = caps->max_compute_work_group_count_z();
     gpu_caps.max_compute_work_group_invocations = caps->max_compute_work_group_invocations();
     gpu_caps.max_compute_shared_memory_size = caps->max_compute_shared_memory_size();
-    gpu_caps.max_clip_distances = caps->max_clip_distances();
-    gpu_caps.max_cull_distances = caps->max_cull_distances();
-    gpu_caps.max_combined_clip_and_cull_distances = caps->max_combined_clip_and_cull_distances();
-    gpu_caps.max_tessellation_factor = caps->max_tessellation_factor();
-    gpu_caps.max_fragment_output_attachments = caps->max_fragment_output_attachments();
 
     // ===== ML support flags (Phase 1) =====
     gpu_caps.supports_16bit_storage = caps->supports_16bit_storage();
@@ -418,7 +407,7 @@ bool connect_to_host() {
     g_running = true;
     g_recv_thread = new std::thread([]() {
         SPDLOG_INFO("Receive thread started");
-        recv_thread_wrapper();
+        recv_thread_wrapper(nullptr);
     });
 
     connected = true;
@@ -439,7 +428,11 @@ void shutdown_guest() {
 
     // Gracefully shutdown socket to unblock recv() in receive thread
     if (g_client && g_client->socket() != INVALID_SOCKET) {
+#ifdef _WIN32
         ::shutdown(g_client->socket(), SD_BOTH);
+#else
+        ::shutdown(g_client->socket(), SHUT_RDWR);
+#endif
     }
 
     // Join receive thread (now unblocked by shutdown)
@@ -449,16 +442,10 @@ void shutdown_guest() {
         g_recv_thread = nullptr;
     }
 
-    // Now safe to destroy batch and decoder
+    // Now safe to destroy batch
     if (g_batch) {
         delete g_batch;
         g_batch = nullptr;
-    }
-
-    if (g_decoder) {
-        g_decoder->shutdown();
-        delete g_decoder;
-        g_decoder = nullptr;
     }
 
     intercept::shutdown_hooks();

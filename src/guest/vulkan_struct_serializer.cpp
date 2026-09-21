@@ -142,39 +142,6 @@ void write_VkWriteDescriptorSet(VulkanSerializer& ser, const VkWriteDescriptorSe
     ser.write_u32(info->dstArrayElement);
 }
 
-void write_VkRenderingAttachmentInfo(VulkanSerializer& ser, const VkRenderingAttachmentInfo* info) {
-    ser.write_handle(handle_to_u64(info->imageView));
-    ser.write_u32(static_cast<uint32_t>(info->imageLayout));
-    ser.write_u32(static_cast<uint32_t>(info->resolveMode));
-    ser.write_handle(handle_to_u64(info->resolveImageView));
-    ser.write_u32(static_cast<uint32_t>(info->resolveImageLayout));
-    ser.write_u32(static_cast<uint32_t>(info->loadOp));
-    ser.write_u32(static_cast<uint32_t>(info->storeOp));
-    ser.write_raw(&info->clearValue, sizeof(VkClearValue));
-}
-
-void write_VkRenderingInfo(VulkanSerializer& ser, const VkRenderingInfo* info) {
-    ser.write_u32(info->flags);
-    ser.write_raw(&info->renderArea, sizeof(VkRect2D));
-    ser.write_u32(info->layerCount);
-    ser.write_u32(info->viewMask);
-    ser.write_u32(info->colorAttachmentCount);
-    for (uint32_t i = 0; i < info->colorAttachmentCount; i++)
-        write_VkRenderingAttachmentInfo(ser, &info->pColorAttachments[i]);
-    if (info->pDepthAttachment) {
-        write_nullable_ptr(ser, info->pDepthAttachment);
-        write_VkRenderingAttachmentInfo(ser, info->pDepthAttachment);
-    } else {
-        write_nullable_ptr(ser, nullptr);
-    }
-    if (info->pStencilAttachment) {
-        write_nullable_ptr(ser, info->pStencilAttachment);
-        write_VkRenderingAttachmentInfo(ser, info->pStencilAttachment);
-    } else {
-        write_nullable_ptr(ser, nullptr);
-    }
-}
-
 void write_VkSubmitInfo(VulkanSerializer& ser, const VkSubmitInfo* info) {
     ser.write_u32(info->waitSemaphoreCount);
     for (uint32_t i = 0; i < info->waitSemaphoreCount; i++) {

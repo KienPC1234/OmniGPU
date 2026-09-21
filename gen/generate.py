@@ -374,15 +374,14 @@ def get_serialize_code(param: dict, all_params: list[dict]) -> str:
     if kind == "struct_ptr":
         # Check for complex structs that need custom serialization
         core_type = get_pure_type(ptype)
-        if core_type in ("VkRenderPassBeginInfo", "VkRenderingInfo", "VkDependencyInfo",
-                         "VkPipelineViewportStateCreateInfo", "VkShaderModuleCreateInfo",
+        if core_type in ("VkDependencyInfo",
+                         "VkShaderModuleCreateInfo",
                          "VkSemaphoreCreateInfo", "VkDescriptorUpdateTemplateCreateInfo",
                          "VkCommandPoolCreateInfo", "VkBufferCreateInfo",
                          "VkImageCreateInfo", "VkImageViewCreateInfo",
-                         "VkSamplerCreateInfo", "VkRenderPassCreateInfo",
-                         "VkFramebufferCreateInfo", "VkPipelineLayoutCreateInfo",
+                         "VkSamplerCreateInfo", "VkPipelineLayoutCreateInfo",
                          "VkDescriptorSetLayoutCreateInfo", "VkDescriptorPoolCreateInfo",
-                         "VkDescriptorSetAllocateInfo", "VkSwapchainCreateInfoKHR",
+                         "VkDescriptorSetAllocateInfo",
                          "VkMemoryAllocateInfo",
                          "VkSemaphoreWaitInfo", "VkSemaphoreSignalInfo"):
             return f'serializer::write_{core_type}(ser, {name});'
@@ -402,7 +401,6 @@ def get_array_serialize_code(param: dict, all_params: list[dict]) -> str:
 
     # Complex struct arrays
     complex_arrays = {
-        "VkGraphicsPipelineCreateInfo": "serializer::write_VkGraphicsPipelineCreateInfo",
         "VkComputePipelineCreateInfo":  "serializer::write_VkComputePipelineCreateInfo",
         "VkWriteDescriptorSet":         "serializer::write_VkWriteDescriptorSet",
         "VkSubmitInfo":                 "serializer::write_VkSubmitInfo",
@@ -442,17 +440,18 @@ def generate(
         sys.exit(1)
 
     # OmniGPU is compute-only. Graphics, presentation, and surface entrypoints
-    # must not be exposed by the generated forwarding layer.
+    # are excluded directly in gen/vulkan_api.json; this is a defensive filter.
     graphics_names = {
         "vkCreateGraphicsPipelines", "vkQueuePresentKHR",
         "vkCreateRenderPass", "vkDestroyRenderPass",
         "vkCreateRenderPass2", "vkCreateFramebuffer", "vkDestroyFramebuffer",
         "vkCmdBeginRenderPass", "vkCmdEndRenderPass", "vkCmdNextSubpass",
         "vkCmdBeginRenderPass2", "vkCmdEndRenderPass2", "vkCmdNextSubpass2",
+        "vkCmdBeginRendering", "vkCmdEndRendering",
         "vkCreateSwapchainKHR", "vkDestroySwapchainKHR",
         "vkGetSwapchainImagesKHR", "vkAcquireNextImageKHR", "vkAcquireNextImage2KHR",
         "vkGetDeviceGroupPresentCapabilitiesKHR", "vkGetDeviceGroupSurfacePresentModesKHR",
-        "vkCreateWin32SurfaceKHR", "vkCreateHeadlessSurfaceEXT",
+        "vkCreateWin32SurfaceKHR", "vkCreateHeadlessSurfaceEXT", "vkDestroySurfaceKHR",
         "vkGetPhysicalDeviceSurfaceCapabilitiesKHR", "vkGetPhysicalDeviceSurfaceCapabilities2KHR",
         "vkGetPhysicalDeviceSurfaceFormatsKHR", "vkGetPhysicalDeviceSurfaceFormats2KHR",
         "vkGetPhysicalDeviceSurfacePresentModesKHR", "vkGetPhysicalDeviceSurfaceSupportKHR",
@@ -465,7 +464,7 @@ def generate(
         "vkCmdSetStencil", "vkCmdSetBlend", "vkCmdSetCull",
         "vkCmdSetFrontFace", "vkCmdSetPrimitiveTopology",
         "vkCmdSetRasterizer", "vkCmdSetPrimitiveRestart",
-        "vkCmdSetVertexInput",
+        "vkCmdSetVertexInput", "vkCmdClearAttachments", "vkCmdResolveImage",
     )
     functions = [
         f for f in functions
@@ -523,7 +522,6 @@ def generate(
         "vkGetDeviceMemoryCommitment",
         "vkGetFenceStatus",
         "vkGetEventStatus",
-        "vkGetRenderAreaGranularity",
         "vkGetImageSubresourceLayout",
         "vkGetQueryPoolResults",
         "vkGetPipelineCacheData",
@@ -531,30 +529,10 @@ def generate(
         "vkGetBufferDeviceAddress",
         "vkGetBufferOpaqueCaptureAddress",
         "vkGetDeviceMemoryOpaqueCaptureAddress",
-        # KHR surface
+        # KHR cooperative matrix
         "vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR",
-        "vkGetPhysicalDeviceSurfaceSupportKHR",
-        "vkGetPhysicalDeviceSurfaceCapabilitiesKHR",
-        "vkGetPhysicalDeviceSurfaceFormatsKHR",
-        "vkGetPhysicalDeviceSurfacePresentModesKHR",
-        "vkGetPhysicalDevicePresentRectanglesKHR",
-        # KHR display
-        "vkGetPhysicalDeviceDisplayPropertiesKHR",
-        "vkGetPhysicalDeviceDisplayPlanePropertiesKHR",
-        "vkGetDisplayPlaneSupportedDisplaysKHR",
-        "vkGetDisplayModePropertiesKHR",
-        "vkGetDisplayPlaneCapabilitiesKHR",
-        "vkCreateDisplayModeKHR",
-        "vkCreateDisplayPlaneSurfaceKHR",
-        "vkDestroySurfaceKHR",
         # Private data (1.3)
         "vkGetPrivateData",
-        # Platform-specific (need VK_USE_PLATFORM_WIN32_KHR)
-        "vkCreateWin32SurfaceKHR",
-        # WSI swapchain / present (manual for fake swapchain images)
-        "vkCreateSwapchainKHR", "vkDestroySwapchainKHR",
-        "vkGetSwapchainImagesKHR", "vkAcquireNextImageKHR", "vkAcquireNextImage2KHR",
-        "vkQueuePresentKHR", "vkGetDeviceGroupPresentCapabilitiesKHR",
         # Command buffer (dispatchable handles need heap alloc for loader magic)
         "vkAllocateCommandBuffers", "vkFreeCommandBuffers",
         "vkBeginCommandBuffer", "vkEndCommandBuffer", "vkResetCommandBuffer",
@@ -564,17 +542,6 @@ def generate(
         "vkMapMemory", "vkUnmapMemory",
         "vkMapMemory2", "vkUnmapMemory2",
         "vkMapMemory2KHR", "vkUnmapMemory2KHR",
-        # Surface queries (need GPU caps data)
-        "vkGetPhysicalDeviceSurfaceCapabilitiesKHR", "vkGetPhysicalDeviceSurfaceCapabilities2KHR",
-        "vkGetPhysicalDeviceSurfaceFormatsKHR", "vkGetPhysicalDeviceSurfaceFormats2KHR",
-        "vkGetPhysicalDeviceSurfacePresentModesKHR", "vkGetPhysicalDeviceSurfaceSupportKHR",
-        "vkGetPhysicalDeviceWin32PresentationSupportKHR",
-        "vkCreateHeadlessSurfaceEXT",
-        "vkCreateMetalSurfaceEXT",
-        "vkCreateWaylandSurfaceKHR",
-        "vkCreateXcbSurfaceKHR",
-        "vkCreateXlibSurfaceKHR",
-        "vkCreateAndroidSurfaceKHR",
         "vkFlushMappedMemoryRanges",
         "vkInvalidateMappedMemoryRanges",
         "vkQueueSubmit",
@@ -589,7 +556,6 @@ def generate(
         "vkCmdCopyImage2",
         "vkCmdCopyBufferToImage2",
         "vkCmdCopyImageToBuffer2",
-        "vkCmdResolveImage2",
         "vkCmdBlitImage2",
     }
     auto_functions = [f for f in functions if f["name"] not in manual_functions]

@@ -59,6 +59,7 @@ compile_commands.json
 *.swp
 
 # vcpkg
+vcpkg/
 vcpkg_installed/
 
 # debug information files

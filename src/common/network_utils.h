@@ -14,9 +14,14 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <unistd.h>
+#include <cerrno>
 using SOCKET = int;
 #define INVALID_SOCKET (-1)
 #define SOCKET_ERROR (-1)
+// Winsock error symbols used by portable call sites.
+#define WSAETIMEDOUT ETIMEDOUT
+#define WSAEWOULDBLOCK EWOULDBLOCK
+#define WSAGetLastError() errno
 #endif
 
 namespace omnigpu::tcp {

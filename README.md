@@ -1,6 +1,6 @@
 # OmniGPU
-Note Dev : vứt hết render 3d thừa thãi đi dồn hết vào tính toán comp và ai à
-**Remote GPU Compute over LAN** — Forward Vulkan compute workloads from a thin client or VM to a remote host GPU over TCP. Compute-first design with rendering as secondary.
+
+**Remote GPU Compute over LAN** — Forward Vulkan compute and AI workloads from a thin client or VM to a remote host GPU over TCP. Compute-first and compute-only: rendering, presentation, and surface/swapchain forwarding have been removed.
 
 ## Vision
 
@@ -31,18 +31,18 @@ Note Dev : vứt hết render 3d thừa thãi đi dồn hết vào tính toán c
 
 - **ML inference offload** — Run Llama, Stable Diffusion, Whisper on a remote GPU from a laptop
 - **CI/CD GPU runners** — Cloud GPU for build pipelines without dedicated hardware
-- **Scientific computing** — Batch processing, simulations, rendering farms
+- **Scientific computing** — Batch processing, simulations, compute farms
 - **Game servers** — GPU-accelerated physics, AI, or compute shaders on a headless server
 
-## Why Compute-First?
+## Why Compute?
 
-| Aspect | 3D Rendering | Compute |
-|--------|-------------|---------|
+| Aspect | 3D Rendering (removed) | Compute |
+|--------|------------------------|---------|
 | Bandwidth | Huge (60fps × 8Mpx → video stream) | Small (buffers + dispatch args) |
 | Latency | Critical (<16ms per frame) | Tolerant (batch jobs, async) |
 | Video encode | Required (expensive) | Not needed |
 | TCP overhead | Problematic | Acceptable |
-| **Real use cases** | Gaming thin client | **ML, science, CI/CD, rendering** |
+| **Real use cases** | Gaming thin client | **ML, science, CI/CD** |
 
 Compute workloads are a **perfect fit** for TCP-based GPU forwarding because:
 - **Small commands**: `vkCmdDispatch` + a few descriptors = bytes on the wire
@@ -63,8 +63,8 @@ Compute workloads are a **perfect fit** for TCP-based GPU forwarding because:
 - **Performance** — Adaptive command batching with RTT-smoothed thresholds
 
 ### Infrastructure
-- **Guest OS**: Windows / Linux VM or thin client
-- **Host OS**: Windows / Linux with any Vulkan 1.3 GPU
+- **Guest OS**: Linux VM or thin client (Windows support disabled)
+- **Host OS**: Linux with any Vulkan 1.3 GPU
 - **Protocol**: FlatBuffers over TCP (port 9443)
 - **Code generation**: Auto-generated intercept stubs from Vulkan XML registry
 - **GPU capability caching**: Cached locally with configurable TTL
@@ -76,12 +76,12 @@ Compute workloads are a **perfect fit** for TCP-based GPU forwarding because:
 
 | Component | Requirement |
 |-----------|-------------|
-| OS | Windows 10+ or Linux |
+| OS | Linux |
 | CMake | 3.28+ |
 | Ninja | Build system |
-| Compiler | Windows: clang-cl (VS 2022+) / Linux: Clang 19 |
+| Compiler | Clang 19+ |
 | vcpkg | `VCPKG_ROOT` environment variable set |
-| Python 3 | For code generation and downloading third-party binaries |
+| Python 3 | For code generation |
 
 ### Host
 
@@ -94,24 +94,11 @@ Compute workloads are a **perfect fit** for TCP-based GPU forwarding because:
 
 | Component | Requirement |
 |-----------|-------------|
-| OS | Windows or Linux |
+| OS | Linux |
 | Vulkan Loader | Present in guest OS |
 | Network | TCP/IP to host on port 9443 (default) |
 
 ## Build
-
-### Windows (Release)
-
-```powershell
-.\build.ps1
-```
-
-Or step by step:
-
-```powershell
-cmake --preset release
-cmake --build --preset release
-```
 
 ### Linux
 
@@ -123,32 +110,33 @@ cmake --build --preset linux
 ### Package contents (post-build)
 
 ```
-build/release/
+build/linux/
 ├── bin/
-│   ├── omnigpu_host.exe         Host server
-│   ├── omnigpu_guest.dll        Vulkan ICD (x64)
-│   ├── omnigpu_guest_test.exe   Standalone guest test
-│   ├── omnigpu_vk_test.exe      Compute test (vector add, matmul)
-│   └── omnigpu_tests.exe        GTest suite
-├── omnigpu_guest.json           Guest config
-├── omnigpu_host.json            Host config
-└── vk_icd.json                  ICD manifest
+│   ├── omnigpu_host            Host server
+│   ├── omnigpu_guest_test      Standalone guest test
+│   ├── omnigpu_vk_test         Compute test (vector add, matmul)
+│   └── omnigpu_tests           GTest suite
+├── lib/
+│   └── libomnigpu_guest.so     Vulkan ICD
+├── omnigpu_guest.json          Guest config
+├── omnigpu_host.json           Host config
+└── vk_icd.json                 ICD manifest
 ```
 
 ## Quick Start
 
 ### 1. Start the Host Server
 
-```powershell
-.\build\release\bin\omnigpu_host.exe
+```bash
+./build/linux/bin/omnigpu_host
 ```
 
 ### 2. Install on Guest VM
 
 Copy the distribution to the guest, then:
 
-```powershell
-.\scripts\windows\install.bat
+```bash
+sudo ./scripts/linux/install_guest.sh
 ```
 
 ### 3. Configure Guest
@@ -166,8 +154,8 @@ Edit `omnigpu_guest.json`:
 
 On the guest, verify the connection:
 
-```powershell
-.\build\release\bin\omnigpu_vk_test.exe
+```bash
+./build/linux/bin/omnigpu_vk_test
 ```
 
 This runs:
@@ -186,8 +174,6 @@ Any Vulkan compute application works without modification — the ICD intercepts
 ```json
 {
     "port": 9443,
-    "render_width": 1920,
-    "render_height": 1080,
     "multi_gpu_enabled": true
 }
 ```
@@ -215,11 +201,10 @@ Messages use FlatBuffers with a root `Message` table:
 | `DataMessage` | Guest → Host | Raw buffer data (upload) |
 | `DataMessage` | Host → Guest | Compute results (readback) |
 | `ResourceCacheUpload/Evict` | Guest → Host | VRAM cache management |
-| `VideoFrame` | Host → Guest | Compressed video (rendering only) |
 
 ## Compute Test
 
-The project includes `omnigpu_vk_test.exe` — a Vulkan compute benchmark:
+The project includes `omnigpu_vk_test` — a Vulkan compute benchmark:
 
 ```
 === OmniGPU Compute Test ===
@@ -245,7 +230,7 @@ Compute queue family: 1
 OmniGPU/
 ├── src/
 │   ├── host/              Host server (dispatcher, GPU manager)
-│   ├── guest/             Guest DLL (Vulkan ICD, serializer)
+│   ├── guest/             Guest Vulkan ICD (intercept, serializer)
 │   ├── common/            Shared (logging, networking, GPU caps)
 │   ├── schemas/           FlatBuffers protocol schema
 │   └── tools/
@@ -254,9 +239,9 @@ OmniGPU/
 │       ├── compute_mul.comp      Matrix multiplication shader
 │       └── *_spv.h              Generated SPIR-V headers
 ├── gen/                   Code generation pipeline
-├── scripts/               Build & deploy automation
+├── scripts/linux/         Build & deploy automation
 ├── tests/                 GTest suite
-└── third_party/           Vulkan-Headers, clvk
+└── third_party/           clvk (OpenCL → Vulkan)
 ```
 
 ## Roadmap
@@ -265,13 +250,14 @@ OmniGPU/
 - [x] Vector addition compute test
 - [x] Matrix multiplication with push constants
 - [x] Buffer device address queries
+- [x] Compute-only ICD (graphics/render paths removed)
 - [ ] Optimized buffer upload/download (async DMA)
 - [ ] Multiple concurrent compute streams
 
 ### Medium-term (Scale)
 - [ ] Multi-GPU compute (split workloads across GPUs)
 - [ ] CUDA/HIP interop (via Vulkan compute)
-- [ ] Windows/Linux service hardening
+- [ ] Linux service hardening
 - [ ] Performance benchmarks vs native
 
 ### Long-term (Ecosystem)

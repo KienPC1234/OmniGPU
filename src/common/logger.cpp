@@ -6,6 +6,8 @@
 #include <vector>
 #include <array>
 #include <cstring>
+#include <cstdio>
+#include <cstdlib>
 
 #if defined(__EXCEPTIONS) || defined(_CPPUNWIND)
 #define OMNIGPU_TRY try
@@ -17,6 +19,8 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <unistd.h>
 #endif
 
 namespace omnigpu {
@@ -38,6 +42,37 @@ static bool has_real_console() {
 #endif
 }
 
+// Portable "is this file writable" probe.
+static bool probe_writable(const std::string& path) {
+    FILE* f = nullptr;
+#ifdef _WIN32
+    fopen_s(&f, path.c_str(), "a");
+#else
+    f = std::fopen(path.c_str(), "a");
+#endif
+    if (f != nullptr) {
+        std::fclose(f);
+        return true;
+    }
+    return false;
+}
+
+static std::string temp_dir() {
+#ifdef _WIN32
+    std::array<char, MAX_PATH> temp_path = {};
+    if (GetTempPathA(static_cast<DWORD>(temp_path.size()), temp_path.data()) != 0) {
+        return std::string(temp_path.data());
+    }
+#else
+    const char* t = std::getenv("TMPDIR");
+    if (t && *t) return std::string(t) + "/";
+    const char* home = std::getenv("HOME");
+    if (home && *home) return std::string(home) + "/";
+    return "/tmp/";
+#endif
+    return {};
+}
+
 void init_logger(const char* log_name, bool debug) {
     std::vector<spdlog::sink_ptr> sinks;
     std::string log_path = log_name;
@@ -51,43 +86,24 @@ void init_logger(const char* log_name, bool debug) {
             size_t pos = path_str.find_last_of("\\/");
             if (pos != std::string::npos) {
                 std::string app_dir_log = path_str.substr(0, pos + 1) + log_name;
-                FILE* f = nullptr;
-                fopen_s(&f, app_dir_log.c_str(), "a");
-                if (f != nullptr) {
-                    fclose(f);
+                if (probe_writable(app_dir_log)) {
                     log_path = app_dir_log;
                     app_dir_ok = true;
                 }
             }
         }
         if (!app_dir_ok) {
-            std::array<char, MAX_PATH> temp_path = {};
-            if (GetTempPathA(static_cast<DWORD>(temp_path.size()), temp_path.data()) != 0) {
-                log_path = std::string(temp_path.data()) + log_name;
-            }
+            log_path = temp_dir() + log_name;
         }
-    } else {
-        if (log_path.find('\\') == std::string::npos && log_path.find('/') == std::string::npos) {
-            std::array<char, MAX_PATH> temp_path = {};
-            if (GetTempPathA(static_cast<DWORD>(temp_path.size()), temp_path.data()) != 0) {
-                log_path = std::string(temp_path.data()) + log_path;
-            }
-        }
+    } else if (log_path.find('\\') == std::string::npos &&
+               log_path.find('/') == std::string::npos) {
+        log_path = temp_dir() + log_path;
     }
 #endif
 
     // Primary: try to create log file alongside the executable or in temp
     bool file_sink_ok = false;
-    bool is_writable = false;
-    {
-        FILE* f = nullptr;
-        fopen_s(&f, log_path.c_str(), "a");
-        if (f != nullptr) {
-            fclose(f);
-            is_writable = true;
-        }
-    }
-    if (is_writable) {
+    if (probe_writable(log_path)) {
         OMNIGPU_TRY {
             auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
                 log_path, false);
@@ -96,28 +112,16 @@ void init_logger(const char* log_name, bool debug) {
             file_sink_ok = true;
         } OMNIGPU_CATCH_ALL {}
     }
-    // Fallback: always try %TEMP% as well (works even in locked-down dirs)
+    // Fallback: always try the temp directory as well (works in locked-down dirs)
     if (!file_sink_ok) {
-        std::array<char, MAX_PATH> temp_path = {};
-        if (GetTempPathA(static_cast<DWORD>(temp_path.size()), temp_path.data()) != 0) {
-            std::string fallback = std::string(temp_path.data()) + log_name;
-            bool fallback_writable = false;
-            {
-                FILE* f = nullptr;
-                fopen_s(&f, fallback.c_str(), "a");
-                if (f != nullptr) {
-                    fclose(f);
-                    fallback_writable = true;
-                }
-            }
-            if (fallback_writable) {
-                OMNIGPU_TRY {
-                    auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
-                        fallback, false);
-                    file_sink->set_level(spdlog::level::trace);
-                    sinks.push_back(file_sink);
-                } OMNIGPU_CATCH_ALL {}
-            }
+        std::string fallback = temp_dir() + log_name;
+        if (probe_writable(fallback)) {
+            OMNIGPU_TRY {
+                auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
+                    fallback, false);
+                file_sink->set_level(spdlog::level::trace);
+                sinks.push_back(file_sink);
+            } OMNIGPU_CATCH_ALL {}
         }
     }
 

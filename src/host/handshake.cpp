@@ -135,16 +135,8 @@ caps::GpuCapabilities query_host_gpu_caps() {
             caps.vendor_id = props.vendorID;
             caps.device_id = props.deviceID;
             caps.device_type = static_cast<uint32_t>(props.deviceType);
-            caps.max_framebuffer_width = props.limits.maxFramebufferWidth;
-            caps.max_framebuffer_height = props.limits.maxFramebufferHeight;
-            caps.max_framebuffer_layers = props.limits.maxFramebufferLayers;
             caps.max_sampler_anisotropy = props.limits.maxSamplerAnisotropy;
-            caps.max_color_attachments = props.limits.maxColorAttachments;
             caps.timestamp_period = props.limits.timestampPeriod;
-            caps.max_viewports = props.limits.maxViewports;
-            caps.max_viewport_dimensions_w = static_cast<float>(props.limits.maxViewportDimensions[0]);
-            caps.max_viewport_dimensions_h = static_cast<float>(props.limits.maxViewportDimensions[1]);
-            caps.max_fragment_output_attachments = props.limits.maxFragmentOutputAttachments;
             caps.min_uniform_buffer_offset_alignment = props.limits.minUniformBufferOffsetAlignment;
             caps.min_storage_buffer_offset_alignment = props.limits.minStorageBufferOffsetAlignment;
             caps.max_uniform_buffer_range = props.limits.maxUniformBufferRange;
@@ -156,13 +148,6 @@ caps::GpuCapabilities query_host_gpu_caps() {
             caps.max_compute_work_group_count_z = props.limits.maxComputeWorkGroupCount[2];
             caps.max_compute_work_group_invocations = props.limits.maxComputeWorkGroupInvocations;
             caps.max_compute_shared_memory_size = props.limits.maxComputeSharedMemorySize;
-            caps.max_clip_distances = props.limits.maxClipDistances;
-            caps.max_cull_distances = props.limits.maxCullDistances;
-            caps.max_combined_clip_and_cull_distances = props.limits.maxCombinedClipAndCullDistances;
-            caps.max_tessellation_factor = props.limits.maxTessellationGenerationLevel;
-            caps.sample_counts = static_cast<uint32_t>(props.limits.framebufferColorSampleCounts);
-            caps.max_samples = static_cast<uint32_t>(VK_SAMPLE_COUNT_1_BIT);
-            caps.framebuffer_color_sample_counts = static_cast<uint32_t>(props.limits.framebufferColorSampleCounts);
 
             // Maintenance3: maxMemoryAllocationSize (separate from maxMemoryAllocationCount)
             VkPhysicalDeviceMaintenance3Properties maint3{};
@@ -287,11 +272,9 @@ HandshakeResult handle_capabilities_request(SOCKET client_fd,
         caps.max_bound_descriptor_sets, caps.max_per_stage_resources,
         caps.max_image_dimension_2d, caps.timestamp,
         caps.vendor_id, caps.device_id, caps.device_type,
-        caps.max_framebuffer_width, caps.max_framebuffer_height,
-        caps.max_framebuffer_layers,
         caps.max_memory_heaps, caps.memory_heap_size_0, caps.memory_heap_size_1,
         caps.heap_0_flags, caps.heap_1_flags, caps.memory_type_count,
-        caps.max_sampler_anisotropy, caps.max_color_attachments,
+        caps.max_sampler_anisotropy,
         caps.max_bound_descriptor_sets_ext,
         caps.max_per_stage_descriptor_samplers,
         caps.max_per_stage_descriptor_uniform_buffers,
@@ -300,9 +283,6 @@ HandshakeResult handle_capabilities_request(SOCKET client_fd,
         caps.max_per_stage_descriptor_storage_images,
         caps.max_per_stage_resources_ext,
         caps.subgroup_size, caps.timestamp_period,
-        caps.max_viewports, caps.max_viewport_dimensions_w,
-        caps.max_viewport_dimensions_h,
-        caps.max_fragment_output_attachments,
         caps.min_uniform_buffer_offset_alignment,
         caps.min_storage_buffer_offset_alignment,
         caps.max_uniform_buffer_range, caps.max_storage_buffer_range,
@@ -312,10 +292,6 @@ HandshakeResult handle_capabilities_request(SOCKET client_fd,
         caps.max_compute_work_group_count_z,
         caps.max_compute_work_group_invocations,
         caps.max_compute_shared_memory_size,
-        caps.max_clip_distances, caps.max_cull_distances,
-        caps.max_combined_clip_and_cull_distances,
-        caps.sample_counts, caps.max_samples,
-        caps.max_tessellation_factor, caps.framebuffer_color_sample_counts,
         caps.compute_queue_count,
         true, // supports_buffer_device_address
         caps.supported_subgroup_operations,

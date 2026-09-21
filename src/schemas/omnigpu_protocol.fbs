@@ -27,10 +27,9 @@ enum FunctionId : uint16 {
   vkFreeCommandBuffers = 76,
   vkResetCommandBuffer = 77,
 
-  // Queue operations (chứa lệnh vẽ / compute)
+  // Queue operations (compute dispatch / transfer)
   vkGetDeviceQueue = 9,
   vkQueueSubmit = 10,
-  vkQueuePresentKHR = 11,
   vkDeviceWaitIdle = 78,
   vkQueueWaitIdle = 79,
 
@@ -54,21 +53,13 @@ enum FunctionId : uint16 {
   vkCreateSampler = 22,
   vkDestroySampler = 23,
 
-  // Shader modules & pipelines
+  // Shader modules & compute pipelines
   vkCreateShaderModule = 24,
   vkDestroyShaderModule = 25,
   vkCreatePipelineLayout = 26,
   vkDestroyPipelineLayout = 27,
-  vkCreateGraphicsPipelines = 28,
   vkCreateComputePipelines = 29,
   vkDestroyPipeline = 30,
-  vkCreateRenderPass = 31,
-  vkDestroyRenderPass = 32,
-  vkCreateFramebuffer = 33,
-  vkDestroyFramebuffer = 34,
-  vkCmdDraw = 35,
-  vkCmdDrawIndexed = 36,
-  vkCmdDrawIndirect = 37,
   vkCreatePipelineCache = 84,
   vkDestroyPipelineCache = 85,
   vkMergePipelineCaches = 86,
@@ -77,25 +68,13 @@ enum FunctionId : uint16 {
   vkCmdDispatch = 38,
   vkCmdDispatchIndirect = 88,
 
-  // Command recording — State binding
+  // Command recording — State binding (compute)
   vkCmdBindPipeline = 39,
-  vkCmdBindVertexBuffers = 40,
-  vkCmdBindIndexBuffer = 41,
   vkCmdBindDescriptorSets = 42,
-  vkCmdSetViewport = 43,
-  vkCmdSetScissor = 44,
   vkCmdPushConstants = 45,
-  vkCmdSetDepthBias = 89,
-  vkCmdSetLineWidth = 90,
-  vkCmdSetDepthBounds = 91,
-  vkCmdSetStencilCompareMask = 92,
-  vkCmdSetStencilWriteMask = 93,
-  vkCmdSetStencilReference = 94,
-  vkCmdSetBlendConstants = 95,
 
   // Command recording — Copy / Blit / Clear / Fill
   vkCmdClearColorImage = 46,
-  vkCmdClearDepthStencilImage = 47,
   vkCmdCopyBuffer = 48,
   vkCmdCopyImage = 49,
   vkCmdBlitImage = 50,
@@ -103,15 +82,10 @@ enum FunctionId : uint16 {
   vkCmdCopyImageToBuffer = 97,
   vkCmdUpdateBuffer = 98,
   vkCmdFillBuffer = 99,
-  vkCmdClearAttachments = 100,
-  vkCmdResolveImage = 101,
 
-  // Command recording — Barriers / Subpass / Execute
+  // Command recording — Barriers / Execute
   vkCmdPipelineBarrier = 51,
-  vkCmdBeginRenderPass = 52,
-  vkCmdEndRenderPass = 53,
   vkCmdExecuteCommands = 54,
-  vkCmdNextSubpass = 102,
 
   // Descriptor management
   vkCreateDescriptorSetLayout = 55,
@@ -174,7 +148,6 @@ enum FunctionId : uint16 {
   vkCmdCopyBufferToImage2 = 150,
   vkCmdCopyImageToBuffer2 = 151,
   vkCmdBlitImage2 = 152,
-  vkCmdResolveImage2 = 153,
 
   // VK_EXT_private_data (Vulkan 1.3)
   vkCreatePrivateDataSlotEXT = 154,
@@ -195,26 +168,6 @@ enum FunctionId : uint16 {
   // Vulkan 1.1 additions
   vkCmdSetDeviceMask = 170,
   vkCmdDispatchBase = 171,
-  vkCmdDrawIndirectCount = 116,
-  vkCmdDrawIndexedIndirectCount = 117,
-  vkCreateRenderPass2 = 118,
-  vkCmdBeginRenderPass2 = 119,
-  vkCmdNextSubpass2 = 120,
-  vkCmdEndRenderPass2 = 121,
-  vkCmdSetCullMode = 128,
-  vkCmdSetFrontFace = 129,
-  vkCmdSetPrimitiveTopology = 130,
-  vkCmdSetViewportWithCount = 131,
-  vkCmdSetScissorWithCount = 132,
-  vkCmdSetDepthTestEnable = 133,
-  vkCmdSetDepthWriteEnable = 134,
-  vkCmdSetDepthCompareOp = 135,
-  vkCmdSetDepthBoundsTestEnable = 136,
-  vkCmdSetStencilTestEnable = 137,
-  vkCmdSetStencilOp = 138,
-  vkCmdSetRasterizerDiscardEnable = 139,
-  vkCmdSetDepthBiasEnable = 140,
-  vkCmdSetPrimitiveRestartEnable = 141,
   vkGetDeviceGroupPeerMemoryFeatures = 172,
 
   // Vulkan 1.3 promoted from EXT
@@ -223,19 +176,10 @@ enum FunctionId : uint16 {
   vkSetPrivateData = 175,
   vkGetPrivateData = 176,
 
-  // Vulkan 1.3 — BindVertexBuffers2
-  vkCmdBindVertexBuffers2 = 177,
-
   // Memory requirements (Vulkan 1.3 maintenance4)
   vkGetDeviceBufferMemoryRequirements = 178,
   vkGetDeviceImageMemoryRequirements = 179,
   vkGetDeviceImageSparseMemoryRequirements = 180,
-  vkCmdSetVertexInputEXT = 157,
-  vkCreateSwapchainKHR = 158,
-  vkDestroySwapchainKHR = 159,
-  vkGetSwapchainImagesKHR = 160,
-  vkAcquireNextImageKHR = 161,
-  vkAcquireNextImage2KHR = 162,
 
   // Sparse binding
   vkQueueBindSparse = 183,
@@ -244,16 +188,10 @@ enum FunctionId : uint16 {
   vkGetBufferDeviceAddress = 188,
   vkGetBufferOpaqueCaptureAddress = 189,
   vkGetDeviceMemoryOpaqueCaptureAddress = 190,
-  vkGetDeviceGroupPresentCapabilitiesKHR = 181,
-  vkGetDeviceGroupSurfacePresentModesKHR = 182,
 
   // Synchronous query commands (guest → host → guest round-trip)
   vkGetQueryPoolResults = 191,
   vkGetImageSubresourceLayout = 192,
-  vkCreateWin32SurfaceKHR = 184,
-  vkCreateHeadlessSurfaceEXT = 185,
-  vkGetPhysicalDeviceSurfaceCapabilities2KHR = 186,
-  vkGetPhysicalDeviceSurfaceFormats2KHR = 187,
 }
 
 // ---------------------------------------------------------------------------
@@ -274,10 +212,8 @@ enum DataType : byte {
 // Guest gửi request khi kết nối lần đầu
 table CapabilitiesRequest {
   client_version: uint32 = 1;
-  preferred_width: uint32 = 0;
-  preferred_height: uint32 = 0;
   auth_token: string = "";
-  compute_mode: bool = false;    // true = compute-only, no video encoding
+  compute_mode: bool = true;     // OmniGPU is compute-only
   large_buffers: bool = false;  // true = request zero-copy buffer support
 }
 
@@ -313,9 +249,6 @@ table CapabilitiesResponse {
   max_per_stage_resources_ext: uint32 = 1000000;
   subgroup_size: uint32 = 32;
   timestamp_period: float = 1.0;
-  max_viewports: uint32 = 16;
-  max_viewport_dimensions_w: float = 16384.0;
-  max_viewport_dimensions_h: float = 16384.0;
   min_uniform_buffer_offset_alignment: uint64 = 256;
   min_storage_buffer_offset_alignment: uint64 = 256;
   max_uniform_buffer_range: uint64 = 65536;
@@ -327,9 +260,6 @@ table CapabilitiesResponse {
   max_compute_work_group_count_z: uint32 = 65535;
   max_compute_work_group_invocations: uint32 = 1024;
   max_compute_shared_memory_size: uint32 = 49152;
-  max_clip_distances: uint32 = 8;
-  max_cull_distances: uint32 = 8;
-  max_combined_clip_and_cull_distances: uint32 = 8;
 
   // Compute extensions (NEW fields — do not conflict with existing)
   compute_queue_count: uint32 = 1;

@@ -12,6 +12,7 @@ on:
 jobs:
   test-windows:
     name: Windows (Clang + Ninja)
+    if: false  # disabled — Linux is the supported target
     runs-on: windows-2025
 
     steps:
@@ -77,7 +78,6 @@ jobs:
 
   test-linux:
     name: Linux (Clang + Ninja)
-    if: false  # temporarily disabled
     runs-on: ubuntu-24.04
 
     steps:
@@ -106,9 +106,8 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Fetch translation layers
-        run: |
-          python third_party/fetch_clvk.py --output-dir third_party/clvk || true
+      - name: Install codegen dependencies
+        run: pip install -r gen/requirements.txt
 
       - name: Configure CMake (linux)
         run: cmake --preset linux

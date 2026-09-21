@@ -124,16 +124,9 @@ fi
 echo ""
 
 # ---------------------------------------------------------
-# 3. Check Translation Layers
+# 3. Check OpenCL translation layer (optional)
 # ---------------------------------------------------------
-echo -e "${YELLOW}[3/3] Checking Graphics Translation Layers...${NC}"
-
-# On Linux, Zink is standard. Check if MESA is configured for Zink
-if [ "$MESA_LOADER_DRIVER_OVERRIDE" = "zink" ] || [ "$GALLIUM_DRIVER" = "zink" ]; then
-    echo -e "  ${GREEN}[OK] Gallium Zink driver override active${NC}"
-else
-    echo -e "  ${GRAY}[--] Zink driver override not set (normal behavior unless forced)${NC}"
-fi
+echo -e "${YELLOW}[3/3] Checking OpenCL Translation Layer...${NC}"
 
 # Check clvk
 clvk_so="$bin_dir/libOpenCL.so"

@@ -8,6 +8,7 @@ on:
 jobs:
   release-windows:
     name: Package Windows Release
+    if: false  # disabled — Linux is the supported target
     runs-on: windows-2025
 
     steps:
@@ -81,7 +82,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang ninja-build mesa-utils libvulkan-dev
+          sudo apt-get install -y clang ninja-build libvulkan-dev
 
       - name: Restore vcpkg cache
         uses: actions/cache@v4

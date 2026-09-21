@@ -19,7 +19,6 @@ PFN_vkVoidFunction get_intercept_proc(const char* name);
     ret VKAPI_PTR name##_hook(__VA_ARGS__)
 
 // Manual hook declarations (for functions in vk_intercept.cpp)
-DECL_HOOK(void, vkCmdBlitImage2, VkCommandBuffer, const VkBlitImageInfo2*);
 
 // ---- Vulkan 1.0 Core — Auto-generated hooks ----
 DECL_HOOK(VkResult, vkQueueSubmit, VkQueue, uint32_t, const VkSubmitInfo*, VkFence);
@@ -109,8 +108,6 @@ DECL_HOOK(void, vkCmdCopyImageToBuffer, VkCommandBuffer, VkImage, VkImageLayout,
 DECL_HOOK(void, vkCmdUpdateBuffer, VkCommandBuffer, VkBuffer, VkDeviceSize, VkDeviceSize, const void*);
 DECL_HOOK(void, vkCmdFillBuffer, VkCommandBuffer, VkBuffer, VkDeviceSize, VkDeviceSize, uint32_t);
 DECL_HOOK(void, vkCmdClearColorImage, VkCommandBuffer, VkImage, VkImageLayout, const VkClearColorValue*, uint32_t, const VkImageSubresourceRange*);
-DECL_HOOK(void, vkCmdClearDepthStencilImage, VkCommandBuffer, VkImage, VkImageLayout, const VkClearDepthStencilValue*, uint32_t, const VkImageSubresourceRange*);
-DECL_HOOK(void, vkCmdResolveImage, VkCommandBuffer, VkImage, VkImageLayout, VkImage, VkImageLayout, uint32_t, const VkImageResolve*);
 
 DECL_HOOK(void, vkCmdPipelineBarrier, VkCommandBuffer, VkPipelineStageFlags, VkPipelineStageFlags, VkDependencyFlags, uint32_t, const VkMemoryBarrier*, uint32_t, const VkBufferMemoryBarrier*, uint32_t, const VkImageMemoryBarrier*);
 
@@ -149,7 +146,6 @@ DECL_HOOK(void, vkCmdCopyImage2, VkCommandBuffer, const VkCopyImageInfo2*);
 DECL_HOOK(void, vkCmdCopyBufferToImage2, VkCommandBuffer, const VkCopyBufferToImageInfo2*);
 DECL_HOOK(void, vkCmdCopyImageToBuffer2, VkCommandBuffer, const VkCopyImageToBufferInfo2*);
 DECL_HOOK(void, vkCmdBlitImage2, VkCommandBuffer, const VkBlitImageInfo2*);
-DECL_HOOK(void, vkCmdResolveImage2, VkCommandBuffer, const VkResolveImageInfo2*);
 
 // ---- Vulkan 1.3 — Private Data ----
 DECL_HOOK(VkResult, vkCreatePrivateDataSlotEXT, VkDevice, const VkPrivateDataSlotCreateInfo*, const VkAllocationCallbacks*, VkPrivateDataSlot*);

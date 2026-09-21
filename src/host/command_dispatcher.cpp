@@ -1144,44 +1144,7 @@ CommandDispatcher::CommandDispatcher() {
             vkCmdClearColorImage(cb, i, layout, &color,
                                  static_cast<uint32_t>(ranges.size()), ranges.data());
     });
-    REGISTER(fbs::FunctionId_vkCmdClearDepthStencilImage, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        VkImage img = d.mapper_.get_image(r.read_handle());
-        VkImageLayout layout = static_cast<VkImageLayout>(r.read_u32());
-        VkClearDepthStencilValue ds{};
-        r.read_raw(&ds, sizeof(ds));
-        uint32_t rc = r.read_u32();
-        std::vector<VkImageSubresourceRange> ranges(rc);
-        for (auto& rg : ranges) r.read_raw(&rg, sizeof(rg));
-        if (cb && img) vkCmdClearDepthStencilImage(cb, img, layout, &ds, rc, ranges.data());
-    });
-    REGISTER(fbs::FunctionId_vkCmdClearAttachments, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        uint32_t ac = r.read_u32();
-        std::vector<VkClearAttachment> attachments(ac);
-        for (uint32_t i = 0; i < ac; i++) {
-            // VkClearAttachment has: aspectMask + colorAttachment + clearValue
-            attachments[i].aspectMask = static_cast<VkImageAspectFlags>(r.read_u32());
-            attachments[i].colorAttachment = r.read_u32();
-            r.read_raw(&attachments[i].clearValue, sizeof(VkClearValue));
-        }
-        uint32_t rc = r.read_u32();
-        std::vector<VkClearRect> rects(rc);
-        for (auto& rect : rects) r.read_raw(&rect, sizeof(rect));
-        if (cb) vkCmdClearAttachments(cb, ac, attachments.data(), rc, rects.data());
-    });
-    REGISTER(fbs::FunctionId_vkCmdResolveImage, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd(); r.read_handle();
-        VkImage src = d.mapper_.get_image(r.read_handle());
-        VkImageLayout srcLayout = static_cast<VkImageLayout>(r.read_u32());
-        VkImage dst = d.mapper_.get_image(r.read_handle());
-        VkImageLayout dstLayout = static_cast<VkImageLayout>(r.read_u32());
-        uint32_t rc = r.read_u32();
-        std::vector<VkImageResolve> regions(rc);
-        for (auto& reg : regions) r.read_raw(&reg, sizeof(reg));
-        if (cb && src && dst) vkCmdResolveImage(cb, src, srcLayout, dst, dstLayout, rc, regions.data());
-    });
-    REGISTER(fbs::FunctionId_vkCmdExecuteCommands, [](auto& d, auto& r) {
+                REGISTER(fbs::FunctionId_vkCmdExecuteCommands, [](auto& d, auto& r) {
         auto cb = d.mapper_.active_cmd(); r.read_handle();
         uint32_t count = r.read_u32();
         std::vector<VkCommandBuffer> secondaryCbs(count);
@@ -1576,40 +1539,7 @@ CommandDispatcher::CommandDispatcher() {
             }
         }
     });
-    REGISTER(fbs::FunctionId_vkCmdResolveImage2, [](auto& d, auto& r) {
-        auto cb = d.mapper_.active_cmd();
-        r.read_handle();
-        VkImage src = d.mapper_.get_image(r.read_handle());
-        VkImageLayout srcLayout = static_cast<VkImageLayout>(r.read_u32());
-        VkImage dst = d.mapper_.get_image(r.read_handle());
-        VkImageLayout dstLayout = static_cast<VkImageLayout>(r.read_u32());
-        uint32_t count = r.read_u32();
-        std::vector<VkImageResolve2> regions(count);
-        for (uint32_t i = 0; i < count; i++) {
-            r.read_raw(&regions[i], sizeof(VkImageResolve2));
-            regions[i].pNext = nullptr;
-        }
-
-        VkResolveImageInfo2 ci{};
-        ci.sType = VK_STRUCTURE_TYPE_RESOLVE_IMAGE_INFO_2;
-        ci.pNext = nullptr;
-        ci.srcImage = src;
-        ci.srcImageLayout = srcLayout;
-        ci.dstImage = dst;
-        ci.dstImageLayout = dstLayout;
-        ci.regionCount = count;
-        ci.pRegions = regions.data();
-
-        if (cb && src && dst) {
-            auto pfnCmdResolveImage2 = reinterpret_cast<PFN_vkCmdResolveImage2>(
-                vkGetDeviceProcAddr(d.mapper_.device(), "vkCmdResolveImage2"));
-            if (pfnCmdResolveImage2) {
-                pfnCmdResolveImage2(cb, &ci);
-            }
-        }
-    });
-
-    // --- QueueSubmit2 (Vulkan 1.3) ---
+        // --- QueueSubmit2 (Vulkan 1.3) ---
     REGISTER(fbs::FunctionId_vkQueueSubmit2, [](auto& d, auto& r) {
         VkDevice dev = d.mapper_.device();
         VkQueue q = d.mapper_.queue();
@@ -2062,7 +1992,7 @@ void CommandDispatcher::readback_all_buffers() {
         if (isComputeMode_ && !weightVerified_ && allocSize > 100ULL * 1024 * 1024) {
             weightVerified_ = true;
             void* lmapped = nullptr;
-            size_t checkSize = std::min(allocSize, 1024ULL * 1024);
+            size_t checkSize = static_cast<size_t>(std::min<VkDeviceSize>(allocSize, 1024ULL * 1024));
             VkResult lres = vkMapMemory(dev, hostMem, 0, checkSize, 0, &lmapped);
             if (lres == VK_SUCCESS && lmapped) {
                 const uint8_t* p = static_cast<const uint8_t*>(lmapped);
@@ -2148,7 +2078,6 @@ void CommandDispatcher::cache_device_procs(VkDevice dev) {
     pfnCmdCopyBufferToImage2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkCmdCopyBufferToImage2"));
     pfnCmdCopyImageToBuffer2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkCmdCopyImageToBuffer2"));
     pfnCmdBlitImage2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkCmdBlitImage2"));
-    pfnCmdResolveImage2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkCmdResolveImage2"));
     pfnQueueSubmit2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkQueueSubmit2"));
     pfnCmdWaitEvents2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkCmdWaitEvents2"));
     pfnBindBufferMemory2_ = reinterpret_cast<void*>(vkGetDeviceProcAddr(dev, "vkBindBufferMemory2"));

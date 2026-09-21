@@ -27,9 +27,6 @@ void write_VkComputePipelineCreateInfo(
 void write_VkWriteDescriptorSet(
     VulkanSerializer& ser, const VkWriteDescriptorSet* info);
 
-void write_VkRenderingInfo(
-    VulkanSerializer& ser, const VkRenderingInfo* info);
-
 void write_VkSubmitInfo(
     VulkanSerializer& ser, const VkSubmitInfo* info);
 void write_VkSubmitInfo2(

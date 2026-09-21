@@ -14,20 +14,17 @@ from pathlib import Path
 from typing import Any, Optional
 
 
-# Core version features and their command counts
+# Core version features — OmniGPU is compute-only, so the graphics feature
+# groups are intentionally not collected.
 CORE_VERSION_FEATURES = {
     "VK_BASE_VERSION_1_0": "1.0",
     "VK_COMPUTE_VERSION_1_0": "1.0",
-    "VK_GRAPHICS_VERSION_1_0": "1.0",
     "VK_BASE_VERSION_1_1": "1.1",
     "VK_COMPUTE_VERSION_1_1": "1.1",
-    "VK_GRAPHICS_VERSION_1_1": "1.1",
     "VK_BASE_VERSION_1_2": "1.2",
     "VK_COMPUTE_VERSION_1_2": "1.2",
-    "VK_GRAPHICS_VERSION_1_2": "1.2",
     "VK_BASE_VERSION_1_3": "1.3",
     "VK_COMPUTE_VERSION_1_3": "1.3",
-    "VK_GRAPHICS_VERSION_1_3": "1.3",
 }
 
 # Functions with manual implementations – excluded from auto-generation
@@ -75,7 +72,6 @@ MANUAL_FUNCTIONS = {
     "vkGetDeviceMemoryCommitment",
     "vkGetFenceStatus",
     "vkGetEventStatus",
-    "vkGetRenderAreaGranularity",
     "vkGetImageSubresourceLayout",
     "vkGetQueryPoolResults",
     "vkGetPipelineCacheData",
@@ -84,20 +80,6 @@ MANUAL_FUNCTIONS = {
     "vkGetBufferOpaqueCaptureAddress",
     "vkGetDeviceMemoryOpaqueCaptureAddress",
     # KHR surface
-    "vkGetPhysicalDeviceSurfaceSupportKHR",
-    "vkGetPhysicalDeviceSurfaceCapabilitiesKHR",
-    "vkGetPhysicalDeviceSurfaceFormatsKHR",
-    "vkGetPhysicalDeviceSurfacePresentModesKHR",
-    "vkGetPhysicalDevicePresentRectanglesKHR",
-    # KHR display
-    "vkGetPhysicalDeviceDisplayPropertiesKHR",
-    "vkGetPhysicalDeviceDisplayPlanePropertiesKHR",
-    "vkGetDisplayPlaneSupportedDisplaysKHR",
-    "vkGetDisplayModePropertiesKHR",
-    "vkGetDisplayPlaneCapabilitiesKHR",
-    "vkCreateDisplayModeKHR",
-    "vkCreateDisplayPlaneSurfaceKHR",
-    "vkDestroySurfaceKHR",
 }
 
 # Types that are handles
@@ -141,13 +123,10 @@ def load_type_info(xml_root):
         "VkDeviceMemory",
         "VkShaderModule",
         "VkPipeline", "VkPipelineLayout", "VkPipelineCache",
-        "VkRenderPass", "VkFramebuffer",
         "VkDescriptorSetLayout", "VkDescriptorPool", "VkDescriptorSet",
         "VkSampler",
         "VkSemaphore", "VkFence", "VkEvent",
         "VkQueryPool",
-        "VkSurfaceKHR", "VkSwapchainKHR",
-        "VkDisplayKHR", "VkDisplayModeKHR",
         "VkPrivateDataSlot",
         "VkDescriptorUpdateTemplate", "VkSamplerYcbcrConversion",
         "VkDebugReportCallbackEXT", "VkDebugUtilsMessengerEXT",
@@ -164,12 +143,7 @@ def load_type_info(xml_root):
         "VkImageCreateFlagBits", "VkImageCreateFlags",
         "VkSampleCountFlagBits", "VkSampleCountFlags",
         "VkFilter", "VkSamplerAddressMode", "VkSamplerMipmapMode",
-        "VkBorderColor", "VkCompareOp", "VkStencilOp",
-        "VkStencilFaceFlagBits", "VkStencilFaceFlags",
-        "VkBlendFactor", "VkBlendOp", "VkColorComponentFlagBits",
-        "VkColorComponentFlags", "VkLogicOp", "VkFrontFace",
-        "VkCullModeFlagBits", "VkCullModeFlags",
-        "VkPrimitiveTopology", "VkPolygonMode",
+        "VkCompareOp",
         "VkPipelineBindPoint", "VkShaderStageFlagBits", "VkShaderStageFlags",
         "VkPipelineStageFlagBits", "VkPipelineStageFlags",
         "VkPipelineStageFlagBits2", "VkPipelineStageFlags2",
@@ -193,32 +167,23 @@ def load_type_info(xml_root):
         "VkDescriptorPoolCreateFlagBits", "VkDescriptorPoolCreateFlags",
         "VkDescriptorPoolResetFlags",
         "VkDescriptorSetLayoutCreateFlagBits", "VkDescriptorSetLayoutCreateFlags",
-        "VkVertexInputRate",
         "VkSharingMode",
-        "VkAttachmentLoadOp", "VkAttachmentStoreOp",
         "VkPipelineCreateFlagBits", "VkPipelineCreateFlags",
         "VkShaderModuleCreateFlagBits",
         "VkFenceCreateFlagBits", "VkFenceCreateFlags",
         "VkSemaphoreCreateFlagBits", "VkSemaphoreType",
         "VkEventCreateFlagBits", "VkEventCreateFlags",
-        "VkPresentModeKHR", "VkColorSpaceKHR",
-        "VkCompositeAlphaFlagBitsKHR", "VkCompositeAlphaFlagsKHR",
-        "VkSurfaceTransformFlagBitsKHR", "VkSurfaceTransformFlagsKHR",
-        "VkSwapchainCreateFlagBitsKHR", "VkSwapchainCreateFlagsKHR",
         "VkObjectType", "VkSystemAllocationScope",
         "VkInternalAllocationType",
         "VkPointClippingBehavior",
-        "VkResolveModeFlagBits",
         "VkDescriptorUpdateTemplateType",
         "VkExternalMemoryHandleTypeFlagBits", "VkExternalMemoryFeatureFlagBits",
         "VkExternalFenceHandleTypeFlagBits", "VkExternalFenceFeatureFlagBits",
         "VkExternalSemaphoreHandleTypeFlagBits", "VkExternalSemaphoreFeatureFlagBits",
         "VkSemaphoreWaitFlagBits", "VkSemaphoreWaitFlags",
-        "VkRenderingFlagBits", "VkRenderingFlags",
         "VkMemoryMapFlags",
         "VkPeerMemoryFeatureFlags",
         "VkDeviceDiagnosticsConfigFlagsNV",
-        "VkDeviceGroupPresentModeFlagBitsKHR", "VkDeviceGroupPresentModeFlagsKHR",
     ]:
         ENUM_TYPES.add(e)
 
@@ -234,23 +199,21 @@ def load_type_info(xml_root):
 
     # Additional well-known Vulkan 1.x structs not categorized in XML
     for s in [
-        "VkSubmitInfo", "VkSubmitInfo2", "VkPresentInfoKHR",
+        "VkSubmitInfo", "VkSubmitInfo2",
         "VkCommandBufferAllocateInfo", "VkCommandBufferBeginInfo",
         "VkMemoryAllocateInfo", "VkMappedMemoryRange",
         "VkBufferCreateInfo", "VkImageCreateInfo", "VkImageViewCreateInfo",
         "VkSamplerCreateInfo",
         "VkShaderModuleCreateInfo",
         "VkPipelineLayoutCreateInfo", "VkPipelineShaderStageCreateInfo",
-        "VkGraphicsPipelineCreateInfo", "VkComputePipelineCreateInfo",
+        "VkComputePipelineCreateInfo",
         "VkPipelineCacheCreateInfo",
-        "VkRenderPassCreateInfo", "VkRenderPassCreateInfo2",
-        "VkFramebufferCreateInfo",
         "VkDescriptorSetLayoutCreateInfo", "VkDescriptorPoolCreateInfo",
         "VkDescriptorSetAllocateInfo",
         "VkFenceCreateInfo", "VkSemaphoreCreateInfo",
         "VkEventCreateInfo", "VkQueryPoolCreateInfo",
         "VkCommandPoolCreateInfo",
-        "VkRenderingInfo", "VkDependencyInfo",
+        "VkDependencyInfo",
         "VkCopyBufferInfo2", "VkCopyImageInfo2",
         "VkCopyBufferToImageInfo2", "VkCopyImageToBufferInfo2",
         "VkBlitImageInfo2", "VkResolveImageInfo2",
@@ -267,42 +230,21 @@ def load_type_info(xml_root):
         "VkPhysicalDeviceSparseImageFormatInfo2",
         "VkSparseImageFormatProperties2",
         "VkDescriptorSetLayoutSupport",
-        "VkVertexInputBindingDescription2EXT",
-        "VkVertexInputAttributeDescription2EXT",
         "VkInstanceCreateInfo", "VkDeviceCreateInfo",
-        "VkSwapchainCreateInfoKHR",
         "VkAllocationCallbacks",
         "VkSubpassBeginInfo", "VkSubpassEndInfo",
         "VkPhysicalDeviceToolProperties",
-        "VkDeviceGroupPresentCapabilitiesKHR",
         "VkImageSubresource", "VkSubresourceLayout",
-        "VkDisplayModeCreateInfoKHR", "VkDisplaySurfaceCreateInfoKHR",
-        "VkSurfaceCapabilitiesKHR", "VkSurfaceFormatKHR",
-        "VkAcquireNextImageInfoKHR",
         "VkBufferCopy", "VkBufferImageCopy", "VkImageCopy",
         "VkImageBlit", "VkImageResolve",
         "VkBufferMemoryBarrier", "VkImageMemoryBarrier", "VkMemoryBarrier",
-        "VkClearColorValue", "VkClearDepthStencilValue",
-        "VkClearAttachment", "VkClearRect",
+        "VkClearColorValue",
         "VkImageSubresourceRange", "VkImageSubresourceLayers",
         "VkWriteDescriptorSet", "VkCopyDescriptorSet",
-        "VkViewport", "VkRect2D",
-        "VkVertexInputBindingDescription", "VkVertexInputAttributeDescription",
-        "VkPipelineVertexInputStateCreateInfo",
-        "VkPipelineInputAssemblyStateCreateInfo",
-        "VkPipelineTessellationStateCreateInfo",
-        "VkPipelineViewportStateCreateInfo",
-        "VkPipelineRasterizationStateCreateInfo",
-        "VkPipelineMultisampleStateCreateInfo",
-        "VkPipelineDepthStencilStateCreateInfo",
-        "VkPipelineColorBlendStateCreateInfo",
-        "VkPipelineDynamicStateCreateInfo",
+        "VkRect2D",
         "VkSpecializationInfo", "VkSpecializationMapEntry",
         "VkPushConstantRange", "VkDescriptorSetLayoutBinding",
         "VkDescriptorPoolSize",
-        "VkStencilOpState",
-        "VkPipelineColorBlendAttachmentState",
-        "VkRenderPassBeginInfo",
         "VkDeviceQueueCreateInfo",
         "VkExtensionProperties", "VkLayerProperties",
         "VkPhysicalDeviceProperties",
@@ -326,8 +268,6 @@ def load_type_info(xml_root):
         "VkPhysicalDeviceSparseImageFormatInfo2",
         "VkSparseImageFormatProperties2",
         "VkPhysicalDevicePushDescriptorPropertiesKHR",
-        "VkDisplayPropertiesKHR", "VkDisplayPlanePropertiesKHR",
-        "VkDisplayModePropertiesKHR", "VkDisplayPlaneCapabilitiesKHR",
         "VkBindBufferMemoryInfo", "VkBindImageMemoryInfo",
         "VkBindSparseInfo",
         "VkDescriptorUpdateTemplateCreateInfo",
@@ -464,8 +404,6 @@ def classify_kind(ptype: str, pname: str, func_name: str, all_params: list[dict]
 
     # Special overrides
     special_overrides = [
-        # const float* blendConstants with 16 bytes (4 floats)
-        ("vkCmdSetBlendConstants", "blendConstants"),
         # void* pData parameters with size param
     ]
     if (func_name, pname) in special_overrides:
@@ -571,8 +509,6 @@ def classify_params(func_name: str, raw_params: list[dict]) -> list[dict]:
     # Second pass: handle raw_ptr special cases
     for i, p in enumerate(raw_params):
         if p["kind"] == "raw_ptr":
-            # Special: vkCmdSetBlendConstants blendConstants = 4 floats
-            if func_name == "vkCmdSetBlendConstants" and p["name"] == "blendConstants":
                 p["byte_size"] = 16
 
     # Third pass: handle VkBool32* -> value_ptr
@@ -653,11 +589,8 @@ def main():
         version_stats.setdefault(CORE_VERSION_FEATURES[feat_name], 0)
         version_stats[CORE_VERSION_FEATURES[feat_name]] += len(cmds)
 
-    # Core extensions
+    # Core extensions (compute / memory / synchronization relevant only)
     extension_list = [
-        "VK_KHR_surface", "VK_KHR_swapchain",
-        "VK_KHR_display",
-        "VK_EXT_vertex_input_dynamic_state",
         "VK_EXT_private_data",
         "VK_EXT_tooling_info",
     ]

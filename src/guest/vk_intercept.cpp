@@ -31,10 +31,14 @@
 #include <malloc.h>
 #define omni_aligned_alloc(alignment, size) _aligned_malloc((size), (alignment))
 #define omni_aligned_free(ptr) _aligned_free(ptr)
+// MSVC-specific bounded string copy; map to the portable equivalent elsewhere.
+#define omni_strncpy(dst, dstsz, src) strncpy_s((dst), (dstsz), (src), _TRUNCATE)
 #else
 #include <stdlib.h>
 #define omni_aligned_alloc(alignment, size) aligned_alloc((alignment), (size))
 #define omni_aligned_free(ptr) free(ptr)
+#define omni_strncpy(dst, dstsz, src) \
+    do { std::strncpy((dst), (src), (dstsz) - 1); (dst)[(dstsz) - 1] = '\0'; } while (0)
 #endif
 
 namespace omnigpu::intercept {
@@ -299,7 +303,7 @@ VkResult VKAPI_PTR vkEnumerateInstanceExtensionProperties_hook(
     if (instance_extensions.empty()) {
         auto add = [&](const char* name, uint32_t ver) {
             VkExtensionProperties p{};
-            strncpy_s(p.extensionName, sizeof(p.extensionName), name, _TRUNCATE);
+            omni_strncpy(p.extensionName, sizeof(p.extensionName), name);
             p.specVersion = ver;
             instance_extensions.push_back(p);
         };
@@ -341,7 +345,7 @@ VkResult VKAPI_PTR vkEnumerateDeviceExtensionProperties_hook(
     if (device_extensions.empty()) {
         auto add = [&](const char* name, uint32_t ver) {
             VkExtensionProperties p{};
-            strncpy_s(p.extensionName, sizeof(p.extensionName), name, _TRUNCATE);
+            omni_strncpy(p.extensionName, sizeof(p.extensionName), name);
             p.specVersion = ver;
             device_extensions.push_back(p);
         };
@@ -588,9 +592,8 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties_hook(
     auto& caps = caps::get();
     std::memset(pProperties, 0, sizeof(*pProperties));
 
-    strncpy_s(pProperties->deviceName, VK_MAX_PHYSICAL_DEVICE_NAME_SIZE,
-              caps.valid() ? caps.gpu_name.c_str() : "OmniGPU Virtual Device",
-              _TRUNCATE);
+    omni_strncpy(pProperties->deviceName, VK_MAX_PHYSICAL_DEVICE_NAME_SIZE,
+              caps.valid() ? caps.gpu_name.c_str() : "OmniGPU Virtual Device");
     pProperties->apiVersion = caps.valid() ? caps.api_version : VK_API_VERSION_1_3;
     pProperties->driverVersion = caps.valid() ? caps.driver_version
                                                : VK_MAKE_API_VERSION(0, 1, 3, 0);
@@ -619,7 +622,7 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties_hook(
     pProperties->limits.maxPerStageDescriptorStorageBuffers = caps.max_per_stage_descriptor_storage_buffers;
     pProperties->limits.maxPerStageDescriptorSampledImages = caps.max_per_stage_descriptor_sampled_images;
     pProperties->limits.maxPerStageDescriptorStorageImages = caps.max_per_stage_descriptor_storage_images;
-    pProperties->limits.maxPerStageDescriptorInputAttachments = caps.max_color_attachments;
+    pProperties->limits.maxPerStageDescriptorInputAttachments = 8;
     pProperties->limits.maxPerStageResources = caps.max_per_stage_resources;
     pProperties->limits.maxDescriptorSetSamplers = caps.max_per_stage_descriptor_samplers * 4;
     pProperties->limits.maxDescriptorSetUniformBuffers = caps.max_per_stage_descriptor_uniform_buffers * 4;
@@ -628,7 +631,7 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties_hook(
     pProperties->limits.maxDescriptorSetStorageBuffersDynamic = 16;
     pProperties->limits.maxDescriptorSetSampledImages = caps.max_per_stage_descriptor_sampled_images * 4;
     pProperties->limits.maxDescriptorSetStorageImages = caps.max_per_stage_descriptor_storage_images * 4;
-    pProperties->limits.maxDescriptorSetInputAttachments = caps.max_color_attachments * 4;
+    pProperties->limits.maxDescriptorSetInputAttachments = 8;
     pProperties->limits.maxComputeSharedMemorySize = caps.max_compute_shared_memory_size;
     pProperties->limits.maxComputeWorkGroupCount[0] = caps.max_compute_work_group_count_x;
     pProperties->limits.maxComputeWorkGroupCount[1] = caps.max_compute_work_group_count_y;
@@ -638,9 +641,9 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties_hook(
     pProperties->limits.maxComputeWorkGroupSize[1] = 1024;
     pProperties->limits.maxComputeWorkGroupSize[2] = 64;
     pProperties->limits.subPixelInterpolationOffsetBits = 4;
-    pProperties->limits.sampledImageColorSampleCounts = static_cast<VkSampleCountFlags>(caps.sample_counts);
+    pProperties->limits.sampledImageColorSampleCounts = VK_SAMPLE_COUNT_1_BIT;
     pProperties->limits.sampledImageIntegerSampleCounts = VK_SAMPLE_COUNT_1_BIT;
-    pProperties->limits.storageImageSampleCounts = static_cast<VkSampleCountFlags>(caps.sample_counts);
+    pProperties->limits.storageImageSampleCounts = VK_SAMPLE_COUNT_1_BIT;
     pProperties->limits.maxSampleMaskWords = 1;
     pProperties->limits.timestampComputeAndGraphics = VK_TRUE;
     pProperties->limits.timestampPeriod = caps.timestamp_period;
@@ -852,17 +855,17 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties2_hook(
             auto* drv = reinterpret_cast<VkPhysicalDeviceDriverProperties*>(ext);
             auto& caps = caps::get();
             if (caps.valid()) {
-                strncpy_s(drv->driverName, VK_MAX_DRIVER_NAME_SIZE,
-                          caps.gpu_name.c_str(), _TRUNCATE);
-                strncpy_s(drv->driverInfo, VK_MAX_DRIVER_INFO_SIZE,
-                          ("OmniGPU forwarding to " + caps.gpu_name).c_str(), _TRUNCATE);
+                omni_strncpy(drv->driverName, VK_MAX_DRIVER_NAME_SIZE,
+                          caps.gpu_name.c_str());
+                omni_strncpy(drv->driverInfo, VK_MAX_DRIVER_INFO_SIZE,
+                          ("OmniGPU forwarding to " + caps.gpu_name).c_str());
                 drv->driverID = VK_DRIVER_ID_NVIDIA_PROPRIETARY;
                 drv->conformanceVersion = {1, 3, 6, 0};
             } else {
                 drv->driverID = VK_DRIVER_ID_AMD_PROPRIETARY;
                 drv->conformanceVersion = {1, 3, 0, 0};
-                strncpy_s(drv->driverName, VK_MAX_DRIVER_NAME_SIZE,
-                          "OmniGPU Virtual", _TRUNCATE);
+                omni_strncpy(drv->driverName, VK_MAX_DRIVER_NAME_SIZE,
+                          "OmniGPU Virtual");
             }
             has_driver_props = true;
             SPDLOG_INFO("vkGetPhysicalDeviceProperties2: set driverID={}", static_cast<int>(drv->driverID));
@@ -923,17 +926,7 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties2_hook(
         }
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_PROPERTIES: {
             auto* p14 = reinterpret_cast<VkPhysicalDeviceVulkan14Properties*>(ext);
-            p14->lineSubPixelPrecisionBits = 8;
-            p14->maxVertexAttribDivisor = 0xFFFFFFFF;
-            p14->supportsNonZeroFirstInstance = VK_TRUE;
             p14->maxPushDescriptors = 32;
-            p14->dynamicRenderingLocalReadDepthStencilAttachments = VK_TRUE;
-            p14->dynamicRenderingLocalReadMultisampledAttachments = VK_TRUE;
-            p14->earlyFragmentMultisampleCoverageAfterSampleCounting = VK_TRUE;
-            p14->earlyFragmentSampleMaskTestBeforeSampleCounting = VK_TRUE;
-            p14->depthStencilSwizzleOneSupport = VK_TRUE;
-            p14->polygonModePointSize = VK_TRUE;
-            p14->nonStrictSinglePixelWideLinesUseParallelogram = VK_TRUE;
             break;
         }
         case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR: {
@@ -964,10 +957,10 @@ void VKAPI_PTR vkGetPhysicalDeviceProperties2_hook(
         if (fallback_drv.sType == 0) {
             fallback_drv.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
             fallback_drv.driverID = VK_DRIVER_ID_NVIDIA_PROPRIETARY;
-            strncpy_s(fallback_drv.driverName, VK_MAX_DRIVER_NAME_SIZE,
-                      caps.gpu_name.c_str(), _TRUNCATE);
-            strncpy_s(fallback_drv.driverInfo, VK_MAX_DRIVER_INFO_SIZE,
-                      ("OmniGPU forwarding to " + caps.gpu_name).c_str(), _TRUNCATE);
+            omni_strncpy(fallback_drv.driverName, VK_MAX_DRIVER_NAME_SIZE,
+                      caps.gpu_name.c_str());
+            omni_strncpy(fallback_drv.driverInfo, VK_MAX_DRIVER_INFO_SIZE,
+                      ("OmniGPU forwarding to " + caps.gpu_name).c_str());
             fallback_drv.conformanceVersion = {1, 3, 6, 0};
         }
         fallback_drv.pNext = nullptr;
@@ -988,17 +981,13 @@ void VKAPI_PTR vkGetPhysicalDeviceFeatures_hook(
     pFeatures->shaderFloat64 = VK_TRUE;
     pFeatures->shaderInt64 = VK_TRUE;
     pFeatures->shaderInt16 = VK_TRUE;
-    pFeatures->vertexPipelineStoresAndAtomics = VK_TRUE;
-    pFeatures->fragmentStoresAndAtomics = VK_TRUE;
     pFeatures->shaderStorageImageExtendedFormats = VK_TRUE;
     pFeatures->shaderStorageImageReadWithoutFormat = VK_TRUE;
     pFeatures->shaderStorageImageWriteWithoutFormat = VK_TRUE;
-    pFeatures->multiDrawIndirect = VK_TRUE;
-    pFeatures->drawIndirectFirstInstance = VK_TRUE;
-    pFeatures->pipelineStatisticsQuery = VK_TRUE;
-    pFeatures->occlusionQueryPrecise = VK_TRUE;
 
-    // Rendering features — OFF by default (apps must check before enabling)
+    // Graphics-only features — OFF (OmniGPU forwards compute/AI workloads only).
+    // vertexPipelineStoresAndAtomics, fragmentStoresAndAtomics, multiDrawIndirect,
+    // drawIndirectFirstInstance, pipelineStatisticsQuery, occlusionQueryPrecise,
     // geometryShader, tessellationShader, fillModeNonSolid, samplerAnisotropy,
     // shaderClipDistance, shaderCullDistance, imageCubeArray, independentBlend,
     // depthClamp, largePoints, textureCompressionBC = VK_FALSE
@@ -2851,31 +2840,6 @@ void VKAPI_PTR vkCmdCopyImageToBuffer2_hook(VkCommandBuffer commandBuffer, const
     }
 }
 
-void VKAPI_PTR vkCmdResolveImage2_hook(VkCommandBuffer commandBuffer, const VkResolveImageInfo2* pResolveImageInfo) {
-    SPDLOG_TRACE("Intercepted vkCmdResolveImage2");
-    serializer::VulkanSerializer ser;
-    ser.write_handle((uint64_t)commandBuffer);
-    ser.write_handle(handle_to_u64(pResolveImageInfo->srcImage));
-    ser.write_u32(static_cast<uint32_t>(pResolveImageInfo->srcImageLayout));
-    ser.write_handle(handle_to_u64(pResolveImageInfo->dstImage));
-    ser.write_u32(static_cast<uint32_t>(pResolveImageInfo->dstImageLayout));
-    ser.write_u32(pResolveImageInfo->regionCount);
-    for (uint32_t i = 0; i < pResolveImageInfo->regionCount; i++) {
-        ser.write_raw(&pResolveImageInfo->pRegions[i], sizeof(VkImageResolve2));
-    }
-
-    auto* batch = get_batch();
-    if (batch) {
-        static std::atomic<uint32_t> req_id{0xC5000000};
-        auto builder = protocol::build_command(
-            fbs::FunctionId_vkCmdResolveImage2,
-            req_id.fetch_add(1),
-            ser.data(), ser.size()
-        );
-        batch->append(builder);
-    }
-}
-
 void VKAPI_PTR vkCmdBlitImage2_hook(VkCommandBuffer commandBuffer, const VkBlitImageInfo2* pBlitImageInfo) {
     SPDLOG_TRACE("Intercepted vkCmdBlitImage2");
     serializer::VulkanSerializer ser;
@@ -3028,14 +2992,12 @@ struct ManualHookRegistrar {
         register_manual_hook("vkCmdCopyImage2", reinterpret_cast<void*>(vkCmdCopyImage2_hook));
         register_manual_hook("vkCmdCopyBufferToImage2", reinterpret_cast<void*>(vkCmdCopyBufferToImage2_hook));
         register_manual_hook("vkCmdCopyImageToBuffer2", reinterpret_cast<void*>(vkCmdCopyImageToBuffer2_hook));
-        register_manual_hook("vkCmdResolveImage2", reinterpret_cast<void*>(vkCmdResolveImage2_hook));
         register_manual_hook("vkCmdBlitImage2", reinterpret_cast<void*>(vkCmdBlitImage2_hook));
         register_manual_hook("vkCmdBlitImage2KHR", reinterpret_cast<void*>(vkCmdBlitImage2_hook));
         register_manual_hook("vkCmdCopyBuffer2KHR", reinterpret_cast<void*>(vkCmdCopyBuffer2_hook));
         register_manual_hook("vkCmdCopyImage2KHR", reinterpret_cast<void*>(vkCmdCopyImage2_hook));
         register_manual_hook("vkCmdCopyBufferToImage2KHR", reinterpret_cast<void*>(vkCmdCopyBufferToImage2_hook));
         register_manual_hook("vkCmdCopyImageToBuffer2KHR", reinterpret_cast<void*>(vkCmdCopyImageToBuffer2_hook));
-        register_manual_hook("vkCmdResolveImage2KHR", reinterpret_cast<void*>(vkCmdResolveImage2_hook));
     }
 } s_manual_registrar;
 }

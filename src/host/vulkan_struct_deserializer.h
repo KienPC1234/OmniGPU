@@ -11,7 +11,6 @@ bool read_VkSpecializationInfo(VulkanDeserializer& d, VkSpecializationInfo* out)
 bool read_VkPipelineShaderStageCreateInfo(VulkanDeserializer& d, VkPipelineShaderStageCreateInfo* out);
 bool read_VkComputePipelineCreateInfo(VulkanDeserializer& d, VkComputePipelineCreateInfo* out);
 void free_VkComputePipelineCreateInfo(VkComputePipelineCreateInfo* info);
-
 bool read_VkWriteDescriptorSet(VulkanDeserializer& d, VkWriteDescriptorSet* out,
                                 VkDescriptorImageInfo** outImg, VkDescriptorBufferInfo** outBuf,
                                 VkBufferView** outView);

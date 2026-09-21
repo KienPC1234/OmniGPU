@@ -81,8 +81,8 @@ TEST(ProtocolTest, BuildAndParseBatchMessage) {
 
     std::vector<flatbuffers::Offset<fbs::CommandMessage>> cmd_offsets;
     cmd_offsets.push_back(make_cmd(fbs::FunctionId_vkQueueSubmit, 1, 0x10));
-    cmd_offsets.push_back(make_cmd(fbs::FunctionId_vkCmdDraw, 2, 0x20));
-    cmd_offsets.push_back(make_cmd(fbs::FunctionId_vkQueuePresentKHR, 3, 0x30));
+    cmd_offsets.push_back(make_cmd(fbs::FunctionId_vkCmdDispatch, 2, 0x20));
+    cmd_offsets.push_back(make_cmd(fbs::FunctionId_vkCmdCopyBuffer, 3, 0x30));
 
     auto cmds_vec = fbb.CreateVector(cmd_offsets);
     auto batch = fbs::CreateBatchMessage(fbb, cmds_vec);
@@ -104,8 +104,8 @@ TEST(ProtocolTest, BuildAndParseBatchMessage) {
 
     EXPECT_EQ(cmds->Get(0)->func_id(), fbs::FunctionId_vkQueueSubmit);
     EXPECT_EQ(cmds->Get(0)->request_id(), 1u);
-    EXPECT_EQ(cmds->Get(1)->func_id(), fbs::FunctionId_vkCmdDraw);
-    EXPECT_EQ(cmds->Get(2)->func_id(), fbs::FunctionId_vkQueuePresentKHR);
+    EXPECT_EQ(cmds->Get(1)->func_id(), fbs::FunctionId_vkCmdDispatch);
+    EXPECT_EQ(cmds->Get(2)->func_id(), fbs::FunctionId_vkCmdCopyBuffer);
 }
 
 // ============================================================================

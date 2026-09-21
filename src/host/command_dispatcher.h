@@ -218,7 +218,6 @@ private:
     void* pfnCmdCopyBufferToImage2_ = nullptr;
     void* pfnCmdCopyImageToBuffer2_ = nullptr;
     void* pfnCmdBlitImage2_ = nullptr;
-    void* pfnCmdResolveImage2_ = nullptr;
     void* pfnQueueSubmit2_ = nullptr;
     void* pfnCmdWaitEvents2_ = nullptr;
     void* pfnBindBufferMemory2_ = nullptr;

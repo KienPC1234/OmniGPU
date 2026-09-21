@@ -21,7 +21,9 @@ target_link_libraries(omnigpu_host PRIVATE
 
 if(WIN32)
   target_link_libraries(omnigpu_host PRIVATE ws2_32)
-  target_compile_options(omnigpu_host PRIVATE /EHsc)
+  if(MSVC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_options(omnigpu_host PRIVATE /EHsc)
+  endif()
 endif()
 
 # ---------------------------------------------------------------------------

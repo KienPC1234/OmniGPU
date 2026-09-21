@@ -57,7 +57,6 @@ bool MultiGpuCompute::ensure_device_per_gpu(GpuManager& gpuMgr, ComputeUnit& uni
     features11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
     features11.storageBuffer16BitAccess = VK_TRUE;
     features11.uniformAndStorageBuffer16BitAccess = VK_TRUE;
-    features11.shaderDrawParameters = VK_TRUE;
 
     VkPhysicalDeviceVulkan12Features features12{};
     features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
@@ -72,7 +71,6 @@ bool MultiGpuCompute::ensure_device_per_gpu(GpuManager& gpuMgr, ComputeUnit& uni
     features12.uniformAndStorageBuffer8BitAccess = VK_TRUE;
     features12.shaderSubgroupExtendedTypes = VK_TRUE;
     features12.subgroupBroadcastDynamicId = VK_TRUE;
-    features12.drawIndirectCount = VK_TRUE;
     features12.samplerFilterMinmax = VK_TRUE;
 
     VkPhysicalDeviceVulkan13Features features13{};
