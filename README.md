@@ -1,5 +1,5 @@
 # OmniGPU
-
+Note Dev : vứt hết render 3d thừa thãi đi dồn hết vào tính toán comp và ai à
 **Remote GPU Compute over LAN** — Forward Vulkan compute workloads from a thin client or VM to a remote host GPU over TCP. Compute-first design with rendering as secondary.
 
 ## Vision
